@@ -196,8 +196,8 @@ let DOCS=[],REFS=[];
 function checklist(){
   const have=new Set(DOCS.map(d=>d.type));
   const items=[
-    {ok:!!(ME.field&&ME.methods&&ME.pubs),label:'Academic profile complete',tab:'profile'},
     ...REQUIRED_DOCS.map(t=>({ok:have.has(t),label:t+' uploaded',tab:'docs'})),
+    {ok:!!(ME.field&&ME.methods&&ME.pubs),label:DOCS.length?'Profile extracted, review it once':'Profile (fills itself from your CV upload)',tab:DOCS.length?'profile':'docs'},
     {ok:ME.emailConnected,label:'Your Gmail connected (send and reply detection from your own address)',tab:'profile'},
     {ok:REFS.length>=2,label:'At least two referees added',tab:'refs'}
   ];
@@ -404,45 +404,53 @@ async function openProp(id){
   <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="navigator.clipboard.writeText(document.querySelector('pre.doc').innerText).then(()=>toast('Copied'))">Copy</button>
   <button class="btn b-line" onclick="closeModal()">Close</button></div>`)}catch(e){toast(e.message)}
 }
+let EDIT_PROFILE=false;
+const PROFILE_FIELDS=[['title','Credentials and role'],['field','Research field'],['methods','Methods and techniques'],['pubs','Publications'],['orcid','ORCID'],['links','Academic links'],['prefs','Preferences (countries, funding, couple placement)']];
 function vProfile(){
-  $('view').innerHTML=`<div class="grid2"><div class="card"><h2>Academic profile</h2>
-  <div class="sub">Everything the agent writes is built from these facts and nothing else</div>
-  <label>Full name</label><input id="p-name" value="${esc(ME.name)}">
-  <label>Credentials / role</label><input id="p-title" value="${esc(ME.title||'')}">
-  <label>Research field</label><textarea id="p-field">${esc(ME.field||'')}</textarea>
-  <label>Methods</label><textarea id="p-methods">${esc(ME.methods||'')}</textarea>
-  <label>Publications</label><textarea id="p-pubs">${esc(ME.pubs||'')}</textarea>
-  <label>ORCID</label><input id="p-orcid" value="${esc(ME.orcid||'')}">
-  <label>Links</label><textarea id="p-links" style="min-height:56px">${esc(ME.links||'')}</textarea>
-  <label>Preferences</label><textarea id="p-prefs">${esc(ME.prefs||'')}</textarea>
-  <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save profile</button>
-  <button class="btn b-line" onclick="autofill()">Fill from my documents</button></div></div>
+  const missing=PROFILE_FIELDS.filter(([k])=>!String(ME[k]||'').trim());
+  $('view').innerHTML=`<div class="grid2"><div class="card"><div class="spread"><div><h2>Academic profile</h2>
+  <div class="sub">${missing.length?'Extracted from your documents. '+missing.length+' field(s) still missing, fill them below or upload more documents.':'Extracted from your documents and complete ✓ Everything the agent writes is built from these facts.'}</div></div>
+  <div class="row">${!EDIT_PROFILE?`<button class="btn b-line b-sm" onclick="EDIT_PROFILE=true;render()">Edit</button>`:''}
+  <button class="btn b-line b-sm" onclick="autofill()">Re-read documents</button></div></div>
+  ${EDIT_PROFILE?`
+    <label>Full name</label><input id="p-name" value="${esc(ME.name)}">
+    ${PROFILE_FIELDS.map(([k,l])=>`<label>${l}</label>${k==='title'||k==='orcid'?`<input id="p-${k}" value="${esc(ME[k]||'')}">`:`<textarea id="p-${k}">${esc(ME[k]||'')}</textarea>`}`).join('')}
+    <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save profile</button>
+    <button class="btn b-line" onclick="EDIT_PROFILE=false;render()">Cancel</button></div>`
+  :`
+    ${PROFILE_FIELDS.map(([k,l])=>{
+      const v=String(ME[k]||'').trim();
+      if(v)return `<div class="item"><div class="m" style="font-weight:600;color:var(--slate)">${l}</div><div style="margin-top:3px;white-space:pre-wrap">${esc(v)}</div></div>`;
+      return `<div class="item" style="border-color:var(--gold)"><div class="m" style="font-weight:600;color:#8A6A15">${l} — missing</div>
+      ${k==='title'||k==='orcid'?`<input id="pm-${k}" placeholder="Fill in, or upload a document that contains it">`:`<textarea id="pm-${k}" style="min-height:56px" placeholder="Fill in, or upload a document that contains it"></textarea>`}</div>`;
+    }).join('')}
+    ${missing.length?`<div class="b" style="margin-top:6px"><button class="btn b-ink" onclick="saveMissing()">Save missing fields</button></div>`:''}`}
+  </div>
   <div class="card"><h2>Your email</h2>
-  <div class="sub">${ME.emailConnected?'Connected ✓ Outreach sends from your own Gmail and replies are detected in your own inbox.':'Connect your Gmail so professors receive emails from you, not from a shared address, and replies are detected automatically.'}</div>
+  <div class="sub">${ME.emailMode==='yes'?'Connected fully ✓ Outreach sends from your own Gmail and replies are detected in your inbox.':ME.emailMode==='imap'?'Connected for reading ✓ Your inbox replies are detected. Direct sending from your address is blocked by the hosting network, so outreach goes through the office account with Reply-To set to you.':'Connect your Gmail so professors receive emails from you and replies are detected automatically.'}</div>
   ${ME.emailConnected?`<div class="b"><button class="btn b-red" onclick="disconnectEmail()">Disconnect</button></div>`:`
-  <div class="m" style="margin-bottom:8px">Two minutes, one time: at myaccount.google.com turn on 2-Step Verification, search "App passwords", create one named PostDocX, paste the 16 characters here. It is stored encrypted and never shown to anyone, including the admin.</div>
+  <div class="m" style="margin-bottom:8px">Two minutes, one time: at myaccount.google.com turn ON 2-Step Verification first, then search "App passwords", create one named PostDocX, paste the 16 characters here. Regular Gmail passwords never work. Stored encrypted, never shown to anyone.</div>
   <label>Gmail address</label><input id="em-user" placeholder="you@gmail.com" value="${esc(ME.email)}">
-  <label>App password</label><input id="em-pass" type="password" placeholder="16 characters">
-  <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="connectEmail()">Connect and test</button></div>`}
-  <hr class="sep"><div class="sub">Until you connect, the agent sends from the office address with replies directed to ${esc(ME.email)}.</div></div></div>`;
+  <label>App password (16 characters)</label><input id="em-pass" type="password">
+  <div class="b" style="margin-top:12px"><button class="btn b-ink" id="emBtn" onclick="connectEmail()">Test connection</button></div>`}
+  </div></div>`;
 }
-
-async function autofill(){
-  toast('Reading your documents…');
-  try{
-    const r=await api('/api/profile/autofill',{method:'POST',body:{force:confirm('Overwrite fields that already have text? OK = overwrite, Cancel = fill only empty fields')}});
-    ME=r.user;render();
-    toast(r.filled.length?'Filled: '+r.filled.join(', ')+'. Review and save.':'Nothing new found in the documents.');
-  }catch(e){toast(e.message)}
+async function saveMissing(){
+  const body={};let n=0;
+  PROFILE_FIELDS.forEach(([k])=>{const el=$('pm-'+k);if(el&&el.value.trim()){body[k]=el.value.trim();n++}});
+  if(!n)return toast('Nothing to save yet');
+  try{const d=await api('/api/profile',{method:'PUT',body});ME=d.user;toast('Saved');render()}catch(e){toast(e.message)}
 }
 async function saveProfile(){
-  try{const body={};['name','title','field','methods','pubs','orcid','links','prefs'].forEach(k=>body[k]=$('p-'+k).value.trim());
-  const d=await api('/api/profile',{method:'PUT',body});ME=d.user;toast('Profile saved');shell();render()}catch(e){toast(e.message)}
+  try{const body={name:$('p-name').value.trim()};PROFILE_FIELDS.forEach(([k])=>body[k]=$('p-'+k).value.trim());
+  const d=await api('/api/profile',{method:'PUT',body});ME=d.user;EDIT_PROFILE=false;toast('Profile saved');shell();render()}catch(e){toast(e.message)}
 }
 async function connectEmail(){
-  try{toast('Testing with Gmail…');
-  await api('/api/email-connect',{method:'POST',body:{gmail:$('em-user').value.trim(),appPassword:$('em-pass').value.replace(/\s+/g,'')}});
-  ME.emailConnected=true;toast('Connected ✓');render()}catch(e){toast(e.message)}
+  const btn=$('emBtn');btn.disabled=true;btn.textContent='Testing with Gmail (up to 30s)…';
+  try{
+    const d=await api('/api/email-connect',{method:'POST',body:{gmail:$('em-user').value.trim(),appPassword:$('em-pass').value}});
+    ME.emailConnected=true;ME.emailMode=d.mode;toast(d.message||'Connected ✓');render();
+  }catch(e){toast(e.message);btn.disabled=false;btn.textContent='Test connection';}
 }
 async function disconnectEmail(){try{await api('/api/email-disconnect',{method:'POST'});ME.emailConnected=false;render()}catch(e){toast(e.message)}}
 function vAdmin(){
