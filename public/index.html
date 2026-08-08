@@ -157,7 +157,7 @@ function regSave(){
 }
 
 /* ================= app shell ================= */
-const TABS=[['dash','Dashboard'],['opps','Opportunities'],['couple','Couple'],['outbox','Outbox'],['docs','Documents'],['refs','Referees'],['props','Proposals'],['profile','Profile']];
+const TABS=[['dash','Dashboard'],['cases','Cases'],['opps','Opportunities'],['couple','Couple'],['outbox','Outbox'],['docs','Documents'],['refs','Referees'],['props','Proposals'],['profile','Profile']];
 function shell(){
   const isAdmin=ME&&ME.role==='admin';
   const tabs=[...TABS,...(isAdmin?[['admin','Admin']]:[])];
@@ -186,7 +186,7 @@ async function refresh(){
 function render(){
   if(!ME)return;
   TABS.concat([['admin','Admin']]).forEach(([id])=>{const b=$('nb-'+id);if(b)b.className=id===TAB?'on':''});
-  const V={dash:vDash,opps:vOpps,couple:vCouple,outbox:vOutbox,docs:vDocs,refs:vRefs,props:vProps,profile:vProfile,admin:vAdmin};
+  const V={dash:vDash,cases:vCases,opps:vOpps,couple:vCouple,outbox:vOutbox,docs:vDocs,refs:vRefs,props:vProps,profile:vProfile,admin:vAdmin};
   (V[TAB]||vDash)();
 }
 
@@ -206,11 +206,16 @@ function checklist(){
 }
 
 /* ================= views ================= */
+function pendingN(out){return out.filter(m=>m.status==='PENDING').length}
 function vDash(){
   const o=B?B.opportunities:[],out=B?B.outbox:[];
   const verified=o.filter(x=>x.status==='VERIFIED'),high=o.filter(x=>(+x.matchScore||0)>=80&&x.status!=='EXPIRED');
   const sent=out.filter(m=>m.status==='SENT'),replied=out.filter(m=>m.replied==='yes'),pending=out.filter(m=>m.status==='PENDING');
-  const rail=[['Discover',o.length],['Verify',verified.length],['Match',high.length],['Engage',sent.length],['Reply',replied.length]];
+  const cases=B&&B.cases?B.cases:[];
+  const readyCases=cases.filter(c=>c.stage==='Email prepared'||c.stage==='Awaiting approval');
+  const activeCases=cases.filter(c=>c.status==='ACTIVE');
+  const coupleN=o.filter(x=>x.coupleKey).length;
+  const rail=[['Discover',o.length],['Verify',verified.length],['Cases',activeCases.length],['Ready',readyCases.length+pendingN(out)],['Sent',sent.length],['Replies',replied.length],['Couple',coupleN]];
   const dls=o.filter(x=>x.deadline&&daysLeft(x.deadline)>=0).sort((a,b)=>a.deadline<b.deadline?-1:1).slice(0,6);
   const cl=checklist();
   $('view').innerHTML=`
@@ -235,6 +240,36 @@ function vDash(){
 async function loadSide(){try{DOCS=(await api('/api/documents')).documents;REFS=(await api('/api/referees')).referees;if(TAB==='dash')renderChecklistOnly();}catch(e){}}
 function renderChecklistOnly(){/* checklist card refreshes on next render; keep light */}
 
+
+const CASE_STAGES=['Discovered','Verified','Email prepared','Awaiting approval','Sent','Replied','In conversation','Interview','Closed'];
+function vCases(){
+  const cases=(B&&B.cases?B.cases:[]).sort((a,b)=>(b.updatedOn||'')<(a.updatedOn||'')?-1:1);
+  const opps=B?B.opportunities:[];
+  const threads=B&&B.threads?B.threads:[];
+  $('view').innerHTML=`<div class="card"><h2>Cases</h2>
+  <div class="sub">Every strong verified match becomes a case automatically and moves through the pipeline. You only step in where the timeline says so.</div>
+  ${cases.length?cases.map(c=>{
+    const o=opps.find(x=>x.id===c.oppId)||{};
+    const idx=Math.max(0,CASE_STAGES.indexOf(c.stage));
+    const th=threads.filter(t=>t.oppId===c.oppId);
+    return `<div class="item">
+    <div class="spread"><div style="min-width:0"><div class="t"><span class="mono" style="color:var(--gold)">${esc(c.caseNo)}</span> ${esc(o.title||'')}</div>
+    <div class="m">${esc(o.institution||'')}${o.pi?' · PI: '+esc(o.pi):''}${o.country?' · '+esc(o.country):''}</div></div>
+    ${scoreChip(c.matchScore)}</div>
+    <div class="rail" style="margin-top:8px">${CASE_STAGES.map((st,i)=>`<div class="st ${i<=idx?'hot':''}" style="min-width:72px"><div class="l" style="margin-top:0">${st}</div><div class="dot"></div></div>`).join('')}</div>
+    ${c.nextAction?`<div class="m" style="margin-top:8px"><b>Next:</b> ${esc(c.nextAction)}</div>`:''}
+    ${c.outcome?`<div class="m" style="margin-top:4px;color:var(--crimson)">Outcome: ${esc(c.outcome)}</div>`:''}
+    ${th.length?`<div class="m" style="margin-top:6px"><b>Latest from supervisor</b> (${esc(th[th.length-1].intent||'')}): ${esc((th[th.length-1].body||'').slice(0,180))}…</div>`:''}
+    <div class="b">
+    ${o.deadline?dlChip(o.deadline):''}
+    <button class="btn b-line b-sm" onclick="gen('cv','${c.oppId}')">Tailored CV</button>
+    <button class="btn b-line b-sm" onclick="gen('proposal','${c.oppId}')">Concept note</button>
+    <button class="btn b-line b-sm" onclick="gen('interview','${c.oppId}')">Interview brief</button>
+    ${c.coupleKey?`<button class="btn b-line b-sm" onclick="gen('dossier','${c.oppId}')">Two-body dossier</button>`:''}
+    ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">source ↗</a>`:''}
+    </div></div>`}).join(''):'<div class="empty">No cases yet. When the agent verifies an 80+ match, a case opens here automatically and starts moving.</div>'}</div>`;
+}
+
 function oppRow(o){
   return `<div class="item"><div class="spread"><div style="min-width:0"><div class="t">${esc(o.title)}</div>
   <div class="m">${esc(o.institution)}${o.country?' · '+esc(o.country):''}${o.pi?' · PI: '+esc(o.pi):''}</div></div>${scoreChip(o.matchScore)}</div>
@@ -242,6 +277,7 @@ function oppRow(o){
   ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">source ↗</a>`:''}
   ${o.coupleKey?'<span class="chip c-gold">couple</span>':''}</div>
   <div class="b">
+  <button class="btn b-line b-sm" onclick="gen('cv','${o.id}')">Tailored CV</button>
   <button class="btn b-line b-sm" onclick="gen('proposal','${o.id}')">Concept note</button>
   <button class="btn b-line b-sm" onclick="gen('interview','${o.id}')">Interview brief</button>
   ${o.coupleKey?`<button class="btn b-line b-sm" onclick="gen('dossier','${o.id}')">Two-body dossier</button>`:''}
@@ -272,7 +308,10 @@ function vCouple(){
   </div>`).join(''):'<div class="empty">No couple scenarios yet. They are searched every morning when both partners are linked.</div>'}</div>`;
 }
 function outRow(m){
-  return `<div class="item"><div class="spread"><div style="min-width:0"><div class="t">${esc(m.subject)}</div>
+  const th=(B&&B.threads?B.threads:[]).filter(t=>t.outboxId===m.id||((m.type==='reply')&&t.oppId===m.oppId));
+  const lastTh=th[th.length-1];
+  return `<div class="item">${m.type==='reply'&&lastTh?`<div class="m" style="margin-bottom:8px;padding:9px 11px;background:var(--soft);border-radius:8px"><b>${esc(lastTh.fromEmail)} wrote</b> (${esc(lastTh.intent||'')}): ${esc((lastTh.body||'').slice(0,300))}${(lastTh.body||'').length>300?'…':''}</div>`:''}
+  <div class="spread"><div style="min-width:0"><div class="t">${esc(m.subject)}</div>
   <div class="m">To ${esc(m.toName)} &lt;${esc(m.toEmail||'no address yet')}&gt; · ${esc(m.type)}${m.sentOn?' · sent '+esc(m.sentOn):''}${m.replied==='yes'?' · <b class="done">replied ✓</b>':''}</div></div>${stChip(m.status)}</div>
   <div class="b">
   <button class="btn b-line b-sm" onclick="modal('<h3>${esc(m.subject).replace(/'/g,'&#39;')}</h3><pre class=doc>${esc(m.body).replace(/'/g,'&#39;')}</pre><div class=b style=margin-top:12px><button class=\\'btn b-line\\' onclick=closeModal()>Close</button></div>')">Read</button>
