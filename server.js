@@ -8,7 +8,7 @@ const multer = require('multer');
 const db = require('./lib/sheets');
 const gdrive = require('./lib/drive');
 const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = require('./lib/crypt');
-const { testCreds } = require('./lib/mailer');
+const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
 const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV } = require('./lib/agent');
@@ -56,7 +56,8 @@ function adminOnly(req, res, next) {
 async function getUser(id) { return (await db.all('Users')).find(u => u.id === id); }
 function publicUser(u) {
   const { passHash, encPass, _row, ...rest } = u;
-  rest.emailConnected = u.emailConnected === 'yes';
+  rest.emailConnected = u.emailConnected === 'yes' || u.emailConnected === 'imap';
+  rest.emailMode = u.emailConnected || 'no';
   return rest;
 }
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -116,15 +117,25 @@ app.post('/api/email-connect', auth, async (req, res) => {
   try {
     const { gmail, appPassword } = req.body || {};
     if (!gmail || !appPassword) return res.status(400).json({ error: 'Gmail address and app password are required' });
-    const ok = await testCreds({ user: gmail, pass: appPassword });
-    if (!ok) return res.status(400).json({ error: 'Gmail rejected these credentials. Check the app password (16 characters) and that 2-Step Verification is on.' });
+    const pass = String(appPassword).replace(/\s+/g, '');
+    if (pass.length !== 16) return res.status(400).json({ error: 'A Gmail app password is exactly 16 characters. Copy it again from myaccount.google.com → App passwords.' });
+    const t = await testEmailCreds({ user: gmail, pass });
+    if (!t.smtp && !t.imap) {
+      const authFail = /auth|credential|password|535|Invalid/i.test(t.smtpError + t.imapError);
+      return res.status(400).json({ error: authFail
+        ? 'Gmail rejected the sign-in. Check: the app password is copied exactly (16 characters), the Gmail address is right, and 2-Step Verification is ON for that account. Regular account passwords never work here.'
+        : 'This server could not reach Gmail at all (network blocked or timeout). Try again in a minute; if it persists, your hosting plan may block mail ports. Technical detail: ' + (t.smtpError || t.imapError) });
+    }
+    const mode = t.smtp ? 'yes' : 'imap';
     const u = await getUser(req.userId);
     u._row.set('smtpEmail', gmail);
-    u._row.set('encPass', encrypt(appPassword));
-    u._row.set('emailConnected', 'yes');
+    u._row.set('encPass', encrypt(pass));
+    u._row.set('emailConnected', mode);
     await u._row.save();
-    await db.log('EMAIL_CONNECTED', u.name + ' -> ' + gmail);
-    res.json({ ok: true });
+    await db.log('EMAIL_CONNECTED', u.name + ' -> ' + gmail + ' (' + mode + ')');
+    res.json({ ok: true, mode, message: t.smtp
+      ? 'Connected fully. Outreach sends from your own Gmail and replies are detected in your inbox.'
+      : 'Connected for reading: your inbox replies will be detected. Sending from your address is blocked by the hosting network (' + t.smtpError.slice(0, 80) + '), so outreach goes through the office account with Reply-To set to you. Upgrading the Railway plan usually unblocks direct sending.' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/email-disconnect', auth, async (req, res) => {
@@ -346,8 +357,13 @@ app.get('/health', (_req, res) => res.json({ ok: true, mode: cfg().autoSend ? 'a
 app.get('/run', (req, res) => { if (!keyGuard(req, res)) return; res.send('Cycle started'); runCycle().catch(console.error); });
 
 /* ================= static frontend ================= */
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, fp) => { if (fp.endsWith('.html')) res.set('Cache-Control', 'no-store'); }
+}));
+app.get('*', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 /* ================= cron ================= */
 const TZ = process.env.TZ_NAME || 'Asia/Karachi';
