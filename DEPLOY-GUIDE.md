@@ -4,8 +4,8 @@ v2 is a complete two-sided system in ONE Railway deployment: open your Railway U
 
 **For you and Sehrish, the flow is:**
 1. Open the Railway URL → Create your account (the FIRST account registered becomes admin, so register yourself first)
-2. Registration asks everything once: identity, credentials, field, methods, publications, ORCID, preferences
-3. The dashboard checklist then walks each of you through: upload CV, degrees, transcripts, publication PDFs, passport (real file uploads, stored privately in Drive, streamed only to the owner) → connect your own Gmail (app password, encrypted with APP_SECRET, tested live before saving, never shown to anyone including admin) → add referees
+2. Registration is 30 seconds: name, email, password, phone. Nothing else.
+3. Upload your CV first: PostDocX reads it (PDF, Word or image) and fills your whole academic profile automatically: title, field, methods, publications, ORCID, links. Review it once in Profile, adjust anything, save. Then the checklist walks you through the remaining documents: degrees, transcripts, publication PDFs, passport (real file uploads, stored privately in Drive, streamed only to the owner) → connect your own Gmail (app password, encrypted with APP_SECRET, tested live before saving, never shown to anyone including admin) → add referees
 4. As admin, open Admin → Link a couple → select both accounts. Couple co-location search starts the next morning
 5. From then on: every morning the agent searches, verifies and drafts. Each of you approves or rejects your own emails inside the app (Outbox tab), reads concept notes and interview briefings (Proposals tab), and watches the pipeline update
 

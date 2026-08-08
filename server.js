@@ -9,6 +9,8 @@ const db = require('./lib/sheets');
 const gdrive = require('./lib/drive');
 const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = require('./lib/crypt');
 const { testCreds } = require('./lib/mailer');
+const mammoth = require('mammoth');
+const { claude, parseJSON } = require('./lib/anthropic');
 const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests } = require('./lib/agent');
 
 const app = express();
@@ -178,6 +180,57 @@ app.delete('/api/documents/:id', auth, async (req, res) => {
   if (d.driveId) await gdrive.remove(d.driveId);
   await d._row.delete();
   res.json({ ok: true });
+});
+
+
+/* ---- autofill profile from uploaded documents ---- */
+async function extractProfile(userId) {
+  const docs = (await db.all('Documents')).filter(d => d.resId === userId && d.driveId);
+  if (!docs.length) throw new Error('Upload your CV first, then the profile can fill itself.');
+  // Prefer CV, then research statement, then anything else. Up to 3 files, ~9 MB budget.
+  const order = t => /cv/i.test(t) ? 0 : /statement/i.test(t) ? 1 : /publication/i.test(t) ? 2 : 3;
+  const picked = docs.sort((a, b) => order(a.type) - order(b.type)).slice(0, 3);
+  const blocks = [];
+  let budget = 9 * 1024 * 1024;
+  for (const d of picked) {
+    try {
+      const buf = await gdrive.getBuffer(d.driveId);
+      if (buf.length > budget) continue;
+      budget -= buf.length;
+      if (d.mime === 'application/pdf') {
+        blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } });
+      } else if (/wordprocessingml|msword/.test(d.mime)) {
+        const r = await mammoth.extractRawText({ buffer: buf });
+        if (r.value) blocks.push({ type: 'text', text: 'Content of ' + d.type + ' (' + d.name + '):\n' + r.value.slice(0, 30000) });
+      } else if (/^image\//.test(d.mime)) {
+        blocks.push({ type: 'image', source: { type: 'base64', media_type: d.mime, data: buf.toString('base64') } });
+      }
+    } catch (e) { /* skip unreadable file */ }
+  }
+  if (!blocks.length) throw new Error('Could not read the uploaded files.');
+  blocks.push({ type: 'text', text:
+`Extract this researcher's academic profile from the document(s) above. Use ONLY what is actually written there, never invent or embellish. Respond ONLY with JSON:
+{"title":"credentials and current role in one line","field":"research field and identity, 2-3 sentences","methods":"all methods and technical skills found, comma separated","pubs":"key publications: title, journal, year, role; one per line","orcid":"ORCID id if present else empty","links":"Scholar/ResearchGate/LinkedIn URLs found, else empty","phone":"phone if present else empty","nationality":"if stated else empty","prefs":""}` });
+  const txt = await claude(blocks, { search: false, maxTokens: 1800 });
+  return parseJSON(txt);
+}
+
+app.post('/api/profile/autofill', auth, async (req, res) => {
+  try {
+    const v = await extractProfile(req.userId);
+    const u = await getUser(req.userId);
+    const fields = ['title', 'field', 'methods', 'pubs', 'orcid', 'links', 'phone', 'nationality'];
+    const force = !!(req.body || {}).force;
+    const filled = [];
+    for (const k of fields) {
+      const val = String(v[k] || '').trim();
+      if (!val) continue;
+      if (force || !String(u[k] || '').trim()) { u._row.set(k, val.slice(0, 2000)); filled.push(k); }
+    }
+    if (filled.length) await u._row.save();
+    await db.log('AUTOFILL', u.name + ': ' + (filled.join(', ') || 'nothing new'));
+    res.json({ ok: true, filled, user: publicUser(await getUser(req.userId)) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 /* ================= REFEREES ================= */
