@@ -1,3 +1,26 @@
+# PostDocX v2 — What changed
+
+v2 is a complete two-sided system in ONE Railway deployment: open your Railway URL in any browser and you get the full portal. No separate frontend hosting.
+
+**For you and Sehrish, the flow is:**
+1. Open the Railway URL → Create your account (the FIRST account registered becomes admin, so register yourself first)
+2. Registration asks everything once: identity, credentials, field, methods, publications, ORCID, preferences
+3. The dashboard checklist then walks each of you through: upload CV, degrees, transcripts, publication PDFs, passport (real file uploads, stored privately in Drive, streamed only to the owner) → connect your own Gmail (app password, encrypted with APP_SECRET, tested live before saving, never shown to anyone including admin) → add referees
+4. As admin, open Admin → Link a couple → select both accounts. Couple co-location search starts the next morning
+5. From then on: every morning the agent searches, verifies and drafts. Each of you approves or rejects your own emails inside the app (Outbox tab), reads concept notes and interview briefings (Proposals tab), and watches the pipeline update
+
+**New setup steps beyond v1 (5 minutes):**
+- In console.cloud.google.com, also enable the **Google Drive API** for your project (same place you enabled Sheets API)
+- In your Google Drive, create a folder named PostDocX-Documents, share it with the service account email as **Editor**, copy the folder ID from the URL → set `DRIVE_FOLDER_ID`
+- Add `APP_SECRET` variable: any long random text, different from APPROVE_KEY. Changing it later logs everyone out and invalidates stored email passwords, so set it once and keep it
+- Push all files to GitHub as before → Railway redeploys → open the URL → register
+
+**Email sending logic per user:** once a researcher connects their own Gmail, all their outreach sends from their own address and replies are detected in their own inbox. Until then, mail goes out through the office GMAIL_USER account with Reply-To set to the researcher, so professors still reply directly to the right person.
+
+**Verified before shipping:** all files pass syntax checks; password hashing (scrypt), session tokens (HMAC, tamper-rejected) and credential encryption (AES-256-GCM) pass unit tests; server boots serving the portal at /; every /api route returns 401 without a valid session; admin routes additionally require the admin role; uploads limited to PDF/Word/images, 15 MB.
+
+---
+
 # PostDocX Backend — Easy Deployment Guide (Railway)
 
 The same pattern as Zainab: Node.js on Railway + Google Sheets. About 30 minutes, one time.
