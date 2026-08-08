@@ -11,7 +11,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV } = require('./lib/agent');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -258,8 +258,8 @@ app.get('/api/bundle', auth, async (req, res) => {
   try {
     const me = await getUser(req.userId);
     const strip = a => a.map(({ _row, ...o }) => o);
-    const [opps, outbox, proposals, users] = await Promise.all([
-      db.all('Opportunities'), db.all('Outbox'), db.all('Proposals'), db.all('Users')
+    const [opps, outbox, proposals, users, cases, threads] = await Promise.all([
+      db.all('Opportunities'), db.all('Outbox'), db.all('Proposals'), db.all('Users'), db.all('Cases'), db.all('Threads')
     ]);
     const mineOpp = opps.filter(o => o.resId === req.userId);
     const coupleKeys = new Set(mineOpp.filter(o => o.coupleKey).map(o => o.coupleKey));
@@ -270,7 +270,9 @@ app.get('/api/bundle', auth, async (req, res) => {
       opportunities: strip(mineOpp),
       coupleOpportunities: strip(partnerOpp),
       outbox: strip(outbox.filter(m => m.resId === req.userId)),
-      proposals: strip(proposals.filter(p => p.resId === req.userId)).map(p => ({ id: p.id, title: p.title, status: p.status, createdOn: p.createdOn }))
+      proposals: strip(proposals.filter(p => p.resId === req.userId)).map(p => ({ id: p.id, title: p.title, status: p.status, createdOn: p.createdOn })),
+      cases: strip(cases.filter(cse => cse.resId === req.userId)),
+      threads: strip(threads.filter(t => t.resId === req.userId)).map(t => ({ id: t.id, oppId: t.oppId, outboxId: t.outboxId, fromEmail: t.fromEmail, subject: t.subject, body: t.body, intent: t.intent, receivedOn: t.receivedOn }))
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -299,7 +301,7 @@ app.post('/api/generate/:kind/:oppId', auth, async (req, res) => {
   const { kind, oppId } = req.params;
   const opp = (await db.all('Opportunities')).find(o => o.id === oppId);
   if (!opp || opp.resId !== req.userId) return res.status(404).json({ error: 'Opportunity not found' });
-  const fns = { proposal: draftProposal, interview: interviewBrief, dossier: coupleDossier };
+  const fns = { proposal: draftProposal, interview: interviewBrief, dossier: coupleDossier, cv: tailoredCV };
   if (!fns[kind]) return res.status(400).json({ error: 'Unknown generator' });
   res.json({ ok: true, message: 'Writing now. It will appear under Proposals and in your email in 1 to 3 minutes.' });
   fns[kind](oppId).catch(e => console.error(kind, e.message));

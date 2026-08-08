@@ -1,3 +1,14 @@
+# PostDocX v2.1 — Autonomous conversation
+
+Approval and auto mode now cover the FULL conversation, not just first contact:
+
+- The agent reads the actual body of every professor reply from the connected inbox, classifies the intent (positive interest, information request, proposal request, no funding, rejection, interview, offer, administrative) and drafts the correct contextual response: answering their questions, attaching the CV if they asked for documents, proposing call times, suggesting a fellowship route when they have no funding, or a gracious one-line thank-you on rejection.
+- **Approval mode**: every response waits in your Outbox with the professor's message shown above your drafted reply, one tap to approve.
+- **Auto mode** (`SEND_MODE=auto`): routine responses send themselves, capped by `MAX_REPLIES_PER_DAY` (default 10). 
+- **Hard safety gate in BOTH modes**: interview invitations, offers, and anything involving commitments always come to you personally, the agent drafts the confirmation but never finalizes. It also auto-generates your interview briefing the moment an interview signal is detected and flags it URGENT in the daily report.
+- Every strong verified match (80+) automatically becomes a **Case** (PDX-001, PDX-002…) with a visible stage timeline: Discovered → Verified → Email prepared → Awaiting approval → Sent → Replied → In conversation → Interview → Closed. The Cases tab shows exactly what the system has done, what is happening, and the one thing that needs you.
+- **Tailored CV** button on every case and opportunity: writes an opportunity-specific CV from your master CV (master stays untouched, nothing is ever invented), emailed to you and saved under Proposals.
+
 # PostDocX v2 — What changed
 
 v2 is a complete two-sided system in ONE Railway deployment: open your Railway URL in any browser and you get the full portal. No separate frontend hosting.
