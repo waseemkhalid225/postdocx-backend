@@ -157,7 +157,7 @@ function regSave(){
 }
 
 /* ================= app shell ================= */
-const TABS=[['dash','Dashboard'],['cases','Cases'],['opps','Opportunities'],['couple','Couple'],['outbox','Outbox'],['docs','Documents'],['refs','Referees'],['props','Proposals'],['profile','Profile']];
+const TABS=[['dash','Dashboard'],['cases','Cases'],['opps','Opportunities'],['couple','Couple'],['activity','Activity'],['profile','Profile']];
 function shell(){
   const isAdmin=ME&&ME.role==='admin';
   const tabs=[...TABS,...(isAdmin?[['admin','Admin']]:[])];
@@ -186,7 +186,7 @@ async function refresh(){
 function render(){
   if(!ME)return;
   TABS.concat([['admin','Admin']]).forEach(([id])=>{const b=$('nb-'+id);if(b)b.className=id===TAB?'on':''});
-  const V={dash:vDash,cases:vCases,opps:vOpps,couple:vCouple,outbox:vOutbox,docs:vDocs,refs:vRefs,props:vProps,profile:vProfile,admin:vAdmin};
+  const V={dash:vDash,cases:vCases,opps:vOpps,couple:vCouple,activity:vActivity,profile:vProfilePage,outbox:vActivity,docs:vProfilePage,refs:vProfilePage,props:vActivity,admin:vAdmin};
   (V[TAB]||vDash)();
 }
 
@@ -196,10 +196,10 @@ let DOCS=[],REFS=[];
 function checklist(){
   const have=new Set(DOCS.map(d=>d.type));
   const items=[
-    ...REQUIRED_DOCS.map(t=>({ok:have.has(t),label:t+' uploaded',tab:'docs'})),
-    {ok:!!(ME.field&&ME.methods&&ME.pubs),label:DOCS.length?'Profile extracted, review it once':'Profile (fills itself from your CV upload)',tab:DOCS.length?'profile':'docs'},
-    {ok:ME.emailConnected,label:'Your Gmail connected (send and reply detection from your own address)',tab:'profile'},
-    {ok:REFS.length>=2,label:'At least two referees added',tab:'refs'}
+    ...REQUIRED_DOCS.map(t=>({ok:have.has(t),label:t+' uploaded',tab:'profile'})),
+    {ok:!!(ME.field&&ME.methods&&ME.pubs),label:DOCS.length?'Profile extracted, review it once':'Profile (fills itself from your CV upload)',tab:'profile'},
+    {ok:ME.emailConnected,label:'Your Gmail connected',tab:'profile'},
+    {ok:REFS.length>=2,label:'At least two referees added (you can add more)',tab:'profile'}
   ];
   const done=items.filter(i=>i.ok).length;
   return {items,done,total:items.length,pct:Math.round(100*done/items.length)};
@@ -219,11 +219,8 @@ function vDash(){
   const dls=o.filter(x=>x.deadline&&daysLeft(x.deadline)>=0).sort((a,b)=>a.deadline<b.deadline?-1:1).slice(0,6);
   const cl=checklist();
   $('view').innerHTML=`
-  ${cl.pct<100?`<div class="card"><div class="spread"><div><h2>Finish your setup, ${esc(ME.name.split(' ')[0])}</h2>
-  <div class="sub">${cl.done} of ${cl.total} done. The agent works best with everything in place.</div></div>
-  <span class="chip ${cl.pct>=70?'c-gold':'c-red'}">${cl.pct}% ready</span></div>
-  <div class="checklist">${cl.items.filter(i=>!i.ok).slice(0,4).map(i=>`<div class="item spread"><span>${esc(i.label)}</span>
-  <button class="btn b-line b-sm" onclick="go('${i.tab}')">Do it</button></div>`).join('')}</div></div>`:''}
+  ${cl.pct<100?`<div class="card" style="padding:12px 16px"><div class="spread"><div class="m">Setup ${cl.pct}% done. Everything happens in one place: upload documents and the rest fills itself.</div>
+  <button class="btn b-gold b-sm" onclick="go('profile')">Open Profile</button></div></div>`:''}
   <div class="card"><div class="spread"><div><h2>Your pipeline</h2><div class="sub">${B&&B.partner?'Couple-linked with '+esc(B.partner.name)+' · ':''}The agent runs every morning and evening</div></div></div>
   <div class="rail">${rail.map(([l,n])=>`<div class="st ${n>0?'hot':''}"><div class="n">${n}</div><div class="l">${l}</div><div class="dot"></div></div>`).join('')}</div></div>
   ${pending.length?`<div class="card"><h2>Waiting for your approval</h2><div class="sub">These emails will not send until you approve them</div>
@@ -237,8 +234,14 @@ function vDash(){
   </div>`;
   loadSide();
 }
-async function loadSide(){try{DOCS=(await api('/api/documents')).documents;REFS=(await api('/api/referees')).referees;if(TAB==='dash')renderChecklistOnly();}catch(e){}}
-function renderChecklistOnly(){/* checklist card refreshes on next render; keep light */}
+let SIDE_SIG='';
+async function loadSide(){
+  try{
+    DOCS=(await api('/api/documents')).documents;REFS=(await api('/api/referees')).referees;
+    const sig=DOCS.length+':'+REFS.length;
+    if(sig!==SIDE_SIG){SIDE_SIG=sig;if(TAB==='dash')render();}
+  }catch(e){}
+}
 
 
 const CASE_STAGES=['Discovered','Verified','Email prepared','Awaiting approval','Sent','Replied','In conversation','Interview','Closed'];
@@ -246,8 +249,10 @@ function vCases(){
   const cases=(B&&B.cases?B.cases:[]).sort((a,b)=>(b.updatedOn||'')<(a.updatedOn||'')?-1:1);
   const opps=B?B.opportunities:[];
   const threads=B&&B.threads?B.threads:[];
-  $('view').innerHTML=`<div class="card"><h2>Cases</h2>
-  <div class="sub">Every strong verified match becomes a case automatically and moves through the pipeline. You only step in where the timeline says so.</div>
+  $('view').innerHTML=`<div class="card"><div class="spread"><div><h2>Cases</h2>
+  <div class="sub">Every strong verified match becomes a case automatically and moves through the pipeline. You only step in where the timeline says so.</div></div>
+  <div class="row"><button class="btn b-line b-sm" onclick="refresh().then(()=>toast('Up to date'))">Check for updates</button>
+  ${ME.role==='admin'?`<button class="btn b-gold b-sm" onclick="adminRun()">Run agent now</button>`:''}</div></div>
   ${cases.length?cases.map(c=>{
     const o=opps.find(x=>x.id===c.oppId)||{};
     const idx=Math.max(0,CASE_STAGES.indexOf(c.stage));
@@ -267,7 +272,7 @@ function vCases(){
     <button class="btn b-line b-sm" onclick="gen('interview','${c.oppId}')">Interview brief</button>
     ${c.coupleKey?`<button class="btn b-line b-sm" onclick="gen('dossier','${c.oppId}')">Two-body dossier</button>`:''}
     ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">source ↗</a>`:''}
-    </div></div>`}).join(''):'<div class="empty">No cases yet. When the agent verifies an 80+ match, a case opens here automatically and starts moving.</div>'}</div>`;
+    </div></div>`}).join(''):`<div class="empty">No cases yet. Cases open automatically when the agent finds AND verifies a match scoring 80+, which happens during the morning and evening cycles.${ME.role==='admin'?' Tap Run agent now to start a cycle immediately, the first one takes about 2 to 3 minutes.':''}</div>`}</div>`;
 }
 
 function oppRow(o){
@@ -315,12 +320,49 @@ function outRow(m){
   <div class="m">To ${esc(m.toName)} &lt;${esc(m.toEmail||'no address yet')}&gt; · ${esc(m.type)}${m.sentOn?' · sent '+esc(m.sentOn):''}${m.replied==='yes'?' · <b class="done">replied ✓</b>':''}</div></div>${stChip(m.status)}</div>
   <div class="b">
   <button class="btn b-line b-sm" onclick="modal('<h3>${esc(m.subject).replace(/'/g,'&#39;')}</h3><pre class=doc>${esc(m.body).replace(/'/g,'&#39;')}</pre><div class=b style=margin-top:12px><button class=\\'btn b-line\\' onclick=closeModal()>Close</button></div>')">Read</button>
-  ${m.status==='PENDING'?`<button class="btn b-green b-sm" onclick="act('${m.id}','approve')">Approve, send it</button>
+  ${m.status==='PENDING'?`<button class="btn b-line b-sm" onclick="editDraft('${m.id}')">Edit</button>
+  <button class="btn b-green b-sm" onclick="act('${m.id}','approve')">Approve, send it</button>
   <button class="btn b-red b-sm" onclick="act('${m.id}','reject')">Reject</button>`:''}
   </div></div>`;
 }
+
+function editDraft(id){
+  const m=(B?B.outbox:[]).find(x=>x.id===id);if(!m)return;
+  modal(`<h3>Edit before sending</h3><div class="sub">To ${esc(m.toName)}. Your edits teach the agent what good looks like, the first few matter most.</div>
+  <label>Subject</label><input id="ed-subj" value="${esc(m.subject)}">
+  <label>Message</label><textarea id="ed-body" style="min-height:240px">${esc(m.body)}</textarea>
+  <div class="b" style="margin-top:14px">
+  <button class="btn b-green" onclick="saveDraft('${id}',true)">Save and approve</button>
+  <button class="btn b-ink" onclick="saveDraft('${id}',false)">Save only</button>
+  <button class="btn b-line" onclick="closeModal()">Cancel</button></div>`);
+}
+async function saveDraft(id,approve){
+  try{
+    await api('/api/outbox/'+id,{method:'PUT',body:{subject:$('ed-subj').value,body:$('ed-body').value}});
+    if(approve){await api('/api/outbox/'+id+'/approve',{method:'POST'});toast('Saved and approved, sends within the next cycle');}
+    else toast('Draft saved');
+    closeModal();await refresh();
+  }catch(e){toast(e.message)}
+}
 async function act(id,action){
   try{await api('/api/outbox/'+id+'/'+action,{method:'POST'});toast(action==='approve'?'Approved. It sends within the next cycle.':'Rejected, it will not send.');await refresh()}catch(e){toast(e.message)}
+}
+
+function vActivity(){
+  const out=B?B.outbox:[],props=B?B.proposals:[],threads=B&&B.threads?B.threads:[];
+  const pending=out.filter(m=>m.status==='PENDING');
+  const sent=out.filter(m=>m.status==='SENT').sort((a,b)=>(b.sentOn||'')<(a.sentOn||'')?-1:1);
+  $('view').innerHTML=`
+  <div class="card"><h2>Needs your approval</h2>
+  <div class="sub">${pending.length?'One tap each. Nothing sends without you.':'Nothing waiting. The agent queues every email here before it can send (unless auto mode is on).'}</div>
+  ${pending.map(outRow).join('')}</div>
+  <div class="card"><h2>Conversations</h2>
+  <div class="sub">What the agent has sent and what supervisors wrote back</div>
+  ${sent.length?sent.slice(0,15).map(outRow).join(''):'<div class="empty">No emails sent yet.</div>'}</div>
+  <div class="card"><h2>Created for you</h2>
+  <div class="sub">Concept notes, tailored CVs, interview briefings and dossiers. Read, edit, make them yours.</div>
+  ${props.length?props.map(x=>`<div class="item spread"><div><div class="t">${esc(x.title)}</div><div class="m">${esc(x.createdOn)} · ${esc(x.status)}</div></div>
+  <button class="btn b-line b-sm" onclick="openProp('${x.id}')">Read</button></div>`).join(''):'<div class="empty">Nothing generated yet. Open a case and tap Concept note, Tailored CV or Interview brief.</div>'}</div>`;
 }
 function vOutbox(){
   const out=B?B.outbox:[];
@@ -332,38 +374,38 @@ function vOutbox(){
   ${!out.length?'<div class="empty">No correspondence yet. When the agent verifies a strong match it drafts the first email and asks you here.</div>':''}</div>`;
 }
 const DOC_TYPES=['CV','Research statement','Degree certificates','Transcripts','Publication PDFs','Reference letters','Passport / ID','Cover letter template','Certificates (awards, training)','Other'];
-function vDocs(){
+function vDocs(host){
   api('/api/documents').then(d=>{DOCS=d.documents;
   const have=new Set(DOCS.map(x=>x.type));
   const missing=REQUIRED_DOCS.filter(t=>!have.has(t));
-  $('view').innerHTML=`<div class="card"><h2>Your documents</h2>
-  <div class="sub">${missing.length?'Still needed: '+missing.join(', '):'Everything an application needs is on file ✓'} Files are stored privately, streamed only to you, and attached to outreach when you mark them.</div>
+  (host||document.getElementById('pseg')||$('view')).innerHTML=`<div class="card"><h2>Your documents</h2>
+  <div class="sub">Drop everything at once: CV, degrees, transcripts, theses, publications, passport. PostDocX detects what each file is, reads them, and builds your research profile by itself.</div>
+  ${missing.length?`<div class="m" style="margin-bottom:10px;color:#8A6A15"><b>Still useful to add:</b> ${missing.join(', ')}</div>`:'<div class="m" style="margin-bottom:10px;color:var(--green)"><b>Everything an application needs is on file ✓</b></div>'}
+  <label>Select multiple files (PDF, Word or images, up to 12 at once)</label>
+  <input id="up-file" type="file" multiple accept=".pdf,.doc,.docx,.png,.jpg,.jpeg">
+  <div class="b" style="margin-top:12px"><button class="btn b-ink" id="upBtn" onclick="upload()">Upload all</button></div>
+  <hr class="sep">
   ${DOCS.length?DOCS.map(x=>`<div class="item spread"><div><div class="t">${esc(x.type)}${x.name?': '+esc(x.name):''}</div>
   <div class="m">${esc(x.updatedOn)} · ${Math.round((+x.size||0)/1024)} KB ${x.attach==='yes'?'· attaches to outreach':''}</div></div>
   <div class="row"><a class="btn b-line b-sm" href="#" onclick="dlDoc('${x.id}');return false">View</a>
-  <button class="btn b-red b-sm" onclick="delDoc('${x.id}')">Remove</button></div></div>`).join(''):'<div class="empty">Start with your CV. The moment it uploads, PostDocX reads it and fills your academic profile automatically.</div>'}
-  <hr class="sep"><b style="font-size:13px">Upload a document</b>
-  <label>Type</label><select id="up-type">${DOC_TYPES.map(t=>`<option>${t}</option>`).join('')}</select>
-  <label>Label (version note)</label><input id="up-name" placeholder="e.g. CV academic v6, March 2026">
-  <label>File (PDF, Word or image, up to 15 MB)</label><input id="up-file" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg">
-  <label>Attach to outreach emails? (recommended for CV)</label>
-  <select id="up-attach"><option value="no">No</option><option value="yes">Yes, attach</option></select>
-  <div class="b" style="margin-top:14px"><button class="btn b-ink" id="upBtn" onclick="upload()">Upload</button></div></div>`;
+  <button class="btn b-red b-sm" onclick="delDoc('${x.id}')">Remove</button></div></div>`).join(''):'<div class="empty">Nothing uploaded yet. Start with your CV, the profile fills itself the moment it lands.</div>'}
+  </div>`;
   }).catch(e=>toast(e.message));
 }
 async function upload(){
-  const f=$('up-file').files[0];if(!f)return toast('Choose a file first');
-  const fd=new FormData();fd.append('file',f);fd.append('type',$('up-type').value);fd.append('name',$('up-name').value);fd.append('attach',$('up-attach').value);
-  $('upBtn').disabled=true;toast('Uploading '+f.name+'…');
+  const files=$('up-file').files;if(!files.length)return toast('Choose one or more files first');
+  const fd=new FormData();for(const f of files)fd.append('files',f);
+  $('upBtn').disabled=true;toast('Uploading '+files.length+' file(s)…');
   try{
-    await api('/api/documents',{method:'POST',body:fd});
-    toast('Uploaded ✓ Reading it now…');
+    const r=await api('/api/documents',{method:'POST',body:fd});
+    const ok=r.results.filter(x=>!x.error),bad=r.results.filter(x=>x.error);
+    toast(ok.length+' uploaded'+(bad.length?', '+bad.length+' failed: '+bad[0].error:'')+'. Reading them now…');
     vDocs();
     try{
-      const r=await api('/api/profile/autofill',{method:'POST',body:{}});
-      ME=r.user;
-      if(r.filled&&r.filled.length)toast('Profile filled from your documents ('+r.filled.join(', ')+'). Review it in Profile.');
-    }catch(e){/* autofill is best-effort */}
+      const a=await api('/api/profile/autofill',{method:'POST',body:{}});
+      ME=a.user;
+      if(a.filled&&a.filled.length)toast('Research profile updated from your documents ('+a.filled.join(', ')+').');
+    }catch(e){}
   }catch(e){toast(e.message)}
   $('upBtn').disabled=false;
 }
@@ -374,9 +416,9 @@ async function dlDoc(id){
 }
 async function delDoc(id){if(!confirm('Remove this document?'))return;
   try{await api('/api/documents/'+id,{method:'DELETE'});vDocs()}catch(e){toast(e.message)}}
-function vRefs(){
+function vRefs(host){
   api('/api/referees').then(d=>{REFS=d.referees;
-  $('view').innerHTML=`<div class="card"><div class="spread"><div><h2>Referees</h2>
+  (host||document.getElementById('pseg')||$('view')).innerHTML=`<div class="card"><div class="spread"><div><h2>Referees</h2>
   <div class="sub">The agent reminds you to chase them when any deadline is within 12 days, and can draft warm request emails for your approval.</div></div>
   ${REFS.some(r=>r.status!=='confirmed')?`<button class="btn b-gold" onclick="reqRefs()">Draft request emails</button>`:''}</div>
   ${REFS.length?REFS.map(r=>`<div class="item spread"><div><div class="t">${esc(r.name)}</div>
@@ -404,11 +446,19 @@ async function openProp(id){
   <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="navigator.clipboard.writeText(document.querySelector('pre.doc').innerText).then(()=>toast('Copied'))">Copy</button>
   <button class="btn b-line" onclick="closeModal()">Close</button></div>`)}catch(e){toast(e.message)}
 }
+
+let PSEG='profile';
+function vProfilePage(){
+  const segs=[['profile','Profile'],['docs','Documents'],['refs','Referees']];
+  $('view').innerHTML=`<div class="row" style="margin-bottom:12px">${segs.map(([k,l])=>`<button class="btn ${PSEG===k?'b-ink':'b-line'} b-sm" onclick="PSEG='${k}';render()">${l}</button>`).join('')}</div><div id="pseg"></div>`;
+  const host=$('pseg');
+  if(PSEG==='docs')vDocs(host);else if(PSEG==='refs')vRefs(host);else vProfile(host);
+}
 let EDIT_PROFILE=false;
 const PROFILE_FIELDS=[['title','Credentials and role'],['field','Research field'],['methods','Methods and techniques'],['pubs','Publications'],['orcid','ORCID'],['links','Academic links'],['prefs','Preferences (countries, funding, couple placement)']];
-function vProfile(){
+function vProfile(host){
   const missing=PROFILE_FIELDS.filter(([k])=>!String(ME[k]||'').trim());
-  $('view').innerHTML=`<div class="grid2"><div class="card"><div class="spread"><div><h2>Academic profile</h2>
+  (host||$('view')).innerHTML=`<div class="grid2"><div class="card"><div class="spread"><div><h2>Academic profile</h2>
   <div class="sub">${missing.length?'Extracted from your documents. '+missing.length+' field(s) still missing, fill them below or upload more documents.':'Extracted from your documents and complete ✓ Everything the agent writes is built from these facts.'}</div></div>
   <div class="row">${!EDIT_PROFILE?`<button class="btn b-line b-sm" onclick="EDIT_PROFILE=true;render()">Edit</button>`:''}
   <button class="btn b-line b-sm" onclick="autofill()">Re-read documents</button></div></div>
@@ -458,7 +508,10 @@ function vAdmin(){
   const users=d.users;
   $('view').innerHTML=`<div class="card"><div class="spread"><div><h2>Admin</h2><div class="sub">${users.length} registered researchers</div></div>
   <div class="row"><button class="btn b-gold" onclick="adminRun()">Run full cycle now</button>
-  <button class="btn b-line" onclick="adminWeekly()">Weekly review now</button></div></div>
+  <button class="btn b-line" onclick="adminWeekly()">Weekly review now</button>
+  <button class="btn b-line" onclick="diag()">Diagnose system</button>
+  <button class="btn b-line" onclick="backup()">Back up Sheet now</button></div></div>
+  <div id="diagBox"></div>
   ${users.map(u=>`<div class="item spread"><div><div class="t">${esc(u.name)} ${u.role==='admin'?'<span class="chip c-gold">admin</span>':''}</div>
   <div class="m">${esc(u.email)} · ${u.emailConnected?'email connected ✓':'email not connected'}${u.partnerId?' · couple-linked':''}</div></div></div>`).join('')}
   <hr class="sep"><b style="font-size:13px">Link a couple</b>
@@ -468,6 +521,20 @@ function vAdmin(){
   <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="linkCouple()">Link as couple</button>
   <button class="btn b-line" onclick="unlinkCouple()">Unlink A</button></div></div>`;
   }).catch(e=>toast(e.message));
+}
+
+async function backup(){try{const d=await api('/api/admin/backup',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}}
+async function diag(){
+  const box=$('diagBox');box.innerHTML='<div class="empty">Running checks against Google Sheets, Drive, Gmail and the Claude API…</div>';
+  try{
+    const d=await api('/api/admin/diag');
+    const row=(label,r)=>`<div class="item spread"><div><div class="t">${label}</div><div class="m">${esc(r.note||'')}</div></div><span class="chip ${r.ok?'c-green':'c-red'}">${r.ok?'OK':'FIX'}</span></div>`;
+    box.innerHTML=row('Google Sheets (database)',d.sheets)
+      +(d.drive&&d.drive.auth?row('Google Drive (documents), authentication',d.drive.auth):'')
+      +(d.drive&&d.drive.folder?row('Google Drive, PostDocX folder',d.drive.folder):'')
+      +row('Office Gmail',d.gmail)
+      +row('Claude API key',d.anthropic);
+  }catch(e){box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
 }
 async function linkCouple(){try{await api('/api/admin/link-couple',{method:'POST',body:{a:$('cp-a').value,b:$('cp-b').value}});toast('Couple linked, co-location search starts next cycle');vAdmin()}catch(e){toast(e.message)}}
 async function unlinkCouple(){try{await api('/api/admin/unlink-couple',{method:'POST',body:{a:$('cp-a').value}});toast('Unlinked');vAdmin()}catch(e){toast(e.message)}}
