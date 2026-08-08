@@ -123,52 +123,36 @@ function renderAuth(mode){
   <div class="logo">PostDoc<span class="x">X</span></div>
   <div class="tag">Your academic career office. It searches, verifies and writes while you sleep.</div>
   <div class="card" id="authCard"></div></div></div>`;
-  if(mode==='reg')regStep(1);else loginForm();
+  if(mode==='reg')regStep();else loginForm();
 }
 function loginForm(){
   $('authCard').innerHTML=`<h2>Sign in</h2><div class="sub">Welcome back</div>
   <label>Email</label><input id="li-email" type="email" autocomplete="email">
   <label>Password</label><input id="li-pass" type="password" autocomplete="current-password">
   <div class="row" style="margin-top:16px"><button class="btn b-ink" style="flex:1" onclick="doLogin()">Sign in</button></div>
-  <div class="sub" style="margin-top:14px;text-align:center">New researcher? <a href="#" onclick="regStep(1);return false">Create your account</a></div>`;
+  <div class="sub" style="margin-top:14px;text-align:center">New researcher? <a href="#" onclick="regStep();return false">Create your account</a></div>`;
   $('li-pass').onkeydown=e=>{if(e.key==='Enter')doLogin()};
 }
 async function doLogin(){
   try{const d=await api('/api/login',{method:'POST',body:{email:$('li-email').value.trim(),password:$('li-pass').value}});
   TOKEN=d.token;localStorage.setItem('pdx_token',TOKEN);ME=d.user;boot();}catch(e){toast(e.message)}
 }
-function steps(n){return `<div class="steps">${[1,2,3].map(i=>`<i class="${i<=n?'on':''}"></i>`).join('')}</div>`}
-function regStep(n){
-  if(n===1)$('authCard').innerHTML=`${steps(1)}<h2>Create your account</h2><div class="sub">Step 1 of 3, the basics</div>
+function regStep(){
+  $('authCard').innerHTML=`<h2>Create your account</h2><div class="sub">Just the basics. Everything else fills itself from your CV after you upload it.</div>
   <label>Full name (as used on publications)</label><input id="r-name" value="${esc(REG.name||'')}">
-  <label>Email (your sign-in and correspondence address)</label><input id="r-email" type="email" value="${esc(REG.email||'')}">
+  <label>Email</label><input id="r-email" type="email" value="${esc(REG.email||'')}">
   <label>Password (8+ characters)</label><input id="r-pass" type="password">
-  <label>Phone (optional, for application forms)</label><input id="r-phone" value="${esc(REG.phone||'')}">
-  <label>Nationality</label><input id="r-nat" value="${esc(REG.nationality||'Pakistani')}">
-  <div class="row" style="margin-top:16px"><button class="btn b-ink" style="flex:1" onclick="regSave(1)">Continue</button></div>
+  <label>Phone (optional)</label><input id="r-phone" value="${esc(REG.phone||'')}">
+  <div class="row" style="margin-top:16px"><button class="btn b-ink" style="flex:1" onclick="regSave()">Create account</button></div>
   <div class="sub" style="margin-top:14px;text-align:center">Already registered? <a href="#" onclick="loginForm();return false">Sign in</a></div>`;
-  if(n===2)$('authCard').innerHTML=`${steps(2)}<h2>Your academic identity</h2><div class="sub">Step 2 of 3. Write it once, properly: every search, email and proposal is built from this.</div>
-  <label>Credentials and current role</label><input id="r-title" placeholder="e.g. PhD Pharmacology, Director of Pharmacy Services" value="${esc(REG.title||'')}">
-  <label>Research field and identity</label><textarea id="r-field" placeholder="Your core research lines, models, translational goals">${esc(REG.field||'')}</textarea>
-  <label>Methods and technical skills</label><textarea id="r-methods" placeholder="Every method you can honestly claim: lab, computational, clinical, regulatory">${esc(REG.methods||'')}</textarea>
-  <label>Key publications (title, journal, year, your role)</label><textarea id="r-pubs">${esc(REG.pubs||'')}</textarea>
-  <label>ORCID</label><input id="r-orcid" placeholder="0000-0000-0000-0000" value="${esc(REG.orcid||'')}">
-  <label>Profile links (Scholar, ResearchGate, LinkedIn)</label><textarea id="r-links" style="min-height:56px">${esc(REG.links||'')}</textarea>
-  <label>Preferences (countries, funding modes, salary, relocation, couple placement)</label><textarea id="r-prefs">${esc(REG.prefs||'')}</textarea>
-  <div class="row" style="margin-top:16px"><button class="btn b-line" onclick="regStep(1)">Back</button>
-  <button class="btn b-ink" style="flex:1" onclick="regSave(2)">Create account</button></div>`;
 }
-function regSave(n){
-  if(n===1){REG.name=$('r-name').value.trim();REG.email=$('r-email').value.trim();REG.password=$('r-pass').value;REG.phone=$('r-phone').value.trim();REG.nationality=$('r-nat').value.trim();
-    if(!REG.name||!REG.email||!REG.password)return toast('Name, email and password are required');
-    if(REG.password.length<8)return toast('Password must be at least 8 characters');
-    regStep(2);return;}
-  REG.title=$('r-title').value.trim();REG.field=$('r-field').value.trim();REG.methods=$('r-methods').value.trim();
-  REG.pubs=$('r-pubs').value.trim();REG.orcid=$('r-orcid').value.trim();REG.links=$('r-links').value.trim();REG.prefs=$('r-prefs').value.trim();
-  if(!REG.field||!REG.methods)return toast('Field and methods are required, the agent matches on them');
+function regSave(){
+  REG.name=$('r-name').value.trim();REG.email=$('r-email').value.trim();REG.password=$('r-pass').value;REG.phone=$('r-phone').value.trim();
+  if(!REG.name||!REG.email||!REG.password)return toast('Name, email and password are required');
+  if(REG.password.length<8)return toast('Password must be at least 8 characters');
   api('/api/register',{method:'POST',body:REG}).then(d=>{
     TOKEN=d.token;localStorage.setItem('pdx_token',TOKEN);ME=d.user;
-    toast('Welcome, '+ME.name.split(' ')[0]+'. Two things left: documents and email.');boot('onboard');
+    toast('Welcome, '+ME.name.split(' ')[0]+'. Now upload your CV and watch the profile fill itself.');boot('onboard');
   }).catch(e=>toast(e.message));
 }
 
@@ -318,7 +302,7 @@ function vDocs(){
   ${DOCS.length?DOCS.map(x=>`<div class="item spread"><div><div class="t">${esc(x.type)}${x.name?': '+esc(x.name):''}</div>
   <div class="m">${esc(x.updatedOn)} · ${Math.round((+x.size||0)/1024)} KB ${x.attach==='yes'?'· attaches to outreach':''}</div></div>
   <div class="row"><a class="btn b-line b-sm" href="#" onclick="dlDoc('${x.id}');return false">View</a>
-  <button class="btn b-red b-sm" onclick="delDoc('${x.id}')">Remove</button></div></div>`).join(''):'<div class="empty">Nothing uploaded yet. Start with your CV.</div>'}
+  <button class="btn b-red b-sm" onclick="delDoc('${x.id}')">Remove</button></div></div>`).join(''):'<div class="empty">Start with your CV. The moment it uploads, PostDocX reads it and fills your academic profile automatically.</div>'}
   <hr class="sep"><b style="font-size:13px">Upload a document</b>
   <label>Type</label><select id="up-type">${DOC_TYPES.map(t=>`<option>${t}</option>`).join('')}</select>
   <label>Label (version note)</label><input id="up-name" placeholder="e.g. CV academic v6, March 2026">
@@ -332,7 +316,16 @@ async function upload(){
   const f=$('up-file').files[0];if(!f)return toast('Choose a file first');
   const fd=new FormData();fd.append('file',f);fd.append('type',$('up-type').value);fd.append('name',$('up-name').value);fd.append('attach',$('up-attach').value);
   $('upBtn').disabled=true;toast('Uploading '+f.name+'…');
-  try{await api('/api/documents',{method:'POST',body:fd});toast('Uploaded ✓');vDocs()}catch(e){toast(e.message)}
+  try{
+    await api('/api/documents',{method:'POST',body:fd});
+    toast('Uploaded ✓ Reading it now…');
+    vDocs();
+    try{
+      const r=await api('/api/profile/autofill',{method:'POST',body:{}});
+      ME=r.user;
+      if(r.filled&&r.filled.length)toast('Profile filled from your documents ('+r.filled.join(', ')+'). Review it in Profile.');
+    }catch(e){/* autofill is best-effort */}
+  }catch(e){toast(e.message)}
   $('upBtn').disabled=false;
 }
 async function dlDoc(id){
@@ -383,7 +376,8 @@ function vProfile(){
   <label>ORCID</label><input id="p-orcid" value="${esc(ME.orcid||'')}">
   <label>Links</label><textarea id="p-links" style="min-height:56px">${esc(ME.links||'')}</textarea>
   <label>Preferences</label><textarea id="p-prefs">${esc(ME.prefs||'')}</textarea>
-  <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save profile</button></div></div>
+  <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save profile</button>
+  <button class="btn b-line" onclick="autofill()">Fill from my documents</button></div></div>
   <div class="card"><h2>Your email</h2>
   <div class="sub">${ME.emailConnected?'Connected ✓ Outreach sends from your own Gmail and replies are detected in your own inbox.':'Connect your Gmail so professors receive emails from you, not from a shared address, and replies are detected automatically.'}</div>
   ${ME.emailConnected?`<div class="b"><button class="btn b-red" onclick="disconnectEmail()">Disconnect</button></div>`:`
@@ -392,6 +386,15 @@ function vProfile(){
   <label>App password</label><input id="em-pass" type="password" placeholder="16 characters">
   <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="connectEmail()">Connect and test</button></div>`}
   <hr class="sep"><div class="sub">Until you connect, the agent sends from the office address with replies directed to ${esc(ME.email)}.</div></div></div>`;
+}
+
+async function autofill(){
+  toast('Reading your documents…');
+  try{
+    const r=await api('/api/profile/autofill',{method:'POST',body:{force:confirm('Overwrite fields that already have text? OK = overwrite, Cancel = fill only empty fields')}});
+    ME=r.user;render();
+    toast(r.filled.length?'Filled: '+r.filled.join(', ')+'. Review and save.':'Nothing new found in the documents.');
+  }catch(e){toast(e.message)}
 }
 async function saveProfile(){
   try{const body={};['name','title','field','methods','pubs','orcid','links','prefs'].forEach(k=>body[k]=$('p-'+k).value.trim());
