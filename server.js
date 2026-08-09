@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const multer = require('multer');
 const db = require('./lib/sheets');
 const gdrive = require('./lib/drive');
+const storage = require('./lib/storage');
 const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = require('./lib/crypt');
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
@@ -177,7 +178,7 @@ app.post('/api/documents', auth, upload.array('files', 12), async (req, res) => 
       const stamp = today().replace(/-/g, '');
       const fname = `${u.name.replace(/\s+/g, '_')}_${type.replace(/[^A-Za-z]/g, '')}_${stamp}_${file.originalname}`.slice(0, 120);
       try {
-        const f = await gdrive.uploadBuffer(fname, file.mimetype, file.buffer);
+        const f = await storage.put(fname, file.mimetype, file.buffer);
         const attach = (!cvAttached && type === 'CV') ? 'yes' : 'no';
         if (attach === 'yes') cvAttached = true;
         await db.add('Documents', {
@@ -203,7 +204,7 @@ app.get('/api/documents/:id/download', auth, async (req, res) => {
     const d = (await db.all('Documents')).find(x => x.id === req.params.id);
     if (!d || d.resId !== req.userId) return res.status(404).send('Not found');
     if (!d.driveId) return res.status(404).send('No file stored');
-    const buf = await gdrive.getBuffer(d.driveId);
+    const buf = storage.isStorageId(d.driveId) ? await storage.get(d.driveId) : await gdrive.getBuffer(d.driveId);
     res.set('Content-Type', d.mime || 'application/octet-stream');
     res.set('Content-Disposition', 'inline; filename="' + (d.name || 'document').replace(/"/g, '') + '"');
     res.send(buf);
@@ -213,7 +214,7 @@ app.get('/api/documents/:id/download', auth, async (req, res) => {
 app.delete('/api/documents/:id', auth, async (req, res) => {
   const d = (await db.all('Documents')).find(x => x.id === req.params.id);
   if (!d || d.resId !== req.userId) return res.status(404).json({ error: 'Not found' });
-  if (d.driveId) await gdrive.remove(d.driveId);
+  if (d.driveId) { if (storage.isStorageId(d.driveId)) await storage.remove(d.driveId); else await gdrive.remove(d.driveId); }
   await d._row.delete();
   db.bust('Documents');
   res.json({ ok: true });
@@ -231,7 +232,7 @@ async function extractProfile(userId) {
   let budget = 9 * 1024 * 1024;
   for (const d of picked) {
     try {
-      const buf = await gdrive.getBuffer(d.driveId);
+      const buf = storage.isStorageId(d.driveId) ? await storage.get(d.driveId) : await gdrive.getBuffer(d.driveId);
       if (buf.length > budget) continue;
       budget -= buf.length;
       if (d.mime === 'application/pdf') {
@@ -429,6 +430,7 @@ app.get('/api/admin/diag', auth, adminOnly, async (req, res) => {
   const out = { sheets: { ok: false, note: '' }, drive: null, gmail: { ok: false, note: '' }, anthropic: { ok: false, note: '' } };
   try { await db.connect(); out.sheets = { ok: true, note: 'Google Sheet connected, all tabs present' }; }
   catch (e) { out.sheets = { ok: false, note: 'Sheets failed: ' + String(e.message).slice(0, 160) }; }
+  try { out.storage = await storage.probe(); } catch (e) { out.storage = { ok: false, note: String(e.message).slice(0, 200) }; }
   try { out.drive = await gdrive.probe(); } catch (e) { out.drive = { token: { ok: false, note: String(e.message).slice(0, 200) } }; }
   if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     const t = await testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
