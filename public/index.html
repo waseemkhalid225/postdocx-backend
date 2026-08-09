@@ -102,6 +102,9 @@ function stChip(s){const map={'VERIFIED':'c-green','NEEDS_VERIFICATION':'c-gold'
 function closeModal(){$('ovl').classList.remove('open')}
 function modal(html){$('modal').innerHTML=html;$('ovl').classList.add('open')}
 
+const CATS=[['national_job','National Jobs'],['remote_job','Remote Jobs'],['international_job','International Jobs']];
+const catLabel=c=>((CATS.find(x=>x[0]===c)||[])[1])||'International Jobs';
+const oppCat=o=>o.category||'international_job';
 let TOKEN=localStorage.getItem('pdx_token')||'';
 let ME=null, B=null, TAB='dash';
 
@@ -143,6 +146,8 @@ function regStep(){
   <label>Email</label><input id="r-email" type="email" value="${esc(REG.email||'')}">
   <label>Password (8+ characters)</label><input id="r-pass" type="password">
   <label>Phone (optional)</label><input id="r-phone" value="${esc(REG.phone||'')}">
+  <label>What opportunities are you interested in? (choose one or more)</label>
+  ${CATS.map(([k,l])=>`<div class="row" style="margin:4px 0"><input type="checkbox" id="jp-${k}" style="width:auto" ${k==='international_job'?'checked':''}><span>${l}</span></div>`).join('')}
   <div class="row" style="margin-top:16px"><button class="btn b-ink" style="flex:1" onclick="regSave()">Create account</button></div>
   <div class="sub" style="margin-top:14px;text-align:center">Already registered? <a href="#" onclick="loginForm();return false">Sign in</a></div>`;
 }
@@ -150,6 +155,8 @@ function regSave(){
   REG.name=$('r-name').value.trim();REG.email=$('r-email').value.trim();REG.password=$('r-pass').value;REG.phone=$('r-phone').value.trim();
   if(!REG.name||!REG.email||!REG.password)return toast('Name, email and password are required');
   if(REG.password.length<8)return toast('Password must be at least 8 characters');
+  REG.jobPrefs=CATS.filter(([k])=>$('jp-'+k).checked).map(([k])=>k);
+  if(!REG.jobPrefs.length)return toast('Pick at least one opportunity type');
   api('/api/register',{method:'POST',body:REG}).then(d=>{
     TOKEN=d.token;localStorage.setItem('pdx_token',TOKEN);ME=d.user;
     toast('Welcome, '+ME.name.split(' ')[0]+'. Now upload your CV and watch the profile fill itself.');boot('onboard');
@@ -222,7 +229,8 @@ function vDash(){
   ${cl.pct<100?`<div class="card" style="padding:12px 16px"><div class="spread"><div class="m">Setup ${cl.pct}% done. Everything happens in one place: upload documents and the rest fills itself.</div>
   <button class="btn b-gold b-sm" onclick="go('profile')">Open Profile</button></div></div>`:''}
   <div class="card"><div class="spread"><div><h2>Your pipeline</h2><div class="sub">${B&&B.partner?'Couple-linked with '+esc(B.partner.name)+' · ':''}The agent runs every morning and evening</div></div></div>
-  <div class="rail">${rail.map(([l,n])=>`<div class="st ${n>0?'hot':''}"><div class="n">${n}</div><div class="l">${l}</div><div class="dot"></div></div>`).join('')}</div></div>
+  <div class="rail">${rail.map(([l,n])=>`<div class="st ${n>0?'hot':''}"><div class="n">${n}</div><div class="l">${l}</div><div class="dot"></div></div>`).join('')}</div>
+  <div class="b" style="margin-top:10px">${(ME.jobPrefs||'international_job').split(',').filter(Boolean).map(k=>`<span class="chip c-gray" style="cursor:pointer" onclick="OPPFILTER='${k}';go('opps')">${catLabel(k)}: <b class="mono">&nbsp;${o.filter(x=>oppCat(x)===k).length}</b></span>`).join('')}</div></div>
   ${pending.length?`<div class="card"><h2>Waiting for your approval</h2><div class="sub">These emails will not send until you approve them</div>
   ${pending.slice(0,3).map(outRow).join('')}
   ${pending.length>3?`<button class="btn b-line b-sm" onclick="go('outbox')">See all ${pending.length}</button>`:''}</div>`:''}
@@ -278,7 +286,7 @@ function vCases(){
 function oppRow(o){
   return `<div class="item"><div class="spread"><div style="min-width:0"><div class="t">${esc(o.title)}</div>
   <div class="m">${esc(o.institution)}${o.country?' · '+esc(o.country):''}${o.pi?' · PI: '+esc(o.pi):''}</div></div>${scoreChip(o.matchScore)}</div>
-  <div class="b">${stChip(o.status)}<span class="chip c-gray">${esc(o.funding||'Funding TBC')}</span>${dlChip(o.deadline)}
+  <div class="b">${stChip(o.status)}<span class="chip c-blue">${catLabel(oppCat(o))}</span>${o.level?`<span class="chip c-gold">${esc(o.level)}</span>`:''}${o.compensation?`<span class="chip c-green">${esc(o.compensation)}</span>`:''}<span class="chip c-gray">${esc(o.funding||'Funding TBC')}</span>${dlChip(o.deadline)}
   ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">source ↗</a>`:''}
   ${o.coupleKey?'<span class="chip c-gold">couple</span>':''}</div>
   <div class="b">
@@ -292,11 +300,14 @@ function oppRow(o){
 async function gen(kind,id){
   try{const d=await api('/api/generate/'+kind+'/'+id,{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
 }
+let OPPFILTER='all';
 function vOpps(){
-  const o=(B?B.opportunities:[]).sort((a,b)=>(+b.matchScore||0)-(+a.matchScore||0));
+  const all=(B?B.opportunities:[]).sort((a,b)=>(+b.matchScore||0)-(+a.matchScore||0));
+  const o=OPPFILTER==='all'?all:all.filter(x=>oppCat(x)===OPPFILTER);
   $('view').innerHTML=`<div class="card"><div class="spread"><div><h2>Opportunities</h2>
   <div class="sub">${o.length} found for you. Every item is verified against its original institutional source before any contact.</div></div>
   <button class="btn b-line" onclick="refresh()">Refresh</button></div>
+  <div class="row" style="margin-bottom:10px">${[['all','All'],...CATS].map(([k,l])=>`<button class="btn ${OPPFILTER===k?'b-ink':'b-line'} b-sm" onclick="OPPFILTER='${k}';render()">${l}</button>`).join('')}</div>
   ${o.length?o.map(oppRow).join(''):'<div class="empty">The agent has not found anything yet. New discoveries land every morning at 6 AM, evenings pick up approvals and replies.</div>'}</div>`;
 }
 function vCouple(){
@@ -344,12 +355,21 @@ async function saveDraft(id,approve){
     closeModal();await refresh();
   }catch(e){toast(e.message)}
 }
+async function toggleTask(id){
+  try{const d=await api('/api/tasks/'+id+'/toggle',{method:'POST'});
+  const t=(B.tasks||[]).find(x=>x.id===id);if(t)t.status=d.status;render();}catch(e){toast(e.message)}
+}
 async function act(id,action){
   try{await api('/api/outbox/'+id+'/'+action,{method:'POST'});toast(action==='approve'?'Approved. It sends within the next cycle.':'Rejected, it will not send.');await refresh()}catch(e){toast(e.message)}
 }
 
+let TASKFILTER='all';
 function vActivity(){
   const out=B?B.outbox:[],props=B?B.proposals:[],threads=B&&B.threads?B.threads:[];
+  const tasksAll=B&&B.tasks?B.tasks:[];
+  const tasks=TASKFILTER==='all'?tasksAll:tasksAll.filter(t=>(t.category||'international_job')===TASKFILTER);
+  const opps=B?B.opportunities:[];
+  const byOpp={};tasks.forEach(t=>{(byOpp[t.oppId]=byOpp[t.oppId]||[]).push(t)});
   const pending=out.filter(m=>m.status==='PENDING');
   const sent=out.filter(m=>m.status==='SENT').sort((a,b)=>(b.sentOn||'')<(a.sentOn||'')?-1:1);
   $('view').innerHTML=`
@@ -359,6 +379,17 @@ function vActivity(){
   <div class="card"><h2>Conversations</h2>
   <div class="sub">What the agent has sent and what supervisors wrote back</div>
   ${sent.length?sent.slice(0,15).map(outRow).join(''):'<div class="empty">No emails sent yet.</div>'}</div>
+  <div class="card"><h2>My tasks</h2>
+  <div class="sub">Every step recorded individually, grouped by its opportunity</div>
+  <div class="row" style="margin-bottom:10px">${[['all','All'],['national_job','National'],['remote_job','Remote'],['international_job','International']].map(([k,l])=>`<button class="btn ${TASKFILTER===k?'b-ink':'b-line'} b-sm" onclick="TASKFILTER='${k}';render()">${l}</button>`).join('')}</div>
+  ${Object.keys(byOpp).length?Object.keys(byOpp).map(oid=>{
+    const o=opps.find(x=>x.id===oid)||{};
+    return `<div class="item"><div class="t">${esc(o.title||'Opportunity')}<span class="chip c-blue" style="margin-left:8px">${catLabel(oppCat(o))}</span></div>
+    <div class="m">${esc(o.institution||'')}</div>
+    ${byOpp[oid].map(t=>`<div class="row" style="margin-top:7px;cursor:pointer" onclick="toggleTask('${t.id}')">
+    <span class="chip ${t.status==='Done'?'c-green':'c-gray'}" style="min-width:22px;justify-content:center">${t.status==='Done'?'✓':'○'}</span>
+    <span style="${t.status==='Done'?'color:var(--slate)':''}">${esc(t.title)}</span></div>`).join('')}
+    </div>`}).join(''):'<div class="empty">Tasks appear here automatically when a case opens, each opportunity keeps its own checklist.</div>'}</div>
   <div class="card"><h2>Created for you</h2>
   <div class="sub">Concept notes, tailored CVs, interview briefings and dossiers. Read, edit, make them yours.</div>
   ${props.length?props.map(x=>`<div class="item spread"><div><div class="t">${esc(x.title)}</div><div class="m">${esc(x.createdOn)} · ${esc(x.status)}</div></div>
@@ -476,6 +507,13 @@ function vProfile(host){
     }).join('')}
     ${missing.length?`<div class="b" style="margin-top:6px"><button class="btn b-ink" onclick="saveMissing()">Save missing fields</button></div>`:''}`}
   </div>
+  <div class="card" style="margin-bottom:14px"><h2>Opportunity interests</h2>
+  <div class="sub">Shown on your dashboard and used to organize your pipeline. Choose one or more.</div>
+  ${CATS.map(([k,l])=>`<div class="row" style="margin:4px 0"><input type="checkbox" id="pjp-${k}" style="width:auto" ${(ME.jobPrefs||'international_job').split(',').includes(k)?'checked':''}><span>${l}</span></div>`).join('')}
+  <label>Minimum acceptable compensation (optional, e.g. "EUR 3500/month" or "USD 55k/year")</label>
+  <input id="pjp-minsal" value="${esc(ME.minSalary||'')}" placeholder="Leave empty for no floor">
+  <div class="b" style="margin-top:10px"><button class="btn b-ink b-sm" onclick="savePrefsCats()">Save interests</button></div>
+  </div>
   <div class="card"><h2>Your email</h2>
   <div class="sub">${ME.emailMode==='yes'?'Connected fully ✓ Outreach sends from your own Gmail and replies are detected in your inbox.':ME.emailMode==='imap'?'Connected for reading ✓ Your inbox replies are detected. Direct sending from your address is blocked by the hosting network, so outreach goes through the office account with Reply-To set to you.':'Connect your Gmail so professors receive emails from you and replies are detected automatically.'}</div>
   ${ME.emailConnected?`<div class="b"><button class="btn b-red" onclick="disconnectEmail()">Disconnect</button></div>`:`
@@ -484,6 +522,11 @@ function vProfile(host){
   <label>App password (16 characters)</label><input id="em-pass" type="password">
   <div class="b" style="margin-top:12px"><button class="btn b-ink" id="emBtn" onclick="connectEmail()">Test connection</button></div>`}
   </div></div>`;
+}
+async function savePrefsCats(){
+  const sel=CATS.filter(([k])=>$('pjp-'+k).checked).map(([k])=>k);
+  if(!sel.length)return toast('Pick at least one');
+  try{const d=await api('/api/profile',{method:'PUT',body:{jobPrefs:sel.join(','),minSalary:$('pjp-minsal').value.trim()}});ME=d.user;toast('Interests saved')}catch(e){toast(e.message)}
 }
 async function saveMissing(){
   const body={};let n=0;
