@@ -652,6 +652,7 @@ async function diag(){
     const row=(label,r)=>`<div class="item spread"><div><div class="t">${label}</div><div class="m">${esc(r.note||'')}</div></div><span class="chip ${r.ok?'c-green':'c-red'}">${r.ok?'OK':'FIX'}</span></div>`;
     const ks=d.drive&&d.drive.keyShape?d.drive.keyShape:null;
     box.innerHTML=row('Google Sheets (database)',d.sheets)
+      +(d.storage?row('Document storage',d.storage):'')
       +(ks?row('Drive credentials shape',{ok:ks.keyPresent&&ks.hasBeginMarker&&ks.hasEndMarker&&ks.keyParses&&!String(ks.serviceEmail).startsWith('('),
         note:'Project: '+ks.projectId+' · Email: '+ks.serviceEmail+' · Key present: '+ks.keyPresent+' · BEGIN/END markers: '+(ks.hasBeginMarker&&ks.hasEndMarker)+' · Escaped \\n: '+ks.hadEscapedNewlines+' · Surrounding quotes: '+ks.hadSurroundingQuotes+' · Key parses: '+ks.keyParses}):'')
       +(d.drive&&d.drive.token?row('Drive authentication (token)',d.drive.token):'')
