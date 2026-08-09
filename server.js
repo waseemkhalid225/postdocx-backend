@@ -12,7 +12,8 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap } = require('./lib/agent');
+loadRuntimeMode().catch(() => {});
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -107,7 +108,7 @@ app.get('/api/me', auth, async (req, res) => {
 app.put('/api/profile', auth, async (req, res) => {
   try {
     const u = await getUser(req.userId);
-    const allowed = ['name', 'title', 'field', 'methods', 'pubs', 'prefs', 'links', 'orcid', 'nationality', 'phone', 'jobPrefs', 'minSalary', 'jobLocations'];
+    const allowed = ['name', 'title', 'field', 'methods', 'pubs', 'prefs', 'links', 'orcid', 'nationality', 'phone', 'jobPrefs', 'minSalary', 'jobLocations', 'schedLink'];
     for (const k of allowed) if (req.body[k] !== undefined) u._row.set(k, String(req.body[k]).slice(0, 2000));
     await u._row.save();
     res.json({ user: publicUser(await getUser(req.userId)) });
@@ -248,9 +249,9 @@ async function extractProfile(userId) {
   if (!blocks.length) throw new Error('Could not read the uploaded files.');
   blocks.push({ type: 'text', text:
 `Extract this researcher's academic profile from the document(s) above. Use ONLY what is actually written there, never invent or embellish. Respond ONLY with JSON:
-{"title":"academic credentials in one line, degrees and research standing first, current job title last or omitted","field":"REWRITE, do not copy the CV summary: describe this person purely as a RESEARCHER in 2-3 sentences: their research lines, disease areas, molecular targets, computational and experimental angles. A professional summary about operations, management or job duties is wrong here","methods":"ONLY research-relevant methods: laboratory, computational, statistical, animal or cell models, assays, regulatory science where research-relevant; comma separated","pubs":"key publications: title, journal, year, role; one per line","orcid":"ORCID id if present else empty","links":"Scholar/ResearchGate/LinkedIn URLs found, else empty","phone":"phone if present else empty","nationality":"if stated else empty","prefs":""}
+{"title":"academic credentials in one line, degrees and research standing first, current job title last or omitted","field":"REWRITE, do not copy the CV summary: describe this person purely as a RESEARCHER in 2-3 sentences: their research lines, disease areas, molecular targets, computational and experimental angles. A professional summary about operations, management or job duties is wrong here","methods":"ONLY research-relevant methods: laboratory, computational, statistical, animal or cell models, assays, regulatory science where research-relevant; comma separated","pubs":"key publications: title, journal, year, role; one per line","orcid":"ORCID id if present else empty","links":"Scholar/ResearchGate/LinkedIn URLs found, else empty","phone":"phone if present else empty","nationality":"if stated else empty","prefs":"","referees":"if a references section exists: one per line as Name | email | relationship, else empty"}
 
-STRICT FILTER: extract ONLY what strengthens a postdoctoral research application. Include research techniques, experimental and computational methods, models, publications, thesis work, research awards. EXCLUDE routine job duties, business or administrative operations, retail or management experience, generic software, and anything a hiring PI would not care about. When a professional role contains research-relevant elements (for example pharmacovigilance systems, regulatory science, clinical data), keep only those elements, framed as research skills.` });
+DEEP ANALYSIS: read ALL documents together as one body of evidence, CV, theses, publications, statements, certificates. Synthesize across them: connect thesis topics to publications, methods to the projects where they were actually used, and tag techniques with their evidence level in brackets, for example molecular docking [PhD, published], HPLC [MPhil], pharmacovigilance systems [professional, research-relevant]. Never list a technique without evidence in the documents.\n\nSTRICT FILTER: extract ONLY what strengthens a postdoctoral research application. Include research techniques, experimental and computational methods, models, publications, thesis work, research awards. EXCLUDE routine job duties, business or administrative operations, retail or management experience, generic software, and anything a hiring PI would not care about. When a professional role contains research-relevant elements (for example pharmacovigilance systems, regulatory science, clinical data), keep only those elements, framed as research skills.` });
   const txt = await claude(blocks, { search: false, maxTokens: 1800 });
   return parseJSON(txt);
 }
@@ -269,9 +270,44 @@ app.post('/api/profile/autofill', auth, async (req, res) => {
       if (force || !String(u[k] || '').trim()) { u._row.set(k, cleanVal.slice(0, 2000)); filled.push(k); }
     }
     if (filled.length) await u._row.save();
-    await db.log('AUTOFILL', u.name + ': ' + (filled.join(', ') || 'nothing new'));
-    res.json({ ok: true, filled, user: publicUser(await getUser(req.userId)) });
-  } catch (e) { res.status(400).json({ error: e.message }); }
+    // Referee extraction from the documents' references section
+    let refsAdded = 0;
+    if (v.referees && v.referees.length > 10) {
+      const existingRefs = (await db.all('Referees')).filter(x => x.resId === req.userId);
+      for (const line of String(v.referees).split('\n')) {
+        const parts = line.split('|').map(x => x.trim()).filter(Boolean);
+        if (parts.length < 2 || !/@/.test(parts[1] || '')) continue;
+        if (existingRefs.some(x => x.email.toLowerCase() === parts[1].toLowerCase())) continue;
+        await db.add('Referees', { id: uid(), resId: req.userId, name: parts[0], email: parts[1], relationship: parts[2] || 'listed as reference in CV', status: 'pending', note: 'Extracted from uploaded documents' });
+        refsAdded++;
+      }
+    }
+    if (filled.length) {
+      const rows2 = await db.all('Settings');
+      const fl = rows2.find(x => x.key === 'rescorePending');
+      const cur = fl ? String(fl.value || '') : '';
+      const nv = cur.includes(req.userId) ? cur : (cur ? cur + ',' : '') + req.userId;
+      if (fl) { fl._row.set('value', nv); await fl._row.save(); }
+      else await db.add('Settings', { key: 'rescorePending', value: nv });
+      setTimeout(() => runCycle({ light: true }).catch(() => {}), 2000);
+    }
+    await db.log('AUTOFILL', u.name + ': ' + (filled.join(', ') || 'nothing new') + (refsAdded ? ' +' + refsAdded + ' referees' : ''));
+    res.json({ ok: true, filled, refsAdded, docsRead: (await db.all('Documents')).filter(d => d.resId === req.userId && d.driveId).length, user: publicUser(await getUser(req.userId)) });
+  } catch (e) { res.status(400).json({ error: e.message, detail: 'autofill' }); }
+});
+
+/* ---- Authorize and submit: one action approves every pending email for this opportunity and sends within a minute ---- */
+app.post('/api/opps/:oppId/authorize', auth, async (req, res) => {
+  const out = (await db.all('Outbox')).filter(m => m.oppId === req.params.oppId && m.resId === req.userId);
+  const pending = out.filter(m => m.status === 'PENDING' && m.toEmail);
+  if (!pending.length) {
+    const noEmail = out.some(m => m.status === 'NO_EMAIL');
+    return res.status(400).json({ error: noEmail ? 'No verified contact email for this one yet, add it in the Sheet Outbox tab or wait for verification to find it.' : 'No draft is ready yet, the agent prepares one after verification.' });
+  }
+  for (const m of pending) { m._row.set('status', 'APPROVED'); await m._row.save(); }
+  await db.log('AUTHORIZED', req.params.oppId + ' (' + pending.length + ' emails)');
+  res.json({ ok: true, approved: pending.length, message: pending.length + ' email(s) authorized, sending within a minute.' });
+  setTimeout(() => runCycle({ light: true }).catch(e => console.error(e)), 500);
 });
 
 /* ================= REFEREES ================= */
@@ -314,6 +350,7 @@ app.get('/api/bundle', auth, async (req, res) => {
       proposals: strip(proposals.filter(p => p.resId === req.userId)).map(p => ({ id: p.id, title: p.title, status: p.status, createdOn: p.createdOn })),
       cases: strip(cases.filter(cse => cse.resId === req.userId)),
       tasks: strip(tasks.filter(t => t.resId === req.userId)),
+      mode: cfg().autoSend ? 'auto' : 'approval',
       threads: strip(threads.filter(t => t.resId === req.userId)).map(t => ({ id: t.id, oppId: t.oppId, outboxId: t.outboxId, fromEmail: t.fromEmail, subject: t.subject, body: t.body, intent: t.intent, receivedOn: t.receivedOn }))
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -364,6 +401,83 @@ app.post('/api/opportunities', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+/* ---- edit a generated document, and turn it into a professional PDF ---- */
+app.put('/api/proposals/:id', auth, async (req, res) => {
+  const pRow = (await db.all('Proposals')).find(x => x.id === req.params.id && x.resId === req.userId);
+  if (!pRow) return res.status(404).json({ error: 'Not found' });
+  const { content, title } = req.body || {};
+  if (content) pRow._row.set('content', String(content).slice(0, 45000));
+  if (title) pRow._row.set('title', String(title).slice(0, 200));
+  pRow._row.set('status', 'EDITED');
+  await pRow._row.save();
+  res.json({ ok: true });
+});
+
+app.post('/api/proposals/:id/pdf', auth, async (req, res) => {
+  try {
+    const pRow = (await db.all('Proposals')).find(x => x.id === req.params.id && x.resId === req.userId);
+    if (!pRow) return res.status(404).json({ error: 'Not found' });
+    const u = await getUser(req.userId);
+    const PDFDocument = require('pdfkit');
+    const chunks = [];
+    const pdf = new PDFDocument({ size: 'A4', margins: { top: 64, bottom: 64, left: 68, right: 68 } });
+    pdf.on('data', c => chunks.push(c));
+    const done = new Promise(r => pdf.on('end', r));
+    pdf.font('Helvetica-Bold').fontSize(15).text(u.name || '', { align: 'left' });
+    if (u.title) pdf.font('Helvetica').fontSize(9.5).fillColor('#444444').text(u.title);
+    pdf.moveDown(0.4).fillColor('#000000');
+    pdf.font('Helvetica-Bold').fontSize(12).text(pRow.title.replace(/^(Tailored CV|Cover letter \([^)]*\)|Concept note|Interview brief|Two-body dossier): ?/i, ''));
+    pdf.moveDown(0.7);
+    pdf.font('Helvetica').fontSize(10.5).fillColor('#111111');
+    for (const para of String(pRow.content).split(/\n\n+/)) {
+      const line = para.trim();
+      if (!line) continue;
+      const isHeading = line.length < 70 && !/[.]$/.test(line) && (line === line.toUpperCase() || /^[A-Z][A-Za-z ,&]+$/.test(line));
+      if (isHeading) { pdf.moveDown(0.35).font('Helvetica-Bold').fontSize(11).text(line); pdf.font('Helvetica').fontSize(10.5); }
+      else pdf.text(line.replace(/\n/g, ' '), { align: 'justify', lineGap: 2.2 });
+      pdf.moveDown(0.45);
+    }
+    pdf.end();
+    await done;
+    const buf = Buffer.concat(chunks);
+    const kind = /Tailored CV/i.test(pRow.title) ? 'CV (tailored, PDF)' : /Cover letter/i.test(pRow.title) ? 'Cover letter (PDF)' : /Concept note/i.test(pRow.title) ? 'Concept note (PDF)' : 'Document (PDF)';
+    const fname = (u.name || 'Document').replace(/\s+/g, '_') + '_' + kind.replace(/[^A-Za-z]/g, '') + '_' + today().replace(/-/g, '') + '.pdf';
+    const f = await storage.put(fname, 'application/pdf', buf);
+    await db.add('Documents', { id: uid(), resId: req.userId, type: kind, name: fname, url: '', attach: 'no', version: '', updatedOn: today(), note: 'Generated from: ' + pRow.title, driveId: f.id, mime: 'application/pdf', size: String(buf.length) });
+    const docs = await db.all('Documents');
+    const docRow = docs.filter(d => d.resId === req.userId).sort((a, b) => (b.updatedOn || '') < (a.updatedOn || '') ? -1 : 1)[0];
+    res.json({ ok: true, docId: docRow ? docRow.id : '', message: 'PDF created and saved to your Documents: ' + fname });
+  } catch (e) { res.status(500).json({ error: 'PDF failed: ' + e.message }); }
+});
+
+/* ---- backups: list and safe restore (empty tabs only, so nothing can be overwritten) ---- */
+app.get('/api/admin/backups', auth, adminOnly, async (req, res) => {
+  const items = await storage.list('PostDocX-Backup');
+  res.json({ backups: items.sort((a, b) => a.name < b.name ? 1 : -1).slice(0, 10) });
+});
+
+app.post('/api/admin/restore', auth, adminOnly, async (req, res) => {
+  try {
+    const { id, tab } = req.body || {};
+    if (!id || !tab || !db.SCHEMA[tab]) return res.status(400).json({ error: 'Backup id and valid tab required' });
+    const existing = await db.all(tab);
+    if (existing.length) return res.status(400).json({ error: 'Safety guard: "' + tab + '" already has ' + existing.length + ' rows. Restore only fills EMPTY tabs so nothing can be overwritten. Clear the tab in the Sheet first if you truly want to restore it.' });
+    const buf = await storage.get(id);
+    const dump = JSON.parse(buf.toString());
+    const rows = dump[tab] || [];
+    if (!rows.length) return res.status(400).json({ error: 'Backup has no rows for ' + tab });
+    await db.addMany(tab, rows);
+    await db.log('RESTORED', tab + ' (' + rows.length + ' rows) from ' + id);
+    res.json({ ok: true, message: 'Restored ' + rows.length + ' rows into ' + tab + '.' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+app.post('/api/labmap', auth, async (req, res) => {
+  res.json({ ok: true, message: 'Building your target lab map, 3 to 5 minutes. It arrives in Activity, Created for you, and by email.' });
+  targetLabMap(req.userId).catch(e => console.error('labmap:', e.message));
+});
 /* ---- in-app approvals ---- */
 app.put('/api/outbox/:id', auth, async (req, res) => {
   const m = (await db.all('Outbox')).find(x => x.id === req.params.id && x.resId === req.userId);
@@ -448,6 +562,19 @@ app.get('/api/admin/diag', auth, adminOnly, async (req, res) => {
 app.post('/api/admin/run', auth, adminOnly, async (req, res) => {
   res.json({ ok: true, message: 'Full cycle started. Reports go out when it finishes, typically 2 to 3 minutes.' });
   runCycle().catch(e => console.error(e));
+});
+
+app.post('/api/admin/mode', auth, adminOnly, async (req, res) => {
+  const mode = req.body && req.body.mode === 'auto' ? 'auto' : 'approval';
+  const rows = await db.all('Settings');
+  const row = rows.find(x => x.key === 'sendMode');
+  if (row) { row._row.set('value', mode); await row._row.save(); }
+  else await db.add('Settings', { key: 'sendMode', value: mode });
+  setRuntimeMode(mode);
+  await db.log('MODE_CHANGED', mode);
+  res.json({ ok: true, mode, message: mode === 'auto'
+    ? 'Auto mode ON: verified outreach and routine replies send themselves within daily caps. Interviews and offers still always wait for you.'
+    : 'Approval mode ON: every email waits for your tap in Activity.' });
 });
 app.post('/api/admin/backup', auth, adminOnly, async (req, res) => {
   try { const name = await gdrive.backupSheet(); res.json({ ok: true, message: 'Backup created in Drive: ' + name + ' (last 8 kept)' }); }
