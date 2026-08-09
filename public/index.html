@@ -275,6 +275,7 @@ function vCases(host){
     ${th.length?`<div class="m" style="margin-top:6px"><b>Latest from supervisor</b> (${esc(th[th.length-1].intent||'')}): ${esc((th[th.length-1].body||'').slice(0,180))}…</div>`:''}
     <div class="b">
     ${o.deadline?dlChip(o.deadline):''}
+    ${(c.stage==='Email prepared'||c.stage==='Awaiting approval')?`<button class="btn b-green b-sm" onclick="authorizeOpp('${c.oppId}')">Authorize and submit</button>`:''}
     <button class="btn b-line b-sm" onclick="gen('cv','${c.oppId}')">Tailored CV</button>
     <button class="btn b-line b-sm" onclick="gen('proposal','${c.oppId}')">Concept note</button>
     <button class="btn b-line b-sm" onclick="gen('interview','${c.oppId}')">Interview brief</button>
@@ -308,10 +309,11 @@ function vPostdoc(){
   if(PD_SEG==='cases')vCases(host);
   else if(PD_SEG==='couple')vCouple(host);
   else{
-    const o=pd.sort((a,b)=>(+b.matchScore||0)-(+a.matchScore||0));
+    const o=pd.sort((a,b)=>{const ca=a.coupleKey?1:0,cb=b.coupleKey?1:0;if(cb-ca)return cb-ca;return (+b.matchScore||0)-(+a.matchScore||0)});
     host.innerHTML=`<div class="card"><div class="spread"><div><h2>Postdoc pipeline</h2>
     <div class="sub">The core engine: 5 verified searches per researcher per day, its own schedule, never shared with the Jobs section.</div></div>
-    ${ME.role==='admin'?`<button class="btn b-gold" onclick="adminRun()">Run agent now</button>`:''}</div>
+    <div class="row">${ME.role==='admin'?`<button class="btn b-gold" onclick="adminRun()">Run agent now</button>`:''}
+    <button class="btn b-line" onclick="labMap()">Build target lab map</button></div></div>
     ${o.length?o.map(oppRow).join(''):'<div class="empty">The engine has not run since deploy. Tap Run agent now, verified postdoctoral opportunities arrive within a few minutes.</div>'}</div>`;
   }
 }
@@ -326,9 +328,10 @@ function vJobs(){
   <div class="stat"><b>${jobs.length}</b><span>jobs tracked</span></div>
   <div class="stat"><b>${done}/${tasks.length||0}</b><span>tasks done</span></div>
   <div class="stat"><b>${applied}</b><span>applications submitted</span></div></div></div>
-  <div class="card"><div class="spread"><div><h2>Jobs</h2>
-  <div class="sub">Separate from the postdoc engine. Add roles you find and PostDocX tailors the CV and writes the cover letter for each.</div></div>
-  <button class="btn b-ink" onclick="addJobModal()">Add a job</button></div>
+  <div class="card"><div class="spread"><div><h2>Job search</h2>
+  <div class="sub">PostDocX searches for senior salaried roles matching your CV level in your selected categories and locations, verified and never expired. You can also track a posting you found yourself.</div></div>
+  <div class="row">${ME.role==='admin'?`<button class="btn b-gold" onclick="adminRun()">Run search now</button>`:''}
+  <button class="btn b-line" onclick="addJobModal()">Track a posting</button></div></div>
   <div class="row" style="margin-bottom:10px">${[['all','All'],['national_job','National'],['remote_job','Remote'],['international_job','International']].map(([k,l])=>`<button class="btn ${JOBFILTER===k?'b-ink':'b-line'} b-sm" onclick="JOBFILTER='${k}';render()">${l}</button>`).join('')}</div>
   ${shown.length?shown.map(o=>`<div class="item"><div class="spread"><div style="min-width:0"><div class="t">${esc(o.title)}</div>
   <div class="m">${esc(o.institution)}${o.country?' · '+esc(o.country):''}</div></div>
@@ -337,10 +340,10 @@ function vJobs(){
   ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">posting ↗</a>`:''}</div>
   <div class="b"><button class="btn b-line b-sm" onclick="gen('cv','${o.id}')">Tailored CV</button>
   <button class="btn b-line b-sm" onclick="gen('cover','${o.id}')">Cover letter</button></div></div>`).join('')
-  :'<div class="empty">No jobs tracked yet. Tap Add a job with any posting you find, a task checklist opens automatically and the writing tools tailor your documents to it.</div>'}</div>`;
+  :`<div class="empty">The job search runs with every agent cycle for your selected categories (set them in Profile, interests and locations).${ME.role==='admin'?' Tap Run search now to search immediately.':''} You can also track any posting you found yourself.</div>`}</div>`;
 }
 function addJobModal(){
-  modal(`<h3>Add a job</h3><div class="sub">Its checklist and document tools are created automatically</div>
+  modal(`<h3>Track a job posting</h3><div class="sub">For roles you found yourself. The agent searches automatically too. Checklist, tailored CV and cover letter are prepared for it.</div>
   <label>Position title</label><input id="j-title">
   <label>Organization</label><input id="j-inst">
   <label>Category</label><select id="j-cat"><option value="national_job">National Job (Pakistan)</option><option value="remote_job">Remote Job</option><option value="international_job">International Job</option></select>
@@ -360,11 +363,11 @@ async function addJob(){
 }
 
 function oppRow(o){
-  return `<div class="item"><div class="spread"><div style="min-width:0"><div class="t">${esc(o.title)}</div>
+  return `<div class="item" style="${o.coupleKey?'border-color:var(--gold);border-width:1.5px':''}"><div class="spread"><div style="min-width:0"><div class="t">${esc(o.title)}</div>
   <div class="m">${esc(o.institution)}${o.country?' · '+esc(o.country):''}${o.pi?' · PI: '+esc(o.pi):''}</div></div>${scoreChip(o.matchScore)}</div>
   <div class="b">${stChip(o.status)}<span class="chip c-blue">${catLabel(oppCat(o))}</span>${o.level?`<span class="chip c-gold">${esc(o.level)}</span>`:''}${o.compensation?`<span class="chip c-green">${esc(o.compensation)}</span>`:''}<span class="chip c-gray">${esc(o.funding||'Funding TBC')}</span>${dlChip(o.deadline)}
   ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">source ↗</a>`:''}
-  ${o.coupleKey?'<span class="chip c-gold">couple</span>':''}</div>
+  ${o.coupleKey?'<span class="chip c-gold">★ Couple fit, preferred</span>':''}</div>
   <div class="b">
   <button class="btn b-line b-sm" onclick="gen('cv','${o.id}')">Tailored CV</button>
   <button class="btn b-line b-sm" onclick="gen('proposal','${o.id}')">Concept note</button>
@@ -434,6 +437,13 @@ async function saveDraft(id,approve){
 async function toggleTask(id){
   try{const d=await api('/api/tasks/'+id+'/toggle',{method:'POST'});
   const t=(B.tasks||[]).find(x=>x.id===id);if(t)t.status=d.status;render();}catch(e){toast(e.message)}
+}
+
+async function labMap(){
+  try{const d=await api('/api/labmap',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
+}
+async function authorizeOpp(oppId){
+  try{const d=await api('/api/opps/'+oppId+'/authorize',{method:'POST'});toast(d.message);await refresh()}catch(e){toast(e.message)}
 }
 async function act(id,action){
   try{await api('/api/outbox/'+id+'/'+action,{method:'POST'});toast(action==='approve'?'Approved. It sends within the next cycle.':'Rejected, it will not send.');await refresh()}catch(e){toast(e.message)}
@@ -511,7 +521,7 @@ async function upload(){
     try{
       const a=await api('/api/profile/autofill',{method:'POST',body:{}});
       ME=a.user;
-      if(a.filled&&a.filled.length)toast('Research profile updated from your documents ('+a.filled.join(', ')+').');
+      toast((a.filled&&a.filled.length?'Profile updated: '+a.filled.join(', ')+'. ':'Files stored. ')+(a.refsAdded?a.refsAdded+' referee(s) added. ':'')+'Review in Profile. Existing matches are being re-scored against your updated profile automatically.');
     }catch(e){}
   }catch(e){toast(e.message)}
   $('upBtn').disabled=false;
@@ -548,10 +558,29 @@ function vProps(){
   <button class="btn b-line b-sm" onclick="openProp('${x.id}')">Read</button></div>`).join(''):'<div class="empty">Nothing yet. Open an opportunity and tap Concept note or Interview brief.</div>'}</div>`;
 }
 async function openProp(id){
-  try{const d=await api('/api/proposals/'+id);
-  modal(`<h3>${esc(d.title)}</h3><div class="sub">${esc(d.createdOn)}</div><pre class="doc">${esc(d.content)}</pre>
-  <div class="b" style="margin-top:12px"><button class="btn b-ink" onclick="navigator.clipboard.writeText(document.querySelector('pre.doc').innerText).then(()=>toast('Copied'))">Copy</button>
-  <button class="btn b-line" onclick="closeModal()">Close</button></div>`)}catch(e){toast(e.message)}
+  const p=(B?B.proposals:[]).find(x=>x.id===id);if(!p)return;
+  toast('Loading document…');
+  try{
+    const d=await api('/api/proposals/'+id);
+    modal(`<h3 style="margin-right:30px">${esc(d.title)}</h3>
+    <div class="sub">Edit freely, this is your document. Save keeps your version; Save as PDF also creates a professional PDF in your Documents.</div>
+    <textarea id="prop-edit" style="min-height:340px;font-size:13.5px;line-height:1.55">${esc(d.content)}</textarea>
+    <div class="b" style="margin-top:14px">
+    <button class="btn b-ink" onclick="saveProp('${id}',false)">Save</button>
+    <button class="btn b-gold" onclick="saveProp('${id}',true)">Save as PDF</button>
+    <button class="btn b-line" onclick="closeModal()">Close</button></div>`);
+  }catch(e){toast(e.message)}
+}
+async function saveProp(id,makePdf){
+  try{
+    await api('/api/proposals/'+id,{method:'PUT',body:{content:$('prop-edit').value}});
+    if(makePdf){
+      toast('Creating PDF…');
+      const d=await api('/api/proposals/'+id+'/pdf',{method:'POST'});
+      toast(d.message);
+      closeModal();
+    } else toast('Saved');
+  }catch(e){toast(e.message)}
 }
 
 let PSEG='profile';
@@ -588,6 +617,8 @@ function vProfile(host){
   ${CATS.map(([k,l])=>`<div class="row" style="margin:4px 0"><input type="checkbox" id="pjp-${k}" style="width:auto" ${(ME.jobPrefs||'international_job').split(',').includes(k)?'checked':''}><span>${l}</span></div>`).join('')}
   <label>Preferred locations (cities for national jobs, countries for international; guides organization)</label>
   <input id="pjp-loc" value="${esc(ME.jobLocations||'')}" placeholder="e.g. National: Islamabad, Rawalpindi. International: Germany, KSA, UK">
+  <label>Scheduling link (optional, e.g. cal.com/yourname; professors book calls directly, no back and forth)</label>
+  <input id="pjp-sched" value="${esc(ME.schedLink||'')}" placeholder="https://cal.com/...">
   <label>Minimum acceptable compensation (optional, e.g. "EUR 3500/month" or "USD 55k/year")</label>
   <input id="pjp-minsal" value="${esc(ME.minSalary||'')}" placeholder="Leave empty for no floor">
   <div class="b" style="margin-top:10px"><button class="btn b-ink b-sm" onclick="savePrefsCats()">Save interests</button></div>
@@ -604,7 +635,22 @@ function vProfile(host){
 async function savePrefsCats(){
   const sel=CATS.filter(([k])=>$('pjp-'+k).checked).map(([k])=>k);
   if(!sel.length)return toast('Pick at least one');
-  try{const d=await api('/api/profile',{method:'PUT',body:{jobPrefs:sel.join(','),minSalary:$('pjp-minsal').value.trim(),jobLocations:$('pjp-loc').value.trim()}});ME=d.user;toast('Interests saved')}catch(e){toast(e.message)}
+  try{const d=await api('/api/profile',{method:'PUT',body:{jobPrefs:sel.join(','),minSalary:$('pjp-minsal').value.trim(),jobLocations:$('pjp-loc').value.trim(),schedLink:$('pjp-sched').value.trim()}});ME=d.user;toast('Interests saved')}catch(e){toast(e.message)}
+}
+function autofill(){
+  modal(`<h3>Re-read documents</h3><div class="sub">The agent reads all uploaded files and rebuilds the research profile, referees included when a references section exists.</div>
+  <div class="b" style="margin-top:16px">
+  <button class="btn b-ink" onclick="runAutofill(true)">Overwrite everything</button>
+  <button class="btn b-line" onclick="runAutofill(false)">Fill only empty fields</button>
+  <button class="btn b-line" onclick="closeModal()">Cancel</button></div>`);
+}
+async function runAutofill(force){
+  closeModal();toast('Reading your documents, 20 to 40 seconds…');
+  try{
+    const r=await api('/api/profile/autofill',{method:'POST',body:{force:force}});
+    ME=r.user;render();
+    toast((r.filled&&r.filled.length?'Updated: '+r.filled.join(', ')+'. ':'Profile fields already current. ')+(r.refsAdded?r.refsAdded+' referee(s) added from your CV. ':'')+'('+r.docsRead+' file(s) read)');
+  }catch(e){toast('Could not read documents: '+e.message)}
 }
 async function saveMissing(){
   const body={};let n=0;
@@ -632,7 +678,17 @@ function vAdmin(){
   <button class="btn b-line" onclick="adminWeekly()">Weekly review now</button>
   <button class="btn b-line" onclick="diag()">Diagnose system</button>
   <button class="btn b-line" onclick="backup()">Back up Sheet now</button></div></div>
+  <div class="card"><h2>Sending mode</h2>
+  <div class="sub">Approval: every email waits for your tap. Auto: verified outreach and routine replies send themselves within daily caps. Interviews and offers ALWAYS wait for you in both modes.</div>
+  <div class="row">
+  <button class="btn ${(B&&B.mode)!=='auto'?'b-ink':'b-line'}" onclick="setMode('approval')">Approval mode</button>
+  <button class="btn ${(B&&B.mode)==='auto'?'b-gold':'b-line'}" onclick="setMode('auto')">Auto mode</button>
+  </div></div>
   <div id="diagBox"></div>
+  <div class="card"><h2>Backups</h2>
+  <div class="sub">Weekly automatic, last 8 kept. Restore only fills EMPTY tabs, nothing can be overwritten.</div>
+  <div class="b"><button class="btn b-line b-sm" onclick="listBackups()">Show backups</button></div>
+  <div id="bkBox"></div></div>
   ${users.map(u=>`<div class="item spread"><div><div class="t">${esc(u.name)} ${u.role==='admin'?'<span class="chip c-gold">admin</span>':''}</div>
   <div class="m">${esc(u.email)} · ${u.emailConnected?'email connected ✓':'email not connected'}${u.partnerId?' · couple-linked':''}</div></div></div>`).join('')}
   <hr class="sep"><b style="font-size:13px">Link a couple</b>
@@ -644,6 +700,26 @@ function vAdmin(){
   }).catch(e=>toast(e.message));
 }
 
+async function listBackups(){
+  const box=$('bkBox');box.innerHTML='<div class="empty">Loading…</div>';
+  try{
+    const d=await api('/api/admin/backups');
+    box.innerHTML=d.backups.length?d.backups.map(b=>`<div class="item spread"><div class="t" style="font-size:13px">${esc(b.name)}</div>
+    <button class="btn b-line b-sm" onclick="restoreFrom('${b.id}')">Restore a tab</button></div>`).join(''):'<div class="empty">No backups yet. They run every Sunday, or tap Back up Sheet now.</div>';
+  }catch(e){box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
+}
+function restoreFrom(id){
+  modal(`<h3>Restore from backup</h3><div class="sub">Pick which tab to restore. Only EMPTY tabs can be filled, so this can never overwrite live data.</div>
+  <label>Tab</label><select id="rst-tab">${['Users','Opportunities','Outbox','Proposals','Referees','Documents','Cases','Threads','Tasks'].map(t=>`<option>${t}</option>`).join('')}</select>
+  <div class="b" style="margin-top:14px"><button class="btn b-ink" onclick="doRestore('${id}')">Restore this tab</button>
+  <button class="btn b-line" onclick="closeModal()">Cancel</button></div>`);
+}
+async function doRestore(id){
+  try{const d=await api('/api/admin/restore',{method:'POST',body:{id,tab:$('rst-tab').value}});toast(d.message);closeModal()}catch(e){toast(e.message)}
+}
+async function setMode(m){
+  try{const d=await api('/api/admin/mode',{method:'POST',body:{mode:m}});toast(d.message);await refresh()}catch(e){toast(e.message)}
+}
 async function backup(){try{const d=await api('/api/admin/backup',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}}
 async function diag(){
   const box=$('diagBox');box.innerHTML='<div class="empty">Running checks against Google Sheets, Drive, Gmail and the Claude API…</div>';
