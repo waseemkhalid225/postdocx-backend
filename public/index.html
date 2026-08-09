@@ -650,9 +650,13 @@ async function diag(){
   try{
     const d=await api('/api/admin/diag');
     const row=(label,r)=>`<div class="item spread"><div><div class="t">${label}</div><div class="m">${esc(r.note||'')}</div></div><span class="chip ${r.ok?'c-green':'c-red'}">${r.ok?'OK':'FIX'}</span></div>`;
+    const ks=d.drive&&d.drive.keyShape?d.drive.keyShape:null;
     box.innerHTML=row('Google Sheets (database)',d.sheets)
-      +(d.drive&&d.drive.auth?row('Google Drive (documents), authentication',d.drive.auth):'')
-      +(d.drive&&d.drive.folder?row('Google Drive, PostDocX folder',d.drive.folder):'')
+      +(ks?row('Drive credentials shape',{ok:ks.keyPresent&&ks.hasBeginMarker&&ks.hasEndMarker&&ks.keyParses&&!String(ks.serviceEmail).startsWith('('),
+        note:'Project: '+ks.projectId+' · Email: '+ks.serviceEmail+' · Key present: '+ks.keyPresent+' · BEGIN/END markers: '+(ks.hasBeginMarker&&ks.hasEndMarker)+' · Escaped \\n: '+ks.hadEscapedNewlines+' · Surrounding quotes: '+ks.hadSurroundingQuotes+' · Key parses: '+ks.keyParses}):'')
+      +(d.drive&&d.drive.token?row('Drive authentication (token)',d.drive.token):'')
+      +(d.drive&&d.drive.api?row('Drive API enabled',d.drive.api):'')
+      +(d.drive&&d.drive.folder?row('PostDocX folder access',d.drive.folder):'')
       +row('Office Gmail',d.gmail)
       +row('Claude API key',d.anthropic);
   }catch(e){box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
