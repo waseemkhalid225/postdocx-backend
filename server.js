@@ -429,7 +429,7 @@ app.get('/api/admin/diag', auth, adminOnly, async (req, res) => {
   const out = { sheets: { ok: false, note: '' }, drive: null, gmail: { ok: false, note: '' }, anthropic: { ok: false, note: '' } };
   try { await db.connect(); out.sheets = { ok: true, note: 'Google Sheet connected, all tabs present' }; }
   catch (e) { out.sheets = { ok: false, note: 'Sheets failed: ' + String(e.message).slice(0, 160) }; }
-  try { out.drive = await gdrive.probe(); } catch (e) { out.drive = { auth: { ok: false, note: String(e.message).slice(0, 160) } }; }
+  try { out.drive = await gdrive.probe(); } catch (e) { out.drive = { token: { ok: false, note: String(e.message).slice(0, 200) } }; }
   if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     const t = await testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
     out.gmail = { ok: t.smtp || t.imap, note: t.smtp ? 'Office Gmail: sending and reading OK' : t.imap ? 'Office Gmail: reading OK, sending port blocked by host (' + t.smtpError.slice(0, 80) + ')' : 'Office Gmail failed: ' + (t.smtpError || t.imapError) };
