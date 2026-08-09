@@ -434,7 +434,12 @@ app.get('/api/admin/diag', auth, adminOnly, async (req, res) => {
   try { out.drive = await gdrive.probe(); } catch (e) { out.drive = { token: { ok: false, note: String(e.message).slice(0, 200) } }; }
   if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     const t = await testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
-    out.gmail = { ok: t.smtp || t.imap, note: t.smtp ? 'Office Gmail: sending and reading OK' : t.imap ? 'Office Gmail: reading OK, sending port blocked by host (' + t.smtpError.slice(0, 80) + ')' : 'Office Gmail failed: ' + (t.smtpError || t.imapError) };
+    const brevo = process.env.BREVO_API_KEY ? 'HTTPS fallback (Brevo): configured' : 'HTTPS fallback: not configured (set BREVO_API_KEY)';
+    out.gmail = { ok: t.smtp || t.imap || !!process.env.BREVO_API_KEY,
+      note: 'Sending SMTP: ' + (t.smtp ? 'OK' : 'BLOCKED (' + (t.smtpError || '').slice(0, 60) + ')') +
+        ' | Reading IMAP: ' + (t.imap ? 'OK' : 'BLOCKED (' + (t.imapError || '').slice(0, 60) + ')') +
+        ' | ' + brevo +
+        ((!t.smtp || !t.imap) ? ' | Railway blocks mail ports on free/trial plans, upgrading to Hobby unblocks both.' : '') };
   } else out.gmail = { ok: false, note: 'GMAIL_USER / GMAIL_APP_PASSWORD not set' };
   out.anthropic = { ok: !!process.env.ANTHROPIC_API_KEY, note: process.env.ANTHROPIC_API_KEY ? 'API key present' : 'ANTHROPIC_API_KEY not set' };
   res.json(out);
