@@ -11,7 +11,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter } = require('./lib/agent');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -106,7 +106,7 @@ app.get('/api/me', auth, async (req, res) => {
 app.put('/api/profile', auth, async (req, res) => {
   try {
     const u = await getUser(req.userId);
-    const allowed = ['name', 'title', 'field', 'methods', 'pubs', 'prefs', 'links', 'orcid', 'nationality', 'phone', 'jobPrefs', 'minSalary'];
+    const allowed = ['name', 'title', 'field', 'methods', 'pubs', 'prefs', 'links', 'orcid', 'nationality', 'phone', 'jobPrefs', 'minSalary', 'jobLocations'];
     for (const k of allowed) if (req.body[k] !== undefined) u._row.set(k, String(req.body[k]).slice(0, 2000));
     await u._row.save();
     res.json({ user: publicUser(await getUser(req.userId)) });
@@ -247,7 +247,7 @@ async function extractProfile(userId) {
   if (!blocks.length) throw new Error('Could not read the uploaded files.');
   blocks.push({ type: 'text', text:
 `Extract this researcher's academic profile from the document(s) above. Use ONLY what is actually written there, never invent or embellish. Respond ONLY with JSON:
-{"title":"academic credentials and research role in one line","field":"research field and identity, 2-3 sentences, research only","methods":"ONLY research-relevant methods: laboratory, computational, statistical, animal or cell models, assays, regulatory science where research-relevant; comma separated","pubs":"key publications: title, journal, year, role; one per line","orcid":"ORCID id if present else empty","links":"Scholar/ResearchGate/LinkedIn URLs found, else empty","phone":"phone if present else empty","nationality":"if stated else empty","prefs":""}
+{"title":"academic credentials in one line, degrees and research standing first, current job title last or omitted","field":"REWRITE, do not copy the CV summary: describe this person purely as a RESEARCHER in 2-3 sentences: their research lines, disease areas, molecular targets, computational and experimental angles. A professional summary about operations, management or job duties is wrong here","methods":"ONLY research-relevant methods: laboratory, computational, statistical, animal or cell models, assays, regulatory science where research-relevant; comma separated","pubs":"key publications: title, journal, year, role; one per line","orcid":"ORCID id if present else empty","links":"Scholar/ResearchGate/LinkedIn URLs found, else empty","phone":"phone if present else empty","nationality":"if stated else empty","prefs":""}
 
 STRICT FILTER: extract ONLY what strengthens a postdoctoral research application. Include research techniques, experimental and computational methods, models, publications, thesis work, research awards. EXCLUDE routine job duties, business or administrative operations, retail or management experience, generic software, and anything a hiring PI would not care about. When a professional role contains research-relevant elements (for example pharmacovigilance systems, regulatory science, clinical data), keep only those elements, framed as research skills.` });
   const txt = await claude(blocks, { search: false, maxTokens: 1800 });
@@ -264,7 +264,8 @@ app.post('/api/profile/autofill', auth, async (req, res) => {
     for (const k of fields) {
       const val = String(v[k] || '').trim();
       if (!val) continue;
-      if (force || !String(u[k] || '').trim()) { u._row.set(k, val.slice(0, 2000)); filled.push(k); }
+      const cleanVal = val.replace(/\s*[—–]\s*/g, ', ').replace(/,\s*,/g, ',');
+      if (force || !String(u[k] || '').trim()) { u._row.set(k, cleanVal.slice(0, 2000)); filled.push(k); }
     }
     if (filled.length) await u._row.save();
     await db.log('AUTOFILL', u.name + ': ' + (filled.join(', ') || 'nothing new'));
@@ -332,6 +333,36 @@ app.post('/api/tasks/:id/toggle', auth, async (req, res) => {
   await t._row.save();
   res.json({ ok: true, status: next });
 });
+
+/* ---- manual job entry (Jobs section; the postdoc engine is untouched by these) ---- */
+app.post('/api/opportunities', auth, async (req, res) => {
+  try {
+    const { title, institution, category, country, url, deadline, compensation, note } = req.body || {};
+    if (!title || !institution) return res.status(400).json({ error: 'Title and organization are required' });
+    const cat = ['national_job', 'remote_job', 'international_job'].includes(category) ? category : 'national_job';
+    const dupKey = (req.userId + '|' + institution + '|' + title).toLowerCase().replace(/\s+/g, ' ');
+    const opps = await db.all('Opportunities');
+    if (opps.some(o => o.dupKey === dupKey)) return res.status(400).json({ error: 'Already tracked' });
+    const oid = uid();
+    await db.add('Opportunities', {
+      id: oid, resId: req.userId, title, institution, country: country || '', pi: '', url: url || '',
+      deadline: /^\d{4}-\d{2}-\d{2}$/.test(deadline || '') ? deadline : '', funding: compensation ? 'Salaried' : 'Funding TBC',
+      status: 'New', matchScore: '', note: note || 'Manual entry', dupKey, addedOn: today(), verifiedOn: '',
+      coupleKey: '', category: cat, level: 'Job role', compensation: compensation || '', section: 'job'
+    });
+    const checklists = {
+      national_job: ['Eligibility checked', 'CV updated for this role', 'Cover letter prepared', 'Application submitted'],
+      remote_job: ['Job analyzed', 'Cover letter prepared', 'Application submitted'],
+      international_job: ['Eligibility checked', 'CV updated for this role', 'Cover letter prepared', 'Visa route checked', 'Application submitted']
+    };
+    await db.addMany('Tasks', (checklists[cat] || checklists.national_job)
+      .map(t => ({ id: uid(), resId: req.userId, oppId: oid, category: cat, title: t, status: 'Open', createdOn: today() })));
+    res.json({ ok: true, message: 'Job added. Tailored CV and cover letter are being written, check Activity in 2 to 3 minutes.' });
+    coverLetter(oid).catch(e => console.error('cover:', e.message));
+    tailoredCV(oid).catch(e => console.error('cv:', e.message));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 /* ---- in-app approvals ---- */
 app.put('/api/outbox/:id', auth, async (req, res) => {
   const m = (await db.all('Outbox')).find(x => x.id === req.params.id && x.resId === req.userId);
@@ -362,7 +393,7 @@ app.post('/api/generate/:kind/:oppId', auth, async (req, res) => {
   const { kind, oppId } = req.params;
   const opp = (await db.all('Opportunities')).find(o => o.id === oppId);
   if (!opp || opp.resId !== req.userId) return res.status(404).json({ error: 'Opportunity not found' });
-  const fns = { proposal: draftProposal, interview: interviewBrief, dossier: coupleDossier, cv: tailoredCV };
+  const fns = { proposal: draftProposal, interview: interviewBrief, dossier: coupleDossier, cv: tailoredCV, cover: coverLetter };
   if (!fns[kind]) return res.status(400).json({ error: 'Unknown generator' });
   res.json({ ok: true, message: 'Writing now. It will appear under Proposals and in your email in 1 to 3 minutes.' });
   fns[kind](oppId).catch(e => console.error(kind, e.message));
