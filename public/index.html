@@ -102,7 +102,7 @@ function stChip(s){const map={'VERIFIED':'c-green','NEEDS_VERIFICATION':'c-gold'
 function closeModal(){$('ovl').classList.remove('open')}
 function modal(html){$('modal').innerHTML=html;$('ovl').classList.add('open')}
 
-const CATS=[['national_job','National Jobs'],['remote_job','Remote Jobs'],['international_job','International Jobs']];
+const CATS=[['international_job','International (Postdoc priority)'],['national_job','National Jobs'],['remote_job','Remote Jobs']];
 const catLabel=c=>((CATS.find(x=>x[0]===c)||[])[1])||'International Jobs';
 const oppCat=o=>o.category||'international_job';
 let TOKEN=localStorage.getItem('pdx_token')||'';
@@ -164,7 +164,7 @@ function regSave(){
 }
 
 /* ================= app shell ================= */
-const TABS=[['dash','Dashboard'],['cases','Cases'],['opps','Opportunities'],['couple','Couple'],['activity','Activity'],['profile','Profile']];
+const TABS=[['dash','Dashboard'],['postdoc','Postdoc'],['jobs','Jobs'],['activity','Activity'],['profile','Profile']];
 function shell(){
   const isAdmin=ME&&ME.role==='admin';
   const tabs=[...TABS,...(isAdmin?[['admin','Admin']]:[])];
@@ -193,7 +193,7 @@ async function refresh(){
 function render(){
   if(!ME)return;
   TABS.concat([['admin','Admin']]).forEach(([id])=>{const b=$('nb-'+id);if(b)b.className=id===TAB?'on':''});
-  const V={dash:vDash,cases:vCases,opps:vOpps,couple:vCouple,activity:vActivity,profile:vProfilePage,outbox:vActivity,docs:vProfilePage,refs:vProfilePage,props:vActivity,admin:vAdmin};
+  const V={dash:vDash,postdoc:vPostdoc,jobs:vJobs,cases:vPostdoc,opps:vPostdoc,couple:vPostdoc,activity:vActivity,profile:vProfilePage,outbox:vActivity,docs:vProfilePage,refs:vProfilePage,props:vActivity,admin:vAdmin};
   (V[TAB]||vDash)();
 }
 
@@ -216,7 +216,7 @@ function checklist(){
 function pendingN(out){return out.filter(m=>m.status==='PENDING').length}
 function vDash(){
   const o=B?B.opportunities:[],out=B?B.outbox:[];
-  const verified=o.filter(x=>x.status==='VERIFIED'),high=o.filter(x=>(+x.matchScore||0)>=80&&x.status!=='EXPIRED');
+  const verified=o.filter(x=>x.status==='VERIFIED'),high=o.filter(x=>(+x.matchScore||0)>=65&&x.status!=='EXPIRED');
   const sent=out.filter(m=>m.status==='SENT'),replied=out.filter(m=>m.replied==='yes'),pending=out.filter(m=>m.status==='PENDING');
   const cases=B&&B.cases?B.cases:[];
   const readyCases=cases.filter(c=>c.stage==='Email prepared'||c.stage==='Awaiting approval');
@@ -230,7 +230,7 @@ function vDash(){
   <button class="btn b-gold b-sm" onclick="go('profile')">Open Profile</button></div></div>`:''}
   <div class="card"><div class="spread"><div><h2>Your pipeline</h2><div class="sub">${B&&B.partner?'Couple-linked with '+esc(B.partner.name)+' · ':''}The agent runs every morning and evening</div></div></div>
   <div class="rail">${rail.map(([l,n])=>`<div class="st ${n>0?'hot':''}"><div class="n">${n}</div><div class="l">${l}</div><div class="dot"></div></div>`).join('')}</div>
-  <div class="b" style="margin-top:10px">${(ME.jobPrefs||'international_job').split(',').filter(Boolean).map(k=>`<span class="chip c-gray" style="cursor:pointer" onclick="OPPFILTER='${k}';go('opps')">${catLabel(k)}: <b class="mono">&nbsp;${o.filter(x=>oppCat(x)===k).length}</b></span>`).join('')}</div></div>
+  <div class="b" style="margin-top:10px">${(ME.jobPrefs||'international_job').split(',').filter(Boolean).map(k=>`<span class="chip c-gray" style="cursor:pointer" onclick="if('${k}'==='international_job'){go('postdoc')}else{JOBFILTER='${k}';go('jobs')}">${catLabel(k)}: <b class="mono">&nbsp;${o.filter(x=>oppCat(x)===k).length}</b></span>`).join('')}</div></div>
   ${pending.length?`<div class="card"><h2>Waiting for your approval</h2><div class="sub">These emails will not send until you approve them</div>
   ${pending.slice(0,3).map(outRow).join('')}
   ${pending.length>3?`<button class="btn b-line b-sm" onclick="go('outbox')">See all ${pending.length}</button>`:''}</div>`:''}
@@ -238,7 +238,7 @@ function vDash(){
   <div class="card"><h2>Upcoming deadlines</h2><div class="sub">Back-planned from D-21</div>
   ${dls.length?dls.map(x=>`<div class="item spread"><div><div class="t">${esc(x.title)}</div><div class="m">${esc(x.institution)}</div></div>${dlChip(x.deadline)}</div>`).join(''):'<div class="empty">No live deadlines yet. New finds arrive with the morning cycle.</div>'}</div>
   <div class="card"><h2>Top matches</h2><div class="sub">Score 80+, strong or exceptional fit</div>
-  ${high.length?high.sort((a,b)=>(+b.matchScore)-(+a.matchScore)).slice(0,4).map(oppRow).join(''):'<div class="empty">Nothing scored 80+ yet.</div>'}</div>
+  ${high.length?high.sort((a,b)=>(+b.matchScore)-(+a.matchScore)).slice(0,4).map(oppRow).join(''):'<div class="empty">Nothing scored 65+ yet.</div>'}</div>
   </div>`;
   loadSide();
 }
@@ -253,11 +253,11 @@ async function loadSide(){
 
 
 const CASE_STAGES=['Discovered','Verified','Email prepared','Awaiting approval','Sent','Replied','In conversation','Interview','Closed'];
-function vCases(){
+function vCases(host){
   const cases=(B&&B.cases?B.cases:[]).sort((a,b)=>(b.updatedOn||'')<(a.updatedOn||'')?-1:1);
   const opps=B?B.opportunities:[];
   const threads=B&&B.threads?B.threads:[];
-  $('view').innerHTML=`<div class="card"><div class="spread"><div><h2>Cases</h2>
+  (host||$('view')).innerHTML=`<div class="card"><div class="spread"><div><h2>Cases</h2>
   <div class="sub">Every strong verified match becomes a case automatically and moves through the pipeline. You only step in where the timeline says so.</div></div>
   <div class="row"><button class="btn b-line b-sm" onclick="refresh().then(()=>toast('Up to date'))">Check for updates</button>
   ${ME.role==='admin'?`<button class="btn b-gold b-sm" onclick="adminRun()">Run agent now</button>`:''}</div></div>
@@ -280,7 +280,83 @@ function vCases(){
     <button class="btn b-line b-sm" onclick="gen('interview','${c.oppId}')">Interview brief</button>
     ${c.coupleKey?`<button class="btn b-line b-sm" onclick="gen('dossier','${c.oppId}')">Two-body dossier</button>`:''}
     ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">source ↗</a>`:''}
-    </div></div>`}).join(''):`<div class="empty">No cases yet. Cases open automatically when the agent finds AND verifies a match scoring 80+, which happens during the morning and evening cycles.${ME.role==='admin'?' Tap Run agent now to start a cycle immediately, the first one takes about 2 to 3 minutes.':''}</div>`}</div>`;
+    </div></div>`}).join(''):`<div class="empty">No cases yet. Cases open automatically when the agent finds AND verifies a match scoring 65+, which happens during the morning and evening cycles.${ME.role==='admin'?' Tap Run agent now to start a cycle immediately, the first one takes about 2 to 3 minutes.':''}</div>`}</div>`;
+}
+
+
+const isPostdoc=o=>(o.section||'postdoc')==='postdoc';
+let PD_SEG='pipeline';
+function vPostdoc(){
+  const out=B?B.outbox:[],cases=B&&B.cases?B.cases:[];
+  const pd=(B?B.opportunities:[]).filter(isPostdoc);
+  const contacted=out.filter(m=>m.type==='outreach'&&m.status==='SENT').length;
+  const replies=out.filter(m=>m.replied==='yes').length;
+  const interviews=cases.filter(c=>c.stage==='Interview').length;
+  const verified=pd.filter(o=>o.status==='VERIFIED').length;
+  $('view').innerHTML=`<div class="card" style="padding:12px 16px"><div class="spread">
+  <div class="row" style="gap:16px">
+  <div class="stat"><b>${pd.length}</b><span>found</span></div>
+  <div class="stat"><b>${verified}</b><span>verified</span></div>
+  <div class="stat"><b>${contacted}</b><span>supervisors contacted</span></div>
+  <div class="stat"><b>${replies}</b><span>replies</span></div>
+  <div class="stat"><b>${interviews}</b><span>interviews</span></div></div>
+  <div class="row"><button class="btn ${PD_SEG==='pipeline'?'b-ink':'b-line'} b-sm" onclick="PD_SEG='pipeline';render()">Pipeline</button>
+  <button class="btn ${PD_SEG==='cases'?'b-ink':'b-line'} b-sm" onclick="PD_SEG='cases';render()">Cases</button>
+  <button class="btn ${PD_SEG==='couple'?'b-ink':'b-line'} b-sm" onclick="PD_SEG='couple';render()">Couple</button></div></div></div>
+  <div id="pdseg"></div>`;
+  const host=$('pdseg');
+  if(PD_SEG==='cases')vCases(host);
+  else if(PD_SEG==='couple')vCouple(host);
+  else{
+    const o=pd.sort((a,b)=>(+b.matchScore||0)-(+a.matchScore||0));
+    host.innerHTML=`<div class="card"><div class="spread"><div><h2>Postdoc pipeline</h2>
+    <div class="sub">The core engine: 5 verified searches per researcher per day, its own schedule, never shared with the Jobs section.</div></div>
+    ${ME.role==='admin'?`<button class="btn b-gold" onclick="adminRun()">Run agent now</button>`:''}</div>
+    ${o.length?o.map(oppRow).join(''):'<div class="empty">The engine has not run since deploy. Tap Run agent now, verified postdoctoral opportunities arrive within a few minutes.</div>'}</div>`;
+  }
+}
+let JOBFILTER='all';
+function vJobs(){
+  const jobs=(B?B.opportunities:[]).filter(o=>!isPostdoc(o));
+  const shown=JOBFILTER==='all'?jobs:jobs.filter(o=>oppCat(o)===JOBFILTER);
+  const tasks=(B&&B.tasks?B.tasks:[]).filter(t=>jobs.some(j=>j.id===t.oppId));
+  const done=tasks.filter(t=>t.status==='Done').length;
+  const applied=tasks.filter(t=>t.title==='Application submitted'&&t.status==='Done').length;
+  $('view').innerHTML=`<div class="card" style="padding:12px 16px"><div class="row" style="gap:16px">
+  <div class="stat"><b>${jobs.length}</b><span>jobs tracked</span></div>
+  <div class="stat"><b>${done}/${tasks.length||0}</b><span>tasks done</span></div>
+  <div class="stat"><b>${applied}</b><span>applications submitted</span></div></div></div>
+  <div class="card"><div class="spread"><div><h2>Jobs</h2>
+  <div class="sub">Separate from the postdoc engine. Add roles you find and PostDocX tailors the CV and writes the cover letter for each.</div></div>
+  <button class="btn b-ink" onclick="addJobModal()">Add a job</button></div>
+  <div class="row" style="margin-bottom:10px">${[['all','All'],['national_job','National'],['remote_job','Remote'],['international_job','International']].map(([k,l])=>`<button class="btn ${JOBFILTER===k?'b-ink':'b-line'} b-sm" onclick="JOBFILTER='${k}';render()">${l}</button>`).join('')}</div>
+  ${shown.length?shown.map(o=>`<div class="item"><div class="spread"><div style="min-width:0"><div class="t">${esc(o.title)}</div>
+  <div class="m">${esc(o.institution)}${o.country?' · '+esc(o.country):''}</div></div>
+  <span class="chip c-blue">${catLabel(oppCat(o))}</span></div>
+  <div class="b">${o.compensation?`<span class="chip c-green">${esc(o.compensation)}</span>`:''}${dlChip(o.deadline)}
+  ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">posting ↗</a>`:''}</div>
+  <div class="b"><button class="btn b-line b-sm" onclick="gen('cv','${o.id}')">Tailored CV</button>
+  <button class="btn b-line b-sm" onclick="gen('cover','${o.id}')">Cover letter</button></div></div>`).join('')
+  :'<div class="empty">No jobs tracked yet. Tap Add a job with any posting you find, a task checklist opens automatically and the writing tools tailor your documents to it.</div>'}</div>`;
+}
+function addJobModal(){
+  modal(`<h3>Add a job</h3><div class="sub">Its checklist and document tools are created automatically</div>
+  <label>Position title</label><input id="j-title">
+  <label>Organization</label><input id="j-inst">
+  <label>Category</label><select id="j-cat"><option value="national_job">National Job (Pakistan)</option><option value="remote_job">Remote Job</option><option value="international_job">International Job</option></select>
+  <label>Location (city, country)</label><input id="j-loc" placeholder="e.g. Islamabad, Pakistan or Riyadh, KSA or Remote">
+  <label>Posting link</label><input id="j-url">
+  <label>Deadline (YYYY-MM-DD, optional)</label><input id="j-dl">
+  <label>Compensation (optional)</label><input id="j-comp" placeholder="e.g. PKR 350k/month">
+  <div class="b" style="margin-top:14px"><button class="btn b-ink" onclick="addJob()">Add job</button>
+  <button class="btn b-line" onclick="closeModal()">Cancel</button></div>`);
+}
+async function addJob(){
+  try{
+    await api('/api/opportunities',{method:'POST',body:{title:$('j-title').value.trim(),institution:$('j-inst').value.trim(),
+      category:$('j-cat').value,country:$('j-loc').value.trim(),url:$('j-url').value.trim(),deadline:$('j-dl').value.trim(),compensation:$('j-comp').value.trim()}});
+    closeModal();toast('Job added with its checklist');await refresh();
+  }catch(e){toast(e.message)}
 }
 
 function oppRow(o){
@@ -301,22 +377,22 @@ async function gen(kind,id){
   try{const d=await api('/api/generate/'+kind+'/'+id,{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
 }
 let OPPFILTER='all';
-function vOpps(){
+function vOpps(host){
   const all=(B?B.opportunities:[]).sort((a,b)=>(+b.matchScore||0)-(+a.matchScore||0));
   const o=OPPFILTER==='all'?all:all.filter(x=>oppCat(x)===OPPFILTER);
-  $('view').innerHTML=`<div class="card"><div class="spread"><div><h2>Opportunities</h2>
-  <div class="sub">${o.length} found for you. Every item is verified against its original institutional source before any contact.</div></div>
+  (host||$('view')).innerHTML=`<div class="card"><div class="spread"><div><h2>Opportunities</h2>
+  <div class="sub">${o.length} found. Postdoc discovery is the core engine and runs on its own schedule and daily limit; National and Remote are organizational categories with no automated search, add items there manually if needed.</div></div>
   <button class="btn b-line" onclick="refresh()">Refresh</button></div>
   <div class="row" style="margin-bottom:10px">${[['all','All'],...CATS].map(([k,l])=>`<button class="btn ${OPPFILTER===k?'b-ink':'b-line'} b-sm" onclick="OPPFILTER='${k}';render()">${l}</button>`).join('')}</div>
-  ${o.length?o.map(oppRow).join(''):'<div class="empty">The agent has not found anything yet. New discoveries land every morning at 6 AM, evenings pick up approvals and replies.</div>'}</div>`;
+  ${o.length?o.map(oppRow).join(''):'<div class="empty">The postdoc engine has not run since this deploy. Open Cases and tap Run agent now, verified postdoctoral opportunities will appear here under International within a few minutes. Morning and evening cycles then continue automatically.</div>'}</div>`;
 }
-function vCouple(){
+function vCouple(host){
   const mine=(B?B.opportunities:[]).filter(o=>o.coupleKey);
   const theirs=B?B.coupleOpportunities:[];
   const groups={};
   [...mine,...theirs].forEach(o=>{(groups[o.coupleKey]=groups[o.coupleKey]||[]).push(o)});
   const keys=Object.keys(groups);
-  $('view').innerHTML=`<div class="card"><h2>Couple placement</h2>
+  (host||$('view')).innerHTML=`<div class="card"><h2>Couple placement</h2>
   <div class="sub">${B&&B.partner?'Scenarios where you and '+esc(B.partner.name)+' can be placed together: same university, same city, or one funded role plus one hostable route nearby.':'Ask the admin to link your accounts as a couple, then scenarios appear here.'}</div>
   ${keys.length?keys.map(k=>`<div class="item"><div class="t" style="margin-bottom:6px">Scenario: ${esc(k.split('-').pop())}</div>
   ${groups[k].map(o=>`<div class="m" style="margin:6px 0 2px"><b>${o.resId===ME.id?'You':'Partner'}:</b> ${esc(o.title)}, ${esc(o.institution)} ${scoreChip(o.matchScore)} ${stChip(o.status)}</div>`).join('')}
@@ -510,6 +586,8 @@ function vProfile(host){
   <div class="card" style="margin-bottom:14px"><h2>Opportunity interests</h2>
   <div class="sub">Shown on your dashboard and used to organize your pipeline. Choose one or more.</div>
   ${CATS.map(([k,l])=>`<div class="row" style="margin:4px 0"><input type="checkbox" id="pjp-${k}" style="width:auto" ${(ME.jobPrefs||'international_job').split(',').includes(k)?'checked':''}><span>${l}</span></div>`).join('')}
+  <label>Preferred locations (cities for national jobs, countries for international; guides organization)</label>
+  <input id="pjp-loc" value="${esc(ME.jobLocations||'')}" placeholder="e.g. National: Islamabad, Rawalpindi. International: Germany, KSA, UK">
   <label>Minimum acceptable compensation (optional, e.g. "EUR 3500/month" or "USD 55k/year")</label>
   <input id="pjp-minsal" value="${esc(ME.minSalary||'')}" placeholder="Leave empty for no floor">
   <div class="b" style="margin-top:10px"><button class="btn b-ink b-sm" onclick="savePrefsCats()">Save interests</button></div>
@@ -526,7 +604,7 @@ function vProfile(host){
 async function savePrefsCats(){
   const sel=CATS.filter(([k])=>$('pjp-'+k).checked).map(([k])=>k);
   if(!sel.length)return toast('Pick at least one');
-  try{const d=await api('/api/profile',{method:'PUT',body:{jobPrefs:sel.join(','),minSalary:$('pjp-minsal').value.trim()}});ME=d.user;toast('Interests saved')}catch(e){toast(e.message)}
+  try{const d=await api('/api/profile',{method:'PUT',body:{jobPrefs:sel.join(','),minSalary:$('pjp-minsal').value.trim(),jobLocations:$('pjp-loc').value.trim()}});ME=d.user;toast('Interests saved')}catch(e){toast(e.message)}
 }
 async function saveMissing(){
   const body={};let n=0;
