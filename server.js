@@ -66,7 +66,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 /* ================= AUTH ================= */
 app.post('/api/register', async (req, res) => {
   try {
-    const { name, email, password, title, field, methods, pubs, prefs, links, orcid, nationality, phone } = req.body || {};
+    const { name, email, password, title, field, methods, pubs, prefs, links, orcid, nationality, phone, jobPrefs } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
     if (String(password).length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     const users = await db.all('Users');
@@ -78,7 +78,8 @@ app.post('/api/register', async (req, res) => {
       title: title || '', field: field || '', methods: methods || '', pubs: pubs || '',
       prefs: prefs || '', links: links || '', orcid: orcid || '', nationality: nationality || 'Pakistani',
       phone: phone || '', smtpEmail: '', encPass: '', emailConnected: 'no', partnerId: '',
-      active: 'yes', createdOn: today()
+      active: 'yes', createdOn: today(),
+      jobPrefs: Array.isArray(jobPrefs) ? jobPrefs.join(',') : (jobPrefs || 'international_job')
     };
     await db.add('Users', u);
     await db.log('REGISTER', name + ' <' + email + '> as ' + role);
@@ -105,7 +106,7 @@ app.get('/api/me', auth, async (req, res) => {
 app.put('/api/profile', auth, async (req, res) => {
   try {
     const u = await getUser(req.userId);
-    const allowed = ['name', 'title', 'field', 'methods', 'pubs', 'prefs', 'links', 'orcid', 'nationality', 'phone'];
+    const allowed = ['name', 'title', 'field', 'methods', 'pubs', 'prefs', 'links', 'orcid', 'nationality', 'phone', 'jobPrefs', 'minSalary'];
     for (const k of allowed) if (req.body[k] !== undefined) u._row.set(k, String(req.body[k]).slice(0, 2000));
     await u._row.save();
     res.json({ user: publicUser(await getUser(req.userId)) });
@@ -296,8 +297,8 @@ app.get('/api/bundle', auth, async (req, res) => {
   try {
     const me = await getUser(req.userId);
     const strip = a => a.map(({ _row, ...o }) => o);
-    const [opps, outbox, proposals, users, cases, threads] = await Promise.all([
-      db.all('Opportunities'), db.all('Outbox'), db.all('Proposals'), db.all('Users'), db.all('Cases'), db.all('Threads')
+    const [opps, outbox, proposals, users, cases, threads, tasks] = await Promise.all([
+      db.all('Opportunities'), db.all('Outbox'), db.all('Proposals'), db.all('Users'), db.all('Cases'), db.all('Threads'), db.all('Tasks')
     ]);
     const mineOpp = opps.filter(o => o.resId === req.userId);
     const coupleKeys = new Set(mineOpp.filter(o => o.coupleKey).map(o => o.coupleKey));
@@ -310,6 +311,7 @@ app.get('/api/bundle', auth, async (req, res) => {
       outbox: strip(outbox.filter(m => m.resId === req.userId)),
       proposals: strip(proposals.filter(p => p.resId === req.userId)).map(p => ({ id: p.id, title: p.title, status: p.status, createdOn: p.createdOn })),
       cases: strip(cases.filter(cse => cse.resId === req.userId)),
+      tasks: strip(tasks.filter(t => t.resId === req.userId)),
       threads: strip(threads.filter(t => t.resId === req.userId)).map(t => ({ id: t.id, oppId: t.oppId, outboxId: t.outboxId, fromEmail: t.fromEmail, subject: t.subject, body: t.body, intent: t.intent, receivedOn: t.receivedOn }))
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -321,6 +323,15 @@ app.get('/api/proposals/:id', auth, async (req, res) => {
   res.json({ title: p.title, content: p.content, createdOn: p.createdOn });
 });
 
+
+app.post('/api/tasks/:id/toggle', auth, async (req, res) => {
+  const t = (await db.all('Tasks')).find(x => x.id === req.params.id && x.resId === req.userId);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const next = t.status === 'Done' ? 'Open' : 'Done';
+  t._row.set('status', next);
+  await t._row.save();
+  res.json({ ok: true, status: next });
+});
 /* ---- in-app approvals ---- */
 app.put('/api/outbox/:id', auth, async (req, res) => {
   const m = (await db.all('Outbox')).find(x => x.id === req.params.id && x.resId === req.userId);
