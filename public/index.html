@@ -50,6 +50,18 @@ main{max-width:1180px;margin:0 auto;padding:18px 14px 90px}
 .empty{border:1.5px dashed var(--line);border-radius:10px;padding:26px 16px;text-align:center;color:var(--slate);font-size:13px}
 button.btn{font:600 13px 'Inter',sans-serif;border-radius:8px;padding:9px 14px;cursor:pointer;border:1px solid transparent}
 .b-ink{background:var(--ink);color:#fff}.b-gold{background:var(--gold);color:#fff}
+.nav-adv{display:flex;gap:8px;padding:0 4px 6px;flex-wrap:wrap}
+nav.nav-adv button.adv{font-size:11px;color:#8A93A4;border:none;background:none;padding:2px 6px;border-bottom:2px solid transparent}
+nav.nav-adv button.adv.on{color:var(--ink);border-bottom-color:var(--gold)}
+.big-btn{display:block;width:100%;text-align:left;padding:18px 20px;border-radius:14px;border:1.5px solid var(--line);background:var(--panel);cursor:pointer;margin-bottom:12px;transition:.15s}
+.big-btn:hover{border-color:var(--gold);transform:translateY(-1px)}
+.big-btn .bt{font-size:16px;font-weight:700;color:var(--ink)}
+.big-btn .bd{font-size:12.5px;color:var(--slate);margin-top:3px}
+.big-btn .bn{float:right;font-family:'Fraunces',serif;font-size:26px;color:var(--gold);font-weight:700}
+.status-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.mcard{border:1.5px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:12px;background:var(--panel)}
+.mcard.gold{border-color:var(--gold);background:linear-gradient(0deg,var(--gold-soft),var(--panel) 40%)}
+.pct{font-family:'Fraunces',serif;font-size:30px;font-weight:700;color:var(--green)}
 .b-line{background:#fff;color:var(--ink);border-color:var(--line)}
 .b-green{background:var(--green);color:#fff}
 .b-red{background:#fff;color:var(--crimson);border-color:var(--crimson-soft)}
@@ -106,7 +118,7 @@ const CATS=[['international_job','International (Postdoc priority)'],['national_
 const catLabel=c=>((CATS.find(x=>x[0]===c)||[])[1])||'International Jobs';
 const oppCat=o=>o.category||'international_job';
 let TOKEN=localStorage.getItem('pdx_token')||'';
-let ME=null, B=null, TAB='dash';
+let ME=null, B=null, TAB='home';
 
 async function api(path,opts={}){
   const headers=opts.headers||{};
@@ -164,15 +176,17 @@ function regSave(){
 }
 
 /* ================= app shell ================= */
-const TABS=[['dash','Dashboard'],['postdoc','Postdoc'],['jobs','Jobs'],['activity','Activity'],['profile','Profile']];
+const TABS=[['home','Home'],['matches','Best matches'],['apps','Applications'],['action','Action needed'],['mydocs','My documents'],['activity2','Activity']];
+const ADV_TABS=[['postdoc','Postdoc engine'],['jobs','Job search'],['profile','Profile & settings']];
 function shell(){
   const isAdmin=ME&&ME.role==='admin';
-  const tabs=[...TABS,...(isAdmin?[['admin','Admin']]:[])];
+  const tabs=[...TABS];
   document.querySelector('#app').innerHTML=`<header><div class="brand-row">
   <div class="brand"><h1>PostDoc<span class="x">X</span></h1></div>
   <div style="text-align:right"><div class="uname">${esc(ME.name)}${isAdmin?' · admin':''}</div>
   <a href="#" style="color:#9FB0C3;font-size:11.5px" onclick="logout();return false">Sign out</a></div></div>
-  <nav>${tabs.map(([id,l])=>`<button id="nb-${id}" onclick="go('${id}')">${l}</button>`).join('')}</nav></header>
+  <nav>${tabs.map(([id,l])=>`<button id="nb-${id}" onclick="go('${id}')">${l}</button>`).join('')}</nav>
+  <nav class="nav-adv">${[...ADV_TABS,...(isAdmin?[['admin','Admin']]:[])].map(([id,l])=>`<button id="nb-${id}" onclick="go('${id}')" class="adv">${l}</button>`).join('')}</nav></header>
   <main id="view"></main>`;
 }
 function logout(){TOKEN='';localStorage.removeItem('pdx_token');ME=null;B=null;renderAuth()}
@@ -182,7 +196,7 @@ async function boot(first){
   try{
     if(!ME)ME=(await api('/api/me')).user;
     shell();
-    if(first==='onboard'){TAB='docs';}
+    if(first==='onboard'){TAB='mydocs';}
     await refresh();
   }catch(e){/* auth handler already redirected */}
 }
@@ -192,8 +206,8 @@ async function refresh(){
 }
 function render(){
   if(!ME)return;
-  TABS.concat([['admin','Admin']]).forEach(([id])=>{const b=$('nb-'+id);if(b)b.className=id===TAB?'on':''});
-  const V={dash:vDash,postdoc:vPostdoc,jobs:vJobs,cases:vPostdoc,opps:vPostdoc,couple:vPostdoc,activity:vActivity,profile:vProfilePage,outbox:vActivity,docs:vProfilePage,refs:vProfilePage,props:vActivity,admin:vAdmin};
+  [...TABS,...ADV_TABS,['admin','Admin']].forEach(([id])=>{const b=$('nb-'+id);if(b)b.className=(id===TAB?'on':'')+(ADV_TABS.some(a=>a[0]===id)?' adv':'')});
+  const V={home:vHome,matches:vMatches,apps:vApps,action:vAction,mydocs:vMyDocs,activity2:vActivitySimple,postdoc:vPostdoc,jobs:vJobs,profile:vProfilePage,dash:vHome,activity:vActivity,cases:vPostdoc,opps:vPostdoc,couple:vPostdoc,outbox:vActivity,docs:vProfilePage,refs:vProfilePage,props:vActivity,admin:vAdmin};
   (V[TAB]||vDash)();
 }
 
@@ -213,6 +227,130 @@ function checklist(){
 }
 
 /* ================= views ================= */
+
+/* ================= SIMPLE MODE ================= */
+let HOME=null;
+function ago(iso){const s=Math.floor((Date.now()-new Date(iso))/1000);if(s<90)return 'just now';const m=Math.floor(s/60);if(m<60)return m+' min ago';const h=Math.floor(m/60);if(h<24)return h+'h ago';return Math.floor(h/24)+'d ago';}
+async function loadHome(){ try{HOME=await api('/api/home')}catch(e){HOME=null} }
+function statusColor(st){return {'Sent':'#3b82f6','Replied':'#3b82f6','In conversation':'#3b82f6','Interview':'#8b5cf6','Closed':'#94a3b8','Email prepared':'#f59e0b','Awaiting approval':'#f59e0b'}[st]||'#94a3b8'}
+
+async function vHome(){
+  $('view').innerHTML='<div class="empty">Loading your morning brief…</div>';
+  await loadHome();
+  if(!HOME){$('view').innerHTML='<div class="empty">Could not load. Pull to refresh.</div>';return}
+  const c=HOME.counts;const hr=new Date().getHours();
+  const greet=hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
+  const fn=(HOME.name||'').split(' ')[0]||'';
+  $('view').innerHTML=`
+  <div class="mcard" style="background:var(--ink);border:none;color:#fff">
+    <div style="font-family:'Fraunces',serif;font-size:22px">${greet}, ${esc(fn)}</div>
+    <div style="margin-top:4px;color:#C9D2DE">Your agent ${HOME.autopilot?'is working in the background':'is paused'}.
+    <span class="status-dot" style="background:${HOME.autopilot?'#39d98a':'#f59e0b'}"></span></div>
+    ${HOME.lastRun?`<div style="margin-top:3px;color:#8FA0B4;font-size:11.5px">Last search ${ago(HOME.lastRun.at)} · found ${HOME.lastRun.discovered}, verified ${HOME.lastRun.verified}, sent ${HOME.lastRun.sent}</div>`:''}
+    <div style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap;font-size:13px">
+    <div><b style="font-size:19px">${c.checked}</b><br><span style="color:#9FB0C3">checked</span></div>
+    <div><b style="font-size:19px;color:#E4C36B">${c.best}</b><br><span style="color:#9FB0C3">great matches</span></div>
+    <div><b style="font-size:19px">${c.prepared}</b><br><span style="color:#9FB0C3">prepared</span></div>
+    <div><b style="font-size:19px">${c.submitted}</b><br><span style="color:#9FB0C3">submitted</span></div>
+    <div><b style="font-size:19px;color:#E4C36B">${c.actions}</b><br><span style="color:#9FB0C3">need you</span></div>
+    </div></div>
+  <button class="big-btn" onclick="go('matches')"><span class="bn">${c.best}</span><div class="bt">View best matches</div><div class="bd">Your strongest opportunities, ranked by fit</div></button>
+  <button class="big-btn" onclick="go('action')"><span class="bn" style="color:${c.actions?'var(--gold)':'var(--slate)'}">${c.actions}</span><div class="bt">Complete my actions</div><div class="bd">${c.actions?'Things only you can do, one tap each':'Nothing needs you right now'}</div></button>
+  <button class="big-btn" onclick="go('apps')"><span class="bn" style="color:var(--ink)">${c.submitted}</span><div class="bt">View applications</div><div class="bd">Track every application and its status</div></button>
+  <button class="big-btn" onclick="findNow()"><div class="bt">Find new opportunities now →</div><div class="bd">Search universities, labs and institutes immediately</div></button>`;
+}
+async function findNow(){
+  if(ME.role!=='admin'){toast('The agent searches automatically every day. Ask your admin to run it now.');return}
+  toast('Searching universities, labs and institutes…');
+  try{await api('/api/admin/run',{method:'POST'});toast('Search started. New matches appear in a few minutes.')}catch(e){toast(e.message)}
+}
+
+async function vMatches(){
+  $('view').innerHTML='<div class="empty">Loading your best matches…</div>';
+  await loadHome();
+  const best=HOME?HOME.best:[];
+  $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
+  <div style="font-family:'Fraunces',serif;font-size:20px;color:var(--ink)">Your best matches</div>
+  <div class="sub">Only the strongest, verified against the real source</div></div>
+  ${best.length?best.map(o=>{
+    const sc=parseInt(o.matchScore)||0;
+    return `<div class="mcard ${o.coupleKey?'gold':''}">
+    <div style="display:flex;justify-content:space-between"><div style="min-width:0">
+    <div style="font-weight:700;color:var(--ink)">${esc(o.institution||'')}</div>
+    <div style="font-size:13px;margin-top:2px">${esc(o.title||'')}</div>
+    ${o.pi?`<div class="sub" style="margin-top:2px">Supervisor: ${esc(o.pi)}</div>`:''}</div>
+    <div style="text-align:right"><div class="pct" style="color:${sc>=80?'var(--green)':'var(--gold)'}">${sc}%</div><div class="sub">match</div></div></div>
+    ${o.coupleKey?'<div style="margin-top:6px"><span class="chip c-gold">★ Couple fit, preferred</span></div>':''}
+    <div class="sub" style="margin-top:8px">${esc((o.note||'').split('|')[0]||'')}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+    ${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}
+    <span class="chip c-green">${esc(o.funding||'')}</span></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+    <button class="btn b-gold" onclick="prepareApp('${o.id}')">Prepare application</button>
+    ${/fellowship|grant|scholarship|funding/i.test((o.title||'')+(o.funding||''))?`<button class="btn b-line" onclick="genFunding('${o.id}')">Funding draft</button>`:''}
+    <button class="btn b-line" onclick="go('postdoc')">View details</button></div></div>`}).join(''):
+    `<div class="empty">No great matches yet. ${ME.role==='admin'?'Tap Find new opportunities on Home.':'Your agent is searching, check back soon.'}</div>`}`;
+}
+async function genFunding(oppId){
+  toast('Reading the scheme criteria and drafting your funding application…');
+  try{await api('/api/generate/funding/'+oppId,{method:'POST'});toast('Funding application draft is being written, see Applications and your email.')}catch(e){toast(e.message)}
+}
+async function prepareApp(oppId){
+  toast('Preparing your application: tailoring CV and documents…');
+  try{await api('/api/cases/'+oppId+'/prepare',{method:'POST'});toast('Preparing. Check Action needed shortly to review and send.');await loadHome();}
+  catch(e){toast(e.message)}
+}
+
+async function vAction(){
+  $('view').innerHTML='<div class="empty">Checking what needs you…</div>';
+  await loadHome();
+  const acts=HOME?HOME.actions:[];
+  $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
+  <div style="font-family:'Fraunces',serif;font-size:20px;color:var(--ink)">Action needed</div>
+  <div class="sub">${acts.length?'The agent handles everything else automatically':'All clear, the agent is handling everything'}</div></div>
+  ${acts.length?acts.map(a=>`<div class="mcard">
+  <div style="font-weight:700;color:var(--ink)">${esc(a.where||'Application')}</div>
+  <div class="sub" style="margin-top:3px">${a.kind==='approve'?'Application ready to review and send':esc(a.title)}</div>
+  <div style="margin-top:10px">${a.kind==='approve'
+    ?`<button class="btn b-green" onclick="go('activity')">Review and send</button>`
+    :`<button class="btn b-gold" onclick="go('mydocs')">${/upload/i.test(a.title)?'Upload document':'Open'}</button>`}</div></div>`).join(''):
+  '<div class="empty">Nothing needs you right now. Enjoy your day, the agent is working.</div>'}`;
+}
+
+async function vApps(){
+  $('view').innerHTML='<div class="empty">Loading applications…</div>';
+  await loadHome();
+  const apps=HOME?HOME.applications:[];
+  $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
+  <div style="font-family:'Fraunces',serif;font-size:20px;color:var(--ink)">Applications</div>
+  <div class="sub">Every case and where it stands</div></div>
+  ${apps.length?apps.map(a=>`<div class="mcard">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+  <div><div style="font-weight:700;color:var(--ink)">${esc(a.institution||a.title)}</div>
+  <div class="sub">${esc(a.title||'')}</div></div>
+  <span class="chip" style="background:${statusColor(a.stage)}22;color:${statusColor(a.stage)}"><span class="status-dot" style="background:${statusColor(a.stage)}"></span>${esc(a.stage)}</span></div></div>`).join(''):
+  '<div class="empty">No applications yet. They appear here as the agent prepares and sends them.</div>'}`;
+}
+
+async function vMyDocs(){ PSEG='docs'; vProfilePage(); }
+
+async function vActivitySimple(){
+  $('view').innerHTML='<div class="empty">Loading activity…</div>';
+  await loadHome();
+  const a=HOME?HOME.activityToday:[];
+  const nice={CYCLE_DONE:'Completed a full search cycle',EMAIL_SENT:'Sent an email',TAILORED_CV:'Tailored a CV',COVER_LETTER:'Wrote a cover letter',AUTHORIZED:'Authorized sending',AUTOFILL:'Read your documents',MODE_CHANGED:'Changed sending mode',RESTORED:'Restored data',LAB_MAP:'Built a target lab map'};
+  $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
+  <div style="font-family:'Fraunces',serif;font-size:20px;color:var(--ink)">Activity today</div>
+  <div class="sub">What your agent has been doing, in plain language</div></div>
+  <div class="mcard">${a.length?a.map(x=>`<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px">✓ ${esc(nice[x.event]||x.event)}${x.detail?` <span class="sub">, ${esc((x.detail||'').slice(0,60))}</span>`:''}</div>`).join(''):'<div class="empty">Quiet so far today. The agent runs morning and evening automatically.</div>'}
+  ${ME.role==='admin'?`<div style="margin-top:12px;display:flex;gap:8px">
+  <button class="btn b-line b-sm" onclick="toggleAutopilot(${HOME.autopilot})">${HOME.autopilot?'Pause agent':'Resume agent'}</button>
+  <button class="btn b-line b-sm" onclick="findNow()">Run now</button></div>`:''}</div>`;
+}
+async function toggleAutopilot(on){
+  try{const d=await api('/api/autopilot',{method:'POST',body:{off:on}});toast(d.autopilot?'Agent resumed':'Agent paused');await vActivitySimple();}catch(e){toast(e.message)}
+}
+
 function pendingN(out){return out.filter(m=>m.status==='PENDING').length}
 function vDash(){
   const o=B?B.opportunities:[],out=B?B.outbox:[];
@@ -588,7 +726,7 @@ function vProfilePage(){
   const segs=[['profile','Profile'],['docs','Documents'],['refs','Referees']];
   $('view').innerHTML=`<div class="row" style="margin-bottom:12px">${segs.map(([k,l])=>`<button class="btn ${PSEG===k?'b-ink':'b-line'} b-sm" onclick="PSEG='${k}';render()">${l}</button>`).join('')}</div><div id="pseg"></div>`;
   const host=$('pseg');
-  if(PSEG==='docs')vDocs(host);else if(PSEG==='refs')vRefs(host);else vProfile(host);
+  if(PSEG==='docs')vDocs(host);else if(PSEG==='refs')vRefs(host);else{vProfile(host);loadAiHealth();}
 }
 let EDIT_PROFILE=false;
 const PROFILE_FIELDS=[['title','Credentials and role'],['field','Research field'],['methods','Methods and techniques'],['pubs','Publications'],['orcid','ORCID'],['links','Academic links'],['prefs','Preferences (countries, funding, couple placement)']];
@@ -612,6 +750,8 @@ function vProfile(host){
     }).join('')}
     ${missing.length?`<div class="b" style="margin-top:6px"><button class="btn b-ink" onclick="saveMissing()">Save missing fields</button></div>`:''}`}
   </div>
+  <div class="card" style="margin-bottom:14px"><h2>AI system</h2>
+  <div class="sub" id="aihealth">Checking…</div></div>
   <div class="card" style="margin-bottom:14px"><h2>Opportunity interests</h2>
   <div class="sub">Shown on your dashboard and used to organize your pipeline. Choose one or more.</div>
   ${CATS.map(([k,l])=>`<div class="row" style="margin:4px 0"><input type="checkbox" id="pjp-${k}" style="width:auto" ${(ME.jobPrefs||'international_job').split(',').includes(k)?'checked':''}><span>${l}</span></div>`).join('')}
@@ -631,6 +771,11 @@ function vProfile(host){
   <label>App password (16 characters)</label><input id="em-pass" type="password">
   <div class="b" style="margin-top:12px"><button class="btn b-ink" id="emBtn" onclick="connectEmail()">Test connection</button></div>`}
   </div></div>`;
+}
+async function loadAiHealth(){
+  try{const d=await api('/api/ai-health');const el=$('aihealth');if(!el)return;
+  el.innerHTML='OpenAI '+(d.openai.ok?'✓ Connected':'⚠ '+d.openai.note)+' &nbsp;·&nbsp; Claude '+(d.claude.ok?'✓ Connected':'⚠ '+d.claude.note);
+  }catch(e){}
 }
 async function savePrefsCats(){
   const sel=CATS.filter(([k])=>$('pjp-'+k).checked).map(([k])=>k);
