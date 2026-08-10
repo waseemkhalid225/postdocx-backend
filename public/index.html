@@ -215,7 +215,7 @@ async function refresh(){
 function render(){
   if(!ME)return;
   [...TABS,...ADV_TABS,['admin','Admin']].forEach(([id])=>{const b=$('nb-'+id);if(b)b.className=(id===TAB?'on':'')+(ADV_TABS.some(a=>a[0]===id)?' adv':'')});
-  const V={home:vHome,matches:vMatches,apps:vApps,action:vAction,mydocs:vMyDocs,activity2:vActivitySimple,postdoc:vPostdoc,jobs:vJobs,profile:vProfilePage,dash:vHome,activity:vActivity,cases:vPostdoc,opps:vPostdoc,couple:vPostdoc,outbox:vActivity,docs:vProfilePage,refs:vProfilePage,props:vActivity,admin:vAdmin};
+  const V={home:vHome,matches:vMatches,apps:vApps,action:vAction,mydocs:vMyDocs,activity2:vActivitySimple,more:vMore,postdoc:vPostdoc,jobs:vJobs,profile:vProfilePage,dash:vHome,activity:vActivity,cases:vPostdoc,opps:vPostdoc,couple:vPostdoc,outbox:vActivity,docs:vProfilePage,refs:vProfilePage,props:vActivity,admin:vAdmin};
   (V[TAB]||vDash)();
 }
 
@@ -238,6 +238,27 @@ function checklist(){
 
 /* ================= SIMPLE MODE ================= */
 
+async function vMore(){
+  $('view').innerHTML='<div class="empty">Loading more opportunities…</div>';
+  let d;try{d=await api('/api/below-threshold')}catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
+  <div class="sect-title">More possible opportunities</div>
+  <div class="sub">These scored below your ${d.threshold}% bar, so the agent did not auto-engage. Review and pursue any that interest you.</div></div>
+  ${d.items.length?d.items.map(o=>`<div class="mcard">
+  <div style="display:flex;justify-content:space-between"><div style="min-width:0">
+  <div style="font-weight:700;color:var(--ink)">${esc(o.institution||'')}</div>
+  <div style="font-size:13px;margin-top:2px">${esc(o.title||'')}</div></div>
+  <div style="text-align:right;flex:0 0 auto"><div class="pct" style="color:var(--slate)">${parseInt(o.matchScore)||0}<span style="font-size:16px">%</span></div><div class="sub" style="margin:0;font-size:10px;text-transform:uppercase">match</div></div></div>
+  <div class="sub" style="margin-top:8px">${esc((o.note||'').split('|')[0]||'')}</div>
+  <div class="btn-group" style="margin-top:12px"><button class="btn b-gold" onclick="pursue('${o.id}')">Pursue this</button>
+  ${o.url?`<a class="btn b-line" href="${esc(o.url)}" target="_blank" rel="noopener">View posting</a>`:''}</div></div>`).join(''):'<div class="empty">Nothing below the bar right now.</div>'}`;
+}
+async function pursue(oppId){
+  toast('Pursuing: reading requirements and preparing the full case…');
+  try{const d=await api('/api/opps/'+oppId+'/pursue',{method:'POST'});toast(d.message);setTimeout(()=>openCase(oppId),3500);}catch(e){toast(e.message)}
+}
+
+
 let SEND_HEALTH=null;
 async function openCase(oppId){
   toast('Opening the full case…');
@@ -256,6 +277,37 @@ async function openCase(oppId){
     <span class="chip ${verified?'c-green':'c-gray'}">${verified?'✓ Verified against source':'Verification pending'}</span>
     ${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}</div>
 
+    ${o.chance||o.stipend||o.duration?`<div class="row" style="margin:10px 0">
+    ${o.chance?`<span class="chip ${/strong/i.test(o.chance)?'c-green':/moderate/i.test(o.chance)?'c-gold':'c-gray'}">Chance: ${esc(o.chance.split(' ')[0])}</span>`:''}
+    ${o.stipend?`<span class="chip c-blue">${esc(o.stipend)}</span>`:''}
+    ${o.duration?`<span class="chip c-gray">${esc(o.duration)}</span>`:''}</div>`:''}
+    ${o.chance&&o.chance.split(' ').length>1?`<div class="sub" style="margin-top:-2px">${esc(o.chance)}</div>`:''}
+
+    ${o.requirements&&o.requirements.requiredDocuments&&o.requirements.requiredDocuments.length?`
+    <div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">What this position requires</div>
+    ${o.requirements.requiredDocuments.map(rq=>{
+      const ready=(d.attachments||[]).some(a=>a.type&&rq&&(a.type.toLowerCase().includes(rq.toLowerCase().split(' ')[0])||rq.toLowerCase().includes('cv')&&/cv/i.test(a.type)));
+      return `<div class="sub" style="display:flex;gap:6px"><span style="color:${ready?'var(--green)':'var(--gold)'}">${ready?'✓':'○'}</span> ${esc(rq)}${ready?' (prepared)':''}</div>`;
+    }).join('')}`:''}
+
+    ${o.requirements&&o.requirements.eligibility&&o.requirements.eligibility.length?`
+    <div style="margin-top:12px;font-weight:700;font-size:13px;color:var(--ink)">Eligibility</div>
+    ${o.requirements.eligibility.map(e=>`<div class="sub">• ${esc(e)}</div>`).join('')}`:''}
+
+    ${o.requirements&&o.requirements.missingFromUser&&o.requirements.missingFromUser.length?`
+    <div class="mcard" style="margin-top:12px;border-color:var(--gold);background:var(--gold-soft)">
+    <div style="font-weight:700;font-size:13px;color:#8A6A15">The agent needs from you</div>
+    ${o.requirements.missingFromUser.map(m=>`<div class="sub" style="color:#8A6A15">○ ${esc(m)}</div>`).join('')}
+    <button class="btn b-gold b-sm" style="margin-top:8px" onclick="closeModal();go('mydocs')">Upload now</button></div>`:''}
+
+    ${o.requirements&&o.requirements.supervisorFocus?`
+    <div style="margin-top:12px;font-weight:700;font-size:13px;color:var(--ink)">Supervisor focus</div>
+    <div class="sub">${esc(o.requirements.supervisorFocus)}</div>`:''}
+
+    ${o.nextSteps&&o.nextSteps.length?`
+    <div style="margin-top:12px;font-weight:700;font-size:13px;color:var(--ink)">What the agent does next</div>
+    ${o.nextSteps.map(n=>`<div class="sub">→ ${esc(n)}</div>`).join('')}`:''}
+
     <div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Recipient</div>
     <div class="sub">${recip?'Official address the agent found and verified:':'No verified recipient found yet.'}</div>
     <input id="cs-to" value="${esc(recip)}" placeholder="official email of supervisor or admissions">
@@ -264,9 +316,11 @@ async function openCase(oppId){
     <label style="margin-top:6px">Subject</label><input id="cs-subj" value="${esc(email.subject)}">
     <label>Message</label><textarea id="cs-body" style="min-height:190px">${esc(email.body)}</textarea>`:'<div class="empty" style="margin-top:12px">No email drafted yet. Prepare the application first.</div>'}
 
-    ${d.documents&&d.documents.length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Prepared documents (tap to view and edit)</div>
+    ${d.documents&&d.documents.length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Prepared documents, written by the agent (tap to view and edit)</div>
     ${d.documents.map(x=>`<div class="item" style="margin-top:8px"><div class="spread"><div class="t" style="font-size:13px">${esc(x.title)}</div>
     <button class="btn b-line b-sm" onclick="closeModal();openProp('${x.id}')">Open</button></div></div>`).join('')}`:''}
+    ${d.attachments&&d.attachments.length?`<div style="margin-top:12px;font-weight:700;font-size:13px;color:var(--ink)">Attached to this email (PDF)</div>
+    ${d.attachments.map(a=>`<div class="sub">📎 ${esc(a.name)}</div>`).join('')}`:'<div class="sub" style="margin-top:10px;color:var(--gold)">No generated PDF attached yet. Tap Prepare application to create the tailored CV.</div>'}
 
     ${d.tasks&&d.tasks.filter(t=>t.status!=='Done').length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Still to do</div>
     ${d.tasks.filter(t=>t.status!=='Done').map(t=>`<div class="sub">○ ${esc(t.title)}</div>`).join('')}`:''}
@@ -326,11 +380,13 @@ async function vHome(){
     <div><b style="font-size:19px">${c.prepared}</b><br><span style="color:#9FB0C3">prepared</span></div>
     <div><b style="font-size:19px">${c.submitted}</b><br><span style="color:#9FB0C3">submitted</span></div>
     <div><b style="font-size:19px;color:#E4C36B">${c.actions}</b><br><span style="color:#9FB0C3">need you</span></div>
+    ${c.applied?`<div><b style="font-size:19px">${c.applied}</b><br><span style="color:#9FB0C3">applied</span></div>`:''}
     </div></div>
   <button class="big-btn" onclick="go('matches')"><div class="bwrap"><div class="bt">View best matches</div><div class="bd">Your strongest opportunities, ranked by fit</div></div><span class="bn">${c.best}</span></button>
   <button class="big-btn" onclick="go('action')"><div class="bwrap"><div class="bt">Complete my actions</div><div class="bd">${c.actions?'Things only you can do, one tap each':'Nothing needs you right now'}</div></div><span class="bn" style="color:${c.actions?'var(--gold)':'var(--slate)'}">${c.actions}</span></button>
   <button class="big-btn" onclick="go('apps')"><div class="bwrap"><div class="bt">View applications</div><div class="bd">Track every application and its status</div></div><span class="bn" style="color:var(--ink)">${c.submitted}</span></button>
-  <button class="big-btn" onclick="findNow()"><div class="bwrap"><div class="bt">Find new opportunities now</div><div class="bd">Search universities, labs, institutes and job boards immediately</div></div><span class="bn" style="color:var(--gold);font-size:22px">→</span></button>`;
+  <button class="big-btn" onclick="findNow()"><div class="bwrap"><div class="bt">Find new opportunities now</div><div class="bd">Search universities, labs, institutes and job boards immediately</div></div><span class="bn" style="color:var(--gold);font-size:22px">→</span></button>
+  ${c.belowThreshold?`<button class="big-btn" onclick="go('more')"><div class="bwrap"><div class="bt">More possible opportunities</div><div class="bd">${c.belowThreshold} scored below the bar. Review and pick any to pursue.</div></div><span class="bn" style="color:var(--slate)">${c.belowThreshold}</span></button>`:''}`;
 }
 async function findNow(){
   if(ME.role!=='admin'){toast('The agent searches for you automatically every morning and evening.');return}
@@ -348,8 +404,9 @@ async function vMatches(){
   await loadHome();
   const best=HOME?HOME.best:[];
   $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
-  <div class="sect-title">Your best matches</div>
+  <div class="spread"><div><div class="sect-title">Your best matches</div>
   <div class="sub">Only the strongest, verified against the real source</div></div>
+  <button class="btn b-ink b-sm" onclick="prepareAll()">Prepare all applications</button></div></div>
   ${best.length?best.map(o=>{
     const sc=parseInt(o.matchScore)||0;
     return `<div class="mcard ${o.coupleKey?'gold':''}">
@@ -373,10 +430,19 @@ async function genFunding(oppId){
   toast('Reading the scheme criteria and drafting your funding application…');
   try{await api('/api/generate/funding/'+oppId,{method:'POST'});toast('Funding application draft is being written, see Applications and your email.')}catch(e){toast(e.message)}
 }
+async function prepareAll(){
+  toast('Preparing all your applications in parallel…');
+  try{const d=await api('/api/prepare-all',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
+}
 async function prepareApp(oppId){
-  toast('Preparing your application: tailoring CV and documents…');
-  try{await api('/api/cases/'+oppId+'/prepare',{method:'POST'});toast('Preparing. Check Action needed shortly to review and send.');await loadHome();}
-  catch(e){toast(e.message)}
+  toast('Reading the full position requirements and preparing everything…');
+  try{
+    const d=await api('/api/cases/'+oppId+'/prepare',{method:'POST'});
+    toast(d.message||'Preparing.');
+    setTimeout(()=>openCase(oppId),3000);
+    // refresh the case a few times as documents complete
+    let n=0;const t=setInterval(async()=>{n++;if(n>=4){clearInterval(t)}await loadHome();},30000);
+  }catch(e){toast(e.message)}
 }
 
 async function vAction(){
@@ -900,7 +966,9 @@ function vAdmin(){
   <div class="row"><button class="btn b-gold" onclick="adminRun()">Run full cycle now</button>
   <button class="btn b-line" onclick="adminWeekly()">Weekly review now</button>
   <button class="btn b-line" onclick="diag()">Diagnose system</button>
-  <button class="btn b-line" onclick="backup()">Back up Sheet now</button></div></div>
+  <button class="btn b-line" onclick="backup()">Back up Sheet now</button>
+  <button class="btn b-line" onclick="healthPanel()">Autopilot health</button></div></div>
+  <div id="healthBox"></div>
   <div class="card"><h2>Sending mode</h2>
   <div class="sub">Approval: every email waits for your tap. Auto: verified outreach and routine replies send themselves within daily caps. Interviews and offers ALWAYS wait for you in both modes.</div>
   <div class="row">
@@ -942,6 +1010,17 @@ async function doRestore(id){
 }
 async function setMode(m){
   try{const d=await api('/api/admin/mode',{method:'POST',body:{mode:m}});toast(d.message);await refresh()}catch(e){toast(e.message)}
+}
+async function healthPanel(){
+  const box=$('healthBox');box.innerHTML='<div class="empty">Checking every internal system…</div>';
+  try{
+    const d=await api('/api/admin/autopilot-health');
+    const row=(label,r)=>`<div class="item spread"><div><div class="t">${label}</div><div class="m">${esc((r&&r.note)||'')}</div></div><span class="chip ${r&&r.ok?'c-green':'c-red'}">${r&&r.ok?'OK':'CHECK'}</span></div>`;
+    box.innerHTML='<div class="card"><h2>Autopilot health</h2>'+
+      row('Database',d.database)+row('Document storage',d.storage)+row('Email sending',d.email)+
+      row('AI engines',d.ai)+row('Last cycle',d.lastCycle)+row('Autopilot',d.autopilot)+
+      row('Pipeline',d.pipeline)+row('Tasks',d.tasks)+'</div>';
+  }catch(e){box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
 }
 async function backup(){try{const d=await api('/api/admin/backup',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}}
 async function diag(){
