@@ -12,7 +12,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne } = require('./lib/agent');
 const { testOpenAI } = require('./lib/openai');
 loadRuntimeMode().catch(() => {});
 
@@ -332,10 +332,10 @@ app.delete('/api/referees/:id', auth, async (req, res) => {
 });
 
 /* ================= PIPELINE DATA ================= */
+const strip = a => a.map(({ _row, ...o }) => o);
 app.get('/api/bundle', auth, async (req, res) => {
   try {
     const me = await getUser(req.userId);
-    const strip = a => a.map(({ _row, ...o }) => o);
     const [opps, outbox, proposals, users, cases, threads, tasks] = await Promise.all([
       db.all('Opportunities'), db.all('Outbox'), db.all('Proposals'), db.all('Users'), db.all('Cases'), db.all('Threads'), db.all('Tasks')
     ]);
@@ -558,10 +558,11 @@ app.get('/api/ai-health', auth, async (req, res) => {
 app.put('/api/outbox/:id', auth, async (req, res) => {
   const m = (await db.all('Outbox')).find(x => x.id === req.params.id && x.resId === req.userId);
   if (!m) return res.status(404).json({ error: 'Not found' });
-  if (m.status !== 'PENDING') return res.status(400).json({ error: 'Only pending drafts can be edited' });
-  const { subject, body } = req.body || {};
+  if (m.status !== 'PENDING' && m.status !== 'APPROVED') return res.status(400).json({ error: 'Only pending drafts can be edited' });
+  const { subject, body, toEmail } = req.body || {};
   if (subject) m._row.set('subject', String(subject).slice(0, 300));
   if (body) m._row.set('body', String(body).slice(0, 8000));
+  if (toEmail && /@/.test(toEmail)) m._row.set('toEmail', String(toEmail).trim().slice(0, 200));
   await m._row.save();
   await db.log('DRAFT_EDITED', m.subject);
   res.json({ ok: true });
@@ -572,11 +573,52 @@ app.post('/api/outbox/:id/:action', auth, async (req, res) => {
   if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'Bad action' });
   const m = (await db.all('Outbox')).find(x => x.id === id && x.resId === req.userId);
   if (!m) return res.status(404).json({ error: 'Not found' });
-  if (m.status !== 'PENDING') return res.status(400).json({ error: 'Already ' + m.status.toLowerCase() });
-  m._row.set('status', action === 'approve' ? 'APPROVED' : 'REJECTED');
-  await m._row.save();
-  await db.log(action.toUpperCase() + 'D', m.subject);
-  res.json({ ok: true, status: action === 'approve' ? 'APPROVED' : 'REJECTED' });
+  if (m.status !== 'PENDING' && m.status !== 'APPROVED') return res.status(400).json({ error: 'Already ' + m.status.toLowerCase() });
+  if (action === 'reject') {
+    m._row.set('status', 'REJECTED'); await m._row.save();
+    await db.log('REJECTED', m.subject);
+    return res.json({ ok: true, status: 'REJECTED' });
+  }
+  // APPROVE = send to the recipient NOW, from the user's own email, with attachments
+  const result = await sendOne(id);
+  if (!result.ok) return res.status(400).json({ error: result.error, status: 'PENDING' });
+  res.json({ ok: true, status: 'SENT', message: 'Sent to ' + result.to + (result.attachments ? ' with ' + result.attachments + ' attachment(s)' : '') + '.' });
+});
+
+// Preflight: can we actually send email right now? Used before showing Approve as ready.
+app.get('/api/send-health', auth, async (req, res) => {
+  const u = await getUser(req.userId);
+  let can = false, how = '', note = '';
+  if (u.emailConnected === 'yes' && u.smtpEmail) { can = true; how = 'your Gmail'; }
+  else if (process.env.BREVO_API_KEY) { can = true; how = 'the office sender over HTTPS'; note = 'Sends from the verified office address with your address as reply-to.'; }
+  else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+    const t = await testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
+    can = t.smtp; how = t.smtp ? 'the office Gmail' : ''; if (!t.smtp) note = 'SMTP is blocked by the host. Add a BREVO_API_KEY to enable sending over HTTPS.';
+  } else note = 'No sending method configured. Connect your Gmail in Profile, or add a Brevo API key.';
+  res.json({ canSend: can, how, note });
+});
+
+// Full case view: everything prepared, in one place, before sending
+app.get('/api/case/:oppId', auth, async (req, res) => {
+  try {
+    const oppId = req.params.oppId;
+    const opp = (await db.all('Opportunities')).find(o => o.id === oppId && o.resId === req.userId);
+    if (!opp) return res.status(404).json({ error: 'Not found' });
+    const cases = await db.all('Cases');
+    const cse = cases.find(c => c.oppId === oppId);
+    const outbox = (await db.all('Outbox')).filter(m => m.oppId === oppId);
+    const props = (await db.all('Proposals')).filter(p => p.oppId === oppId);
+    const tasks = (await db.all('Tasks')).filter(t => t.oppId === oppId);
+    const threads = (await db.all('Threads')).filter(t => t.oppId === oppId);
+    res.json({
+      opportunity: strip([opp])[0],
+      case: cse ? strip([cse])[0] : null,
+      emails: strip(outbox),
+      documents: strip(props).map(p => ({ id: p.id, title: p.title, status: p.status })),
+      tasks: strip(tasks),
+      conversation: strip(threads)
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 /* ---- on-demand agent actions (per user) ---- */
