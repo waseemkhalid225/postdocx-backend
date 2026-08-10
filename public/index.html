@@ -316,6 +316,10 @@ async function openCase(oppId){
     <div class="sub">${recip?'The agent found this address from the official page. Please confirm it is correct before sending, sending to the wrong professor cannot be undone.':'No recipient found yet. Add the official email from the position page.'}</div>
     <input id="cs-to" value="${esc(recip)}" placeholder="official email of supervisor or admissions">
     ${o.url?`<div class="sub" style="margin-top:4px">Verify against the source: <a href="${esc(o.url)}" target="_blank" rel="noopener">open the official posting ↗</a></div>`:''}
+    ${!recip?`<div class="mcard" style="margin-top:10px;border-color:var(--gold);background:var(--gold-soft)">
+    <div style="font-weight:700;font-size:13px;color:#8A6A15">No official email found, apply yourself</div>
+    <div class="sub" style="color:#8A6A15">The agent could not find a direct email for this one. Your tailored CV and documents are prepared below, and a short email draft is ready. ${o.url?'Open the posting and apply there with these documents.':'Search the position online and apply with these documents.'}</div>
+    ${o.url?`<a class="btn b-gold b-sm" style="margin-top:8px" href="${esc(o.url)}" target="_blank" rel="noopener">Open posting to apply ↗</a>`:''}</div>`:''}
     <div class="sub" style="margin-top:4px;color:var(--green)">A copy is BCC'd to your address, so you keep a record of exactly what was sent.</div>
 
     ${email?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Email draft (editable)</div>
@@ -337,8 +341,10 @@ async function openCase(oppId){
     `<div class="sub" style="margin-top:12px;color:var(--green)">✓ Ready to send via ${esc(SEND_HEALTH.how||'email')}. The professor receives it from your address.</div>`}
 
     <div class="btn-group" style="margin-top:16px;position:sticky;bottom:0;background:var(--panel);padding-top:10px">
-    ${email?`<button class="btn b-green b-lg" ${SEND_HEALTH.canSend?'':'disabled'} onclick="saveAndSend('${email.id}')">${SEND_HEALTH.canSend?'Approve and send now':'Cannot send yet'}</button>
+    ${email&&recip?`<button class="btn b-green b-lg" ${SEND_HEALTH.canSend?'':'disabled'} onclick="saveAndSend('${email.id}')">${SEND_HEALTH.canSend?'Approve and send now':'Cannot send yet'}</button>
     <button class="btn b-line" onclick="saveDraftOnly('${email.id}')">Save draft</button>`:''}
+    ${email&&!recip?`<button class="btn b-gold" onclick="saveDraftOnly('${email.id}')">Save draft</button>`:''}
+    <button class="btn b-line" onclick="prepareApp('${oppId}');closeModal()">Update (re-prepare)</button>
     <button class="btn b-line" onclick="closeModal()">Close</button></div></div>`);
   }catch(e){toast(e.message)}
 }
@@ -389,7 +395,8 @@ function remHtml(){
   if(!REMINDERS.length)return '';
   return `<div class="mcard" style="border-color:var(--gold);background:var(--gold-soft)">
   <div style="font-weight:700;font-size:13px;color:#8A6A15;margin-bottom:8px">Reminders</div>
-  ${REMINDERS.slice(0,5).map(r=>`<div class="spread" style="margin-bottom:6px"><div class="sub" style="color:#8A6A15">${r.kind==='deadline'?'⏰':'✉'} ${esc(r.note)}</div>
+  ${REMINDERS.slice(0,5).map(r=>`<div class="spread" style="margin-bottom:6px"><div class="sub" style="color:#8A6A15">${r.kind==='deadline'?'⏰':r.kind==='forward_funding'?'💰':'✉'} ${esc(r.note)}</div>
+  ${r.oppId?`<button class="btn b-gold b-sm" onclick="openCase('${r.oppId}')">Open</button>`:''}
   <button class="btn b-line b-sm" onclick="dismissReminder('${r.id}')">Done</button></div>`).join('')}</div>`;
 }
 async function dismissReminder(id){
@@ -409,7 +416,7 @@ async function vHome(){
   $('view').innerHTML=`
   <div class="mcard" style="background:var(--ink);border:none;color:#fff">
     <div style="font-family:'Fraunces',serif;font-size:22px">${greet}, ${esc(fn)}</div>
-    <div style="margin-top:4px;color:#C9D2DE">Your agent ${HOME.autopilot?'is working in the background':'is paused'}.
+    <div style="margin-top:4px;color:#C9D2DE">Your agent ${HOME.autopilot?'is working in the background':'is paused'} · ${HOME.mode==='auto'?'Autopilot':'Copilot'} mode.
     <span class="status-dot" style="background:${HOME.autopilot?'#39d98a':'#f59e0b'}"></span></div>
     ${HOME.lastRun?`<div style="margin-top:3px;color:#8FA0B4;font-size:11.5px">Last search ${ago(HOME.lastRun.at)} · found ${HOME.lastRun.discovered}, verified ${HOME.lastRun.verified}, sent ${HOME.lastRun.sent}</div>`:''}
     <div style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap;font-size:13px">
@@ -461,9 +468,8 @@ async function vMatches(){
     ${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}
     <span class="chip c-green">${esc(o.funding||'')}</span></div>
     <div class="btn-group" style="margin-top:14px">
-    <button class="btn b-gold" onclick="prepareApp('${o.id}')">Prepare application</button>
-    ${/fellowship|grant|scholarship|funding/i.test((o.title||'')+(o.funding||''))?`<button class="btn b-line" onclick="genFunding('${o.id}')">Funding draft</button>`:''}
-    <button class="btn b-line" onclick="go('postdoc')">View details</button></div></div>`}).join(''):
+    <button class="btn b-gold" onclick="prepareApp('${o.id}')">Prepare case</button>
+    <button class="btn b-line" onclick="openCase('${o.id}')">View / send</button></div></div>`}).join(''):
     `<div class="empty">No great matches yet. ${ME.role==='admin'?'Tap Find new opportunities on Home.':'Your agent is searching, check back soon.'}</div>`}`;
 }
 async function genFunding(oppId){
@@ -475,13 +481,23 @@ async function prepareAll(){
   try{const d=await api('/api/prepare-all',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
 }
 async function prepareApp(oppId){
-  toast('Reading the full position requirements and preparing everything…');
+  toast('Preparing the full case: reading requirements, writing every document…');
   try{
-    const d=await api('/api/cases/'+oppId+'/prepare',{method:'POST'});
-    toast(d.message||'Preparing.');
-    setTimeout(()=>openCase(oppId),3000);
-    // refresh the case a few times as documents complete
-    let n=0;const t=setInterval(async()=>{n++;if(n>=4){clearInterval(t)}await loadHome();},30000);
+    await api('/api/cases/'+oppId+'/prepare',{method:'POST'});
+    // Do NOT open any window. Show live progress via the green preparing card.
+    loadPrep();
+    let n=0;const t=setInterval(async()=>{
+      n++;await loadPrep();
+      const still=PREP.find(x=>x.oppId===oppId);
+      if(TAB==='matches'||TAB==='home'||TAB==='jobs')render();
+      if(!still){ // finished -> auto route to Action needed
+        clearInterval(t);
+        toast('Case ready. Opening your actions.');
+        await loadHome();
+        if(TAB!=='action')go('action');
+      }
+      if(n>=20)clearInterval(t);
+    },12000);
   }catch(e){toast(e.message)}
 }
 
@@ -1067,8 +1083,8 @@ function vAdmin(){
   <div class="card"><h2>Sending mode</h2>
   <div class="sub">Approval: every email waits for your tap. Auto: verified outreach and routine replies send themselves within daily caps. Interviews and offers ALWAYS wait for you in both modes.</div>
   <div class="row">
-  <button class="btn ${(B&&B.mode)!=='auto'?'b-ink':'b-line'}" onclick="setMode('approval')">Approval mode</button>
-  <button class="btn ${(B&&B.mode)==='auto'?'b-gold':'b-line'}" onclick="setMode('auto')">Auto mode</button>
+  <button class="btn ${(B&&B.mode)!=='auto'?'b-ink':'b-line'}" onclick="setMode('approval')">Copilot (you approve each send)</button>
+  <button class="btn ${(B&&B.mode)==='auto'?'b-gold':'b-line'}" onclick="setMode('auto')">Autopilot (sends itself)</button>
   </div></div>
   <div id="diagBox"></div>
   <div class="card"><h2>Backups</h2>
