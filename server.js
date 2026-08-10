@@ -12,7 +12,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne, analyzeCase, piInsight, computeReadiness } = require('./lib/agent');
 const { testOpenAI } = require('./lib/openai');
 loadRuntimeMode().catch(() => {});
 
@@ -292,6 +292,21 @@ app.post('/api/profile/autofill', auth, async (req, res) => {
       else await db.add('Settings', { key: 'rescorePending', value: nv });
       setTimeout(() => runCycle({ light: true }).catch(() => {}), 2000);
     }
+    // #3 close missing-document tasks that this upload satisfies, resume those cases
+    try {
+      const myDocs = (await db.all('Documents')).filter(d => d.resId === req.userId);
+      const haveTypes = myDocs.map(d => (d.type || '').toLowerCase());
+      const openTasks = (await db.all('Tasks')).filter(t => t.resId === req.userId && t.status !== 'Done' && /^provide:|^upload/i.test(t.title));
+      const resumed = new Set();
+      for (const t of openTasks) {
+        const want = t.title.replace(/^provide:\s*|^upload( missing documents:)?\s*/i, '').toLowerCase();
+        if (haveTypes.some(ht => ht && (want.includes(ht.split(' ')[0]) || ht.includes(want.split(' ')[0])))) {
+          t._row.set('status', 'Done'); await t._row.save();
+          if (t.oppId) resumed.add(t.oppId);
+        }
+      }
+      for (const oppId of resumed) analyzeCase(oppId).catch(() => {});
+    } catch (e) {}
     await db.log('AUTOFILL', u.name + ': ' + (filled.join(', ') || 'nothing new') + (refsAdded ? ' +' + refsAdded + ' referees' : ''));
     res.json({ ok: true, filled, refsAdded, docsRead: (await db.all('Documents')).filter(d => d.resId === req.userId && d.driveId).length, user: publicUser(await getUser(req.userId)) });
   } catch (e) { res.status(400).json({ error: e.message, detail: 'autofill' }); }
@@ -489,7 +504,8 @@ app.get('/api/home', auth, async (req, res) => {
     const mine = x => x.resId === req.userId;
     const myOpps = opps.filter(mine);
     const myCases = cases.filter(mine);
-    const engaged = myOpps.filter(o => (parseInt(o.matchScore) || 0) >= (parseInt(process.env.MIN_ENGAGE_SCORE || '65')) && o.status !== 'EXPIRED');
+    const appliedOppIds = new Set(myCases.filter(c => ['Sent','Replied','In conversation','Interview','Closed'].includes(c.stage)).map(c => c.oppId));
+    const engaged = myOpps.filter(o => (parseInt(o.matchScore) || 0) >= (parseInt(process.env.MIN_ENGAGE_SCORE || '65')) && o.status !== 'EXPIRED' && o.archived !== 'yes' && !appliedOppIds.has(o.id));
     const best = engaged.sort((a, b) => (parseInt(b.matchScore) || 0) - (parseInt(a.matchScore) || 0)).slice(0, 12);
     const pendingApprovals = outbox.filter(m => mine(m) && m.status === 'PENDING');
     const openTasks = tasks.filter(t => mine(t) && t.status !== 'Done');
@@ -520,7 +536,9 @@ app.get('/api/home', auth, async (req, res) => {
         best: best.length,
         prepared: myCases.filter(c => ['Email prepared', 'Awaiting approval'].includes(c.stage)).length,
         submitted: submitted.length,
-        actions: actions.length
+        actions: actions.length,
+        applied: appliedOppIds.size,
+        belowThreshold: myOpps.filter(o => (parseInt(o.matchScore)||0) < (parseInt(process.env.MIN_ENGAGE_SCORE||'65')) && o.status!=='EXPIRED' && o.archived!=='yes').length
       },
       best: strip(best),
       actions,
@@ -611,10 +629,11 @@ app.get('/api/case/:oppId', auth, async (req, res) => {
     const tasks = (await db.all('Tasks')).filter(t => t.oppId === oppId);
     const threads = (await db.all('Threads')).filter(t => t.oppId === oppId);
     res.json({
-      opportunity: strip([opp])[0],
+      opportunity: (() => { const o = strip([opp])[0]; try { o.requirements = JSON.parse(o.requirements || '{}'); } catch(e){ o.requirements = {}; } try { o.nextSteps = JSON.parse(o.nextSteps || '[]'); } catch(e){ o.nextSteps = []; } return o; })(),
       case: cse ? strip([cse])[0] : null,
       emails: strip(outbox),
       documents: strip(props).map(p => ({ id: p.id, title: p.title, status: p.status })),
+      attachments: (await db.all('Documents')).filter(d => d.resId === req.userId && /generated from/i.test(d.note || '') && (d.note || '').includes('opp:' + oppId)).map(d => ({ id: d.id, name: d.name, type: d.type })),
       tasks: strip(tasks),
       conversation: strip(threads)
     });
@@ -637,11 +656,68 @@ app.post('/api/cases/:oppId/prepare', auth, async (req, res) => {
   const oppId = req.params.oppId;
   const opp = (await db.all('Opportunities')).find(o => o.id === oppId);
   if (!opp || opp.resId !== req.userId) return res.status(404).json({ error: 'Opportunity not found' });
-  res.json({ ok: true, message: 'Preparing your full application package.' });
-  // Full package: tailored CV always; cover letter for jobs; concept note for strong postdoc
-  tailoredCV(oppId).catch(e => console.error('cv', e.message));
-  if ((opp.section || 'postdoc') === 'job') coverLetter(oppId).catch(e => console.error('cover', e.message));
-  else if ((parseInt(opp.matchScore) || 0) >= 80) draftProposal(oppId).catch(e => console.error('prop', e.message));
+  const fresh = opp.analyzedOn === today();
+  res.json({ ok: true, message: fresh ? 'This case was already analyzed today; refreshing documents.' : 'Reading the full position requirements and preparing everything A to Z. This takes 2 to 4 minutes; the case updates as it completes.' });
+  analyzeCase(oppId).catch(e => console.error('analyze', e.message));
+});
+
+
+app.post('/api/prepare-all', auth, async (req, res) => {
+  const opps = await db.all('Opportunities');
+  const engaged = opps.filter(o => o.resId === req.userId &&
+    (parseInt(o.matchScore) || 0) >= (parseInt(process.env.MIN_ENGAGE_SCORE || '65')) &&
+    o.status !== 'EXPIRED');
+  if (!engaged.length) return res.json({ ok: true, message: 'No engaged opportunities to prepare yet. Run a search first.' });
+  res.json({ ok: true, message: 'Preparing ' + engaged.length + ' application(s) in parallel: tailored CVs, cover letters and concept notes. Check Applications in a few minutes.' });
+  // Parallel preparation, all documents written fresh by the agent
+  Promise.allSettled(engaged.slice(0, 10).map(async o => {
+    await tailoredCV(o.id).catch(() => {});
+    if ((o.section || 'postdoc') === 'job') await coverLetter(o.id).catch(() => {});
+    else if ((parseInt(o.matchScore) || 0) >= 80) await draftProposal(o.id).catch(() => {});
+  })).catch(() => {});
+});
+
+
+// Opportunities that scored below the engagement threshold: viewable, user can promote them
+app.get('/api/below-threshold', auth, async (req, res) => {
+  const th = parseInt(process.env.MIN_ENGAGE_SCORE || '65');
+  const opps = (await db.all('Opportunities')).filter(o => o.resId === req.userId && o.archived !== 'yes' && (parseInt(o.matchScore) || 0) < th && o.status !== 'EXPIRED');
+  res.json({ threshold: th, items: strip(opps).sort((a,b)=>(parseInt(b.matchScore)||0)-(parseInt(a.matchScore)||0)) });
+});
+app.post('/api/opps/:oppId/pursue', auth, async (req, res) => {
+  const opp = (await db.all('Opportunities')).find(o => o.id === req.params.oppId && o.resId === req.userId);
+  if (!opp) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true, message: 'Pursuing this opportunity: reading requirements and preparing documents now.' });
+  analyzeCase(opp.id).catch(e => console.error('pursue', e.message));
+});
+
+// #10 Autopilot health panel: every internal link in one view
+app.get('/api/admin/autopilot-health', auth, adminOnly, async (req, res) => {
+  const out = {};
+  try { await db.connect(); out.database = { ok: true, note: 'Sheets connected' }; } catch (e) { out.database = { ok: false, note: e.message }; }
+  try { out.storage = await require('./lib/storage').probe(); } catch (e) { out.storage = { ok: false, note: e.message }; }
+  // email
+  let email = { ok: false, note: '' };
+  if (process.env.BREVO_API_KEY) email = { ok: true, note: 'HTTPS sending via Brevo configured' };
+  else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+    const t = await require('./lib/mailer').testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
+    email = { ok: t.smtp, note: t.smtp ? 'SMTP sending works' : 'SMTP blocked, add BREVO_API_KEY' };
+  } else email = { ok: false, note: 'No sending method configured' };
+  out.email = email;
+  out.ai = { ok: !!process.env.ANTHROPIC_API_KEY, note: (process.env.ANTHROPIC_API_KEY ? 'Claude ready' : 'No Claude key') + (process.env.OPENAI_API_KEY ? ', GPT ready' : '') };
+  const settings = await db.all('Settings');
+  let lastRun = null; try { lastRun = JSON.parse((settings.find(x=>x.key==='lastRun')||{}).value||'null'); } catch(e){}
+  out.lastCycle = { ok: !!lastRun, note: lastRun ? ('Last ran ' + lastRun.at) : 'No cycle recorded yet' };
+  out.autopilot = { ok: (settings.find(x=>x.key==='autopilot')||{}).value !== 'off', note: (settings.find(x=>x.key==='autopilot')||{}).value === 'off' ? 'PAUSED' : 'Running' };
+  // stuck cases: verified but not analyzed, or prepared but not sent for >2 days
+  const cases = await db.all('Cases');
+  const stuck = cases.filter(c => c.status === 'ACTIVE' && ['Email prepared','Awaiting approval'].includes(c.stage)).length;
+  out.pipeline = { ok: true, note: cases.filter(c=>c.status==='ACTIVE').length + ' active cases, ' + stuck + ' awaiting your approval' };
+  // aging tasks
+  const tasks = await db.all('Tasks');
+  const openT = tasks.filter(t => t.status !== 'Done').length;
+  out.tasks = { ok: openT < 10, note: openT + ' open tasks' };
+  res.json(out);
 });
 
 /* ================= ADMIN ================= */
