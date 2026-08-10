@@ -12,7 +12,8 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative } = require('./lib/agent');
+const { testOpenAI } = require('./lib/openai');
 loadRuntimeMode().catch(() => {});
 
 const app = express();
@@ -478,6 +479,81 @@ app.post('/api/labmap', auth, async (req, res) => {
   res.json({ ok: true, message: 'Building your target lab map, 3 to 5 minutes. It arrives in Activity, Created for you, and by email.' });
   targetLabMap(req.userId).catch(e => console.error('labmap:', e.message));
 });
+
+/* ---- SIMPLE UX aggregated endpoints (engine unchanged, just friendlier reads) ---- */
+app.get('/api/home', auth, async (req, res) => {
+  try {
+    const [opps, cases, outbox, tasks, docs, threads] = await Promise.all([
+      db.all('Opportunities'), db.all('Cases'), db.all('Outbox'), db.all('Tasks'), db.all('Documents'), db.all('Threads')
+    ]);
+    const mine = x => x.resId === req.userId;
+    const myOpps = opps.filter(mine);
+    const myCases = cases.filter(mine);
+    const engaged = myOpps.filter(o => (parseInt(o.matchScore) || 0) >= (parseInt(process.env.MIN_ENGAGE_SCORE || '65')) && o.status !== 'EXPIRED');
+    const best = engaged.sort((a, b) => (parseInt(b.matchScore) || 0) - (parseInt(a.matchScore) || 0)).slice(0, 12);
+    const pendingApprovals = outbox.filter(m => mine(m) && m.status === 'PENDING');
+    const openTasks = tasks.filter(t => mine(t) && t.status !== 'Done');
+    const submitted = myCases.filter(c => ['Sent', 'Replied', 'In conversation', 'Interview'].includes(c.stage));
+    // action items: pending approvals + open document/confirm tasks
+    const actions = [];
+    for (const m of pendingApprovals) {
+      const o = opps.find(x => x.id === m.oppId);
+      actions.push({ kind: 'approve', id: m.id, title: 'Review and send', where: o ? (o.institution) : m.toName, oppId: m.oppId });
+    }
+    for (const t of openTasks.filter(t => /upload|confirm|reference/i.test(t.title))) {
+      const o = opps.find(x => x.id === t.oppId);
+      actions.push({ kind: 'task', id: t.id, title: t.title, where: o ? o.institution : '', oppId: t.oppId });
+    }
+    const settings = await db.all('Settings');
+    const autopilot = (settings.find(x => x.key === 'autopilot') || {}).value !== 'off';
+    let lastRun = null; try { lastRun = JSON.parse((settings.find(x => x.key === 'lastRun') || {}).value || 'null'); } catch (e) {}
+    const mode = cfg().autoSend ? 'auto' : 'approval';
+    // "worked overnight" summary from today's log
+    const log = await db.all('Log');
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todays = log.filter(l => (l.ts || '').slice(0, 10) === todayStr);
+    res.json({
+      name: (await getUser(req.userId)).name,
+      autopilot, mode, lastRun,
+      counts: {
+        checked: myOpps.length,
+        best: best.length,
+        prepared: myCases.filter(c => ['Email prepared', 'Awaiting approval'].includes(c.stage)).length,
+        submitted: submitted.length,
+        actions: actions.length
+      },
+      best: strip(best),
+      actions,
+      applications: strip(myCases).map(c => {
+        const o = opps.find(x => x.id === c.oppId) || {};
+        return { caseNo: c.caseNo, oppId: c.oppId, stage: c.stage, institution: o.institution || '', title: o.title || '', deadline: o.deadline || '', matchScore: c.matchScore };
+      }),
+      activityToday: todays.slice(-12).map(l => ({ event: l.event, detail: l.detail })),
+      docReadiness: (() => {
+        const need = ['CV', 'Research statement', 'Degree certificates', 'Transcripts', 'Publication PDFs', 'Reference letters'];
+        const have = new Set(docs.filter(mine).map(d => d.type));
+        return need.map(t => ({ type: t, ready: have.has(t) }));
+      })()
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/autopilot', auth, adminOnly, async (req, res) => {
+  const on = !(req.body && req.body.off);
+  const rows = await db.all('Settings');
+  const row = rows.find(x => x.key === 'autopilot');
+  if (row) { row._row.set('value', on ? 'on' : 'off'); await row._row.save(); }
+  else await db.add('Settings', { key: 'autopilot', value: on ? 'on' : 'off' });
+  res.json({ ok: true, autopilot: on });
+});
+
+app.get('/api/ai-health', auth, async (req, res) => {
+  const claude = { ok: !!process.env.ANTHROPIC_API_KEY, note: process.env.ANTHROPIC_API_KEY ? 'Connected' : 'No key' };
+  let openai = { ok: false, note: 'No key' };
+  try { openai = await testOpenAI(); } catch (e) {}
+  res.json({ claude, openai });
+});
+
 /* ---- in-app approvals ---- */
 app.put('/api/outbox/:id', auth, async (req, res) => {
   const m = (await db.all('Outbox')).find(x => x.id === req.params.id && x.resId === req.userId);
@@ -508,10 +584,22 @@ app.post('/api/generate/:kind/:oppId', auth, async (req, res) => {
   const { kind, oppId } = req.params;
   const opp = (await db.all('Opportunities')).find(o => o.id === oppId);
   if (!opp || opp.resId !== req.userId) return res.status(404).json({ error: 'Opportunity not found' });
-  const fns = { proposal: draftProposal, interview: interviewBrief, dossier: coupleDossier, cv: tailoredCV, cover: coverLetter };
+  const fns = { proposal: draftProposal, interview: interviewBrief, dossier: coupleDossier, cv: tailoredCV, cover: coverLetter, funding: fundingNarrative };
   if (!fns[kind]) return res.status(400).json({ error: 'Unknown generator' });
   res.json({ ok: true, message: 'Writing now. It will appear under Proposals and in your email in 1 to 3 minutes.' });
   fns[kind](oppId).catch(e => console.error(kind, e.message));
+});
+
+
+app.post('/api/cases/:oppId/prepare', auth, async (req, res) => {
+  const oppId = req.params.oppId;
+  const opp = (await db.all('Opportunities')).find(o => o.id === oppId);
+  if (!opp || opp.resId !== req.userId) return res.status(404).json({ error: 'Opportunity not found' });
+  res.json({ ok: true, message: 'Preparing your full application package.' });
+  // Full package: tailored CV always; cover letter for jobs; concept note for strong postdoc
+  tailoredCV(oppId).catch(e => console.error('cv', e.message));
+  if ((opp.section || 'postdoc') === 'job') coverLetter(oppId).catch(e => console.error('cover', e.message));
+  else if ((parseInt(opp.matchScore) || 0) >= 80) draftProposal(oppId).catch(e => console.error('prop', e.message));
 });
 
 /* ================= ADMIN ================= */
@@ -600,8 +688,9 @@ app.get('*', (_req, res) => {
 
 /* ================= cron ================= */
 const TZ = process.env.TZ_NAME || 'Asia/Karachi';
-cron.schedule(process.env.CRON_MAIN || '0 6 * * *', () => runCycle().catch(console.error), { timezone: TZ });
-cron.schedule(process.env.CRON_EVENING || '0 18 * * *', () => runCycle({ light: true }).catch(console.error), { timezone: TZ });
+async function autopilotOn() { try { return ((await db.all('Settings')).find(x => x.key === 'autopilot') || {}).value !== 'off'; } catch (e) { return true; } }
+cron.schedule(process.env.CRON_MAIN || '0 6 * * *', async () => { if (await autopilotOn()) runCycle().catch(console.error); }, { timezone: TZ });
+cron.schedule(process.env.CRON_EVENING || '0 18 * * *', async () => { if (await autopilotOn()) runCycle({ light: true }).catch(console.error); }, { timezone: TZ });
 cron.schedule(process.env.CRON_WEEKLY || '0 9 * * 0', () => weeklyReview().catch(console.error), { timezone: TZ });
 cron.schedule(process.env.CRON_BACKUP || '30 8 * * 0', () => gdrive.backupSheet().then(n => console.log('Backup:', n)).catch(e => console.error('Backup failed:', e.message)), { timezone: TZ });
 
