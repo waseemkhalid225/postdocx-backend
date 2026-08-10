@@ -211,6 +211,10 @@ async function refresh(){
   try{B=await api('/api/bundle');ME=B.me;}catch(e){}
   startLive();
   render();
+  // FEATURE 3: trigger a fresh search shortly after login (throttled server-side)
+  if(!window._autoRan){window._autoRan=true;setTimeout(async()=>{
+    try{const d=await api('/api/auto-refresh',{method:'POST'});if(d.ran){toast('Searching for new opportunities…');let n=0;const t=setInterval(async()=>{n++;await loadHome();if(['home','matches','jobs'].includes(TAB))render();if(n>=5)clearInterval(t)},25000);}}catch(e){}
+  },4000);}
 }
 function render(){
   if(!ME)return;
@@ -309,8 +313,10 @@ async function openCase(oppId){
     ${o.nextSteps.map(n=>`<div class="sub">→ ${esc(n)}</div>`).join('')}`:''}
 
     <div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Recipient</div>
-    <div class="sub">${recip?'Official address the agent found and verified:':'No verified recipient found yet.'}</div>
+    <div class="sub">${recip?'The agent found this address from the official page. Please confirm it is correct before sending, sending to the wrong professor cannot be undone.':'No recipient found yet. Add the official email from the position page.'}</div>
     <input id="cs-to" value="${esc(recip)}" placeholder="official email of supervisor or admissions">
+    ${o.url?`<div class="sub" style="margin-top:4px">Verify against the source: <a href="${esc(o.url)}" target="_blank" rel="noopener">open the official posting ↗</a></div>`:''}
+    <div class="sub" style="margin-top:4px;color:var(--green)">A copy is BCC'd to your address, so you keep a record of exactly what was sent.</div>
 
     ${email?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Email draft (editable)</div>
     <label style="margin-top:6px">Subject</label><input id="cs-subj" value="${esc(email.subject)}">
@@ -358,6 +364,20 @@ function startLive(){ stopLive(); LIVE_TIMER=setInterval(async()=>{
 function stopLive(){ if(LIVE_TIMER)clearInterval(LIVE_TIMER); }
 function ago(iso){const s=Math.floor((Date.now()-new Date(iso))/1000);if(s<90)return 'just now';const m=Math.floor(s/60);if(m<60)return m+' min ago';const h=Math.floor(m/60);if(h<24)return h+'h ago';return Math.floor(h/24)+'d ago';}
 async function loadHome(){ try{HOME=await api('/api/home')}catch(e){HOME=null} }
+let REMINDERS=[];
+async function loadReminders(){
+  try{const d=await api('/api/reminders');REMINDERS=d.reminders||[];const box=$('reminderBox');if(box)box.innerHTML=remHtml();}catch(e){}
+}
+function remHtml(){
+  if(!REMINDERS.length)return '';
+  return `<div class="mcard" style="border-color:var(--gold);background:var(--gold-soft)">
+  <div style="font-weight:700;font-size:13px;color:#8A6A15;margin-bottom:8px">Reminders</div>
+  ${REMINDERS.slice(0,5).map(r=>`<div class="spread" style="margin-bottom:6px"><div class="sub" style="color:#8A6A15">${r.kind==='deadline'?'⏰':'✉'} ${esc(r.note)}</div>
+  <button class="btn b-line b-sm" onclick="dismissReminder('${r.id}')">Done</button></div>`).join('')}</div>`;
+}
+async function dismissReminder(id){
+  try{await api('/api/reminders/'+id+'/done',{method:'POST'});REMINDERS=REMINDERS.filter(r=>r.id!==id);const box=$('reminderBox');if(box)box.innerHTML=remHtml();}catch(e){toast(e.message)}
+}
 function statusColor(st){return {'Sent':'#3b82f6','Replied':'#3b82f6','In conversation':'#3b82f6','Interview':'#8b5cf6','Closed':'#94a3b8','Email prepared':'#f59e0b','Awaiting approval':'#f59e0b'}[st]||'#94a3b8'}
 
 async function vHome(){
@@ -366,6 +386,7 @@ async function vHome(){
   if(!HOME){$('view').innerHTML='<div class="empty">Loading…<br><button class="btn b-line b-sm" style="margin-top:10px" onclick="vHome()">Retry now</button></div>';await loadHome();if(HOME){vHome();}return}
   const c=HOME.counts;const hr=new Date().getHours();
   const searching=HOME.lastRun&&(Date.now()-new Date(HOME.lastRun.at)<180000);
+  loadReminders();
   const greet=hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
   const fn=(HOME.name||'').split(' ')[0]||'';
   $('view').innerHTML=`
@@ -382,6 +403,7 @@ async function vHome(){
     <div><b style="font-size:19px;color:#E4C36B">${c.actions}</b><br><span style="color:#9FB0C3">need you</span></div>
     ${c.applied?`<div><b style="font-size:19px">${c.applied}</b><br><span style="color:#9FB0C3">applied</span></div>`:''}
     </div></div>
+  <div id="reminderBox">${remHtml()}</div>
   <button class="big-btn" onclick="go('matches')"><div class="bwrap"><div class="bt">View best matches</div><div class="bd">Your strongest opportunities, ranked by fit</div></div><span class="bn">${c.best}</span></button>
   <button class="big-btn" onclick="go('action')"><div class="bwrap"><div class="bt">Complete my actions</div><div class="bd">${c.actions?'Things only you can do, one tap each':'Nothing needs you right now'}</div></div><span class="bn" style="color:${c.actions?'var(--gold)':'var(--slate)'}">${c.actions}</span></button>
   <button class="big-btn" onclick="go('apps')"><div class="bwrap"><div class="bt">View applications</div><div class="bd">Track every application and its status</div></div><span class="bn" style="color:var(--ink)">${c.submitted}</span></button>
@@ -463,17 +485,54 @@ async function vAction(){
 
 async function vApps(){
   $('view').innerHTML='<div class="empty">Loading applications…</div>';
-  await loadHome();
-  const apps=HOME?HOME.applications:[];
+  let d;try{d=await api('/api/applied')}catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const apps=d.applied||[];
   $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
   <div class="sect-title">Applications</div>
-  <div class="sub">Every case and where it stands</div></div>
-  ${apps.length?apps.map(a=>`<div class="mcard">
-  <div style="display:flex;justify-content:space-between;align-items:center">
-  <div><div style="font-weight:700;color:var(--ink)">${esc(a.institution||a.title)}</div>
-  <div class="sub">${esc(a.title||'')}</div></div>
-  <span class="chip" style="background:${statusColor(a.stage)}1A;color:${statusColor(a.stage)};flex:0 0 auto"><span class="status-dot" style="background:${statusColor(a.stage)};margin-right:2px"></span>${esc(a.stage)}</span></div></div>`).join(''):
-  '<div class="empty">No applications yet. They appear here as the agent prepares and sends them.</div>'}`;
+  <div class="sub">Every applied case. Tap any to see its full history and updates.</div></div>
+  ${apps.length?apps.map(a=>`<div class="mcard" style="cursor:pointer" onclick="caseHistory('${a.oppId}')">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+  <div style="min-width:0"><div style="font-weight:700;color:var(--ink)">${esc(a.institution||a.title)}</div>
+  <div class="sub">${esc(a.title||'')}</div>
+  <div class="sub" style="margin-top:3px;font-size:11px">${a.caseNo?esc(a.caseNo)+' · ':''}updated ${a.updatedOn?ago(a.updatedOn+'T12:00:00'):'recently'}</div></div>
+  <div style="text-align:right;flex:0 0 auto">
+  <span class="chip" style="background:${statusColor(a.stage)}1A;color:${statusColor(a.stage)}"><span class="status-dot" style="background:${statusColor(a.stage)};margin-right:2px"></span>${esc(a.stage)}</span>
+  ${a.hasReply?'<div style="margin-top:6px"><span class="chip c-green">✉ Reply received</span></div>':''}</div></div>
+  ${a.nextAction?`<div class="sub" style="margin-top:8px">Next: ${esc(a.nextAction)}</div>`:''}</div>`).join(''):
+  '<div class="empty">No applications yet. They appear here once the agent sends outreach.</div>'}`;
+}
+
+async function caseHistory(oppId){
+  toast('Opening the full case…');
+  let d;try{d=await api('/api/case-history/'+oppId)}catch(e){toast(e.message);return}
+  const o=d.opportunity;const kindIcon={found:'○',verified:'✓',analyzed:'✓',draft:'✎',sent:'→',reply:'✉'};
+  const kindColor={sent:'var(--blue)',reply:'var(--green)',verified:'var(--green)',analyzed:'var(--green)',draft:'var(--slate)',found:'var(--slate)'};
+  modal(`<div style="max-height:80vh;overflow:auto">
+  <h3 style="margin-right:30px">${esc(o.institution||'')}</h3>
+  <div class="sub">${esc(o.title||'')}${o.pi?' · '+esc(o.pi):''}</div>
+  <div class="row" style="margin:8px 0">
+  ${d.case?`<span class="chip" style="background:${statusColor(d.case.stage)}1A;color:${statusColor(d.case.stage)}">${esc(d.case.stage)}</span>`:''}
+  ${o.matchScore?`<span class="chip c-green">${o.matchScore}% match</span>`:''}
+  ${d.case&&d.case.caseNo?`<span class="chip c-gray">${esc(d.case.caseNo)}</span>`:''}</div>
+
+  <div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">History</div>
+  <div style="margin-top:8px;border-left:2px solid var(--line);padding-left:14px">
+  ${d.timeline.length?d.timeline.map(ev=>`<div style="position:relative;margin-bottom:12px">
+  <span style="position:absolute;left:-21px;color:${kindColor[ev.kind]||'var(--slate)'};font-weight:700">${kindIcon[ev.kind]||'•'}</span>
+  <div style="font-size:12.5px;color:var(--ink)">${esc(ev.text)}</div>
+  <div class="sub" style="font-size:11px">${ev.on?esc(ev.on):''}</div>
+  ${ev.body&&(ev.kind==='reply'||ev.kind==='sent')?`<div class="sub" style="margin-top:4px;padding:8px;background:var(--soft);border-radius:8px;white-space:pre-wrap;font-size:12px">${esc((ev.body||'').slice(0,600))}</div>`:''}</div>`).join(''):'<div class="sub">No events yet.</div>'}
+  </div>
+
+  ${d.attachments&&d.attachments.length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Prepared documents</div>
+  ${d.attachments.map(a=>`<div class="sub">📎 ${esc(a.name)}</div>`).join('')}`:''}
+
+  ${d.replies&&d.replies.length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Latest reply</div>
+  <div class="sub" style="white-space:pre-wrap">${esc((d.replies[d.replies.length-1].body||'').slice(0,800))}</div>`:''}
+
+  <div class="btn-group" style="margin-top:16px;position:sticky;bottom:0;background:var(--panel);padding-top:10px">
+  <button class="btn b-line" onclick="closeModal();openCase('${oppId}')">Open case actions</button>
+  <button class="btn b-line" onclick="closeModal()">Close</button></div></div>`);
 }
 
 async function vMyDocs(){ PSEG='docs'; vProfilePage(); }
@@ -601,34 +660,30 @@ function vPostdoc(){
 }
 let JOBFILTER='all';
 function vJobs(){
-  const jobs=(B?B.opportunities:[]).filter(o=>!isPostdoc(o));
-  const shown=JOBFILTER==='all'?jobs:jobs.filter(o=>oppCat(o)===JOBFILTER);
-  const tasks=(B&&B.tasks?B.tasks:[]).filter(t=>jobs.some(j=>j.id===t.oppId));
-  const done=tasks.filter(t=>t.status==='Done').length;
-  const applied=tasks.filter(t=>t.title==='Application submitted'&&t.status==='Done').length;
-  $('view').innerHTML=`<div class="card" style="padding:12px 16px"><div class="row" style="gap:16px">
-  <div class="stat"><b>${jobs.length}</b><span>jobs tracked</span></div>
-  <div class="stat"><b>${done}/${tasks.length||0}</b><span>tasks done</span></div>
-  <div class="stat"><b>${applied}</b><span>applications submitted</span></div></div></div>
-  <div class="card"><div class="spread"><div><h2>Job search</h2>
-  <div class="sub">PostDocX searches for senior salaried roles matching your CV level in your selected categories and locations, verified and never expired. You can also track a posting you found yourself.</div></div>
-  <div class="row">${ME.role==='admin'?`<button class="btn b-gold" onclick="adminRun()">Run search now</button>`:''}
-  <button class="btn b-line" onclick="addJobModal()">Track a posting</button></div></div>
-  <div class="row" style="margin-bottom:10px">${[['all','All'],['national_job','National'],['remote_job','Remote'],['international_job','International']].map(([k,l])=>`<button class="btn ${JOBFILTER===k?'b-ink':'b-line'} b-sm" onclick="JOBFILTER='${k}';render()">${l}</button>`).join('')}</div>
-  ${shown.length?shown.map(o=>`<div class="item"><div class="spread"><div style="min-width:0"><div class="t">${esc(o.title)}</div>
-  <div class="m">${esc(o.institution)}${o.country?' · '+esc(o.country):''}</div></div>
-  <span class="chip c-blue">${catLabel(oppCat(o))}</span></div>
-  <div class="b">${o.compensation?`<span class="chip c-green">${esc(o.compensation)}</span>`:''}${dlChip(o.deadline)}
-  ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">posting ↗</a>`:''}</div>
-  <div class="b"><button class="btn b-line b-sm" onclick="gen('cv','${o.id}')">Tailored CV</button>
-  <button class="btn b-line b-sm" onclick="gen('cover','${o.id}')">Cover letter</button></div></div>`).join('')
-  :`<div class="empty">The job search runs with every agent cycle for your selected categories (set them in Profile, interests and locations).${ME.role==='admin'?' Tap Run search now to search immediately.':''} You can also track any posting you found yourself.</div>`}</div>`;
+  const jobs=(B?B.opportunities:[]).filter(o=>!isPostdoc(o)).sort((a,b)=>(+b.matchScore||0)-(+a.matchScore||0));
+  const cases=B&&B.cases?B.cases:[];
+  const appliedIds=new Set(cases.filter(c=>['Sent','Replied','In conversation','Interview','Closed'].includes(c.stage)).map(c=>c.oppId));
+  const open=jobs.filter(o=>!appliedIds.has(o.id));
+  $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px"><div class="spread">
+  <div><div class="sect-title">Job search</div>
+  <div class="sub">Islamabad and remote roles matching your CV. Verified, never expired. Applied jobs move to Applications.</div></div>
+  <button class="btn b-gold" onclick="searchJobs()">Search jobs now</button></div></div>
+  ${open.length?open.map(o=>`<div class="mcard">
+  <div style="display:flex;justify-content:space-between"><div style="min-width:0">
+  <div style="font-weight:700;color:var(--ink)">${esc(o.institution||'')}</div>
+  <div style="font-size:13px;margin-top:2px">${esc(o.title||'')}</div>
+  <div class="sub" style="margin-top:2px">${esc(o.country||'')}</div></div>
+  <div style="text-align:right;flex:0 0 auto">${o.matchScore?`<div class="pct" style="color:${(+o.matchScore>=80)?'var(--green)':'var(--gold)'};font-size:26px">${o.matchScore}<span style="font-size:14px">%</span></div>`:''}</div></div>
+  <div class="row" style="margin-top:8px">${o.compensation?`<span class="chip c-green">${esc(o.compensation)}</span>`:''}${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">posting ↗</a>`:''}</div>
+  <div class="btn-group" style="margin-top:12px">
+  <button class="btn b-gold" onclick="prepareApp('${o.id}')">Prepare case</button>
+  <button class="btn b-line" onclick="openCase('${o.id}')">Open case</button></div></div>`).join(''):
+  `<div class="empty">No jobs yet. Tap <b>Search jobs now</b> and the agent finds Islamabad and remote roles matching your CV in 2 to 3 minutes.<br><button class="btn b-line b-sm" style="margin-top:10px" onclick="addJobModal()">Or track a posting you found</button></div>`}`;
 }
 function addJobModal(){
   modal(`<h3>Track a job posting</h3><div class="sub">For roles you found yourself. The agent searches automatically too. Checklist, tailored CV and cover letter are prepared for it.</div>
   <label>Position title</label><input id="j-title">
   <label>Organization</label><input id="j-inst">
-  <label>Category</label><select id="j-cat"><option value="national_job">National Job (Pakistan)</option><option value="remote_job">Remote Job</option><option value="international_job">International Job</option></select>
   <label>Location (city, country)</label><input id="j-loc" placeholder="e.g. Islamabad, Pakistan or Riyadh, KSA or Remote">
   <label>Posting link</label><input id="j-url">
   <label>Deadline (YYYY-MM-DD, optional)</label><input id="j-dl">
@@ -638,8 +693,10 @@ function addJobModal(){
 }
 async function addJob(){
   try{
+    const loc=$('j-loc').value.trim();
+    const cat=/remote/i.test(loc)?'remote_job':/pakistan|islamabad|rawalpindi|lahore|karachi/i.test(loc)?'national_job':'international_job';
     await api('/api/opportunities',{method:'POST',body:{title:$('j-title').value.trim(),institution:$('j-inst').value.trim(),
-      category:$('j-cat').value,country:$('j-loc').value.trim(),url:$('j-url').value.trim(),deadline:$('j-dl').value.trim(),compensation:$('j-comp').value.trim()}});
+      category:cat,country:loc,url:$('j-url').value.trim(),deadline:$('j-dl').value.trim(),compensation:$('j-comp').value.trim()}});
     closeModal();toast('Job added with its checklist');await refresh();
   }catch(e){toast(e.message)}
 }
@@ -721,6 +778,13 @@ async function toggleTask(id){
   const t=(B.tasks||[]).find(x=>x.id===id);if(t)t.status=d.status;render();}catch(e){toast(e.message)}
 }
 
+async function searchJobs(){
+  if(ME.role!=='admin'){toast('Jobs are searched automatically every cycle. They will appear here.');return}
+  toast('Searching Islamabad and remote jobs now…');
+  try{await api('/api/admin/run',{method:'POST'});toast('Searching. Jobs appear here as found, about 2 to 3 minutes.');
+  let n=0;const t=setInterval(async()=>{n++;await refresh();if(TAB==='jobs')render();if(n>=6)clearInterval(t)},20000);
+  }catch(e){toast(e.message)}
+}
 async function labMap(){
   try{const d=await api('/api/labmap',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
 }
