@@ -15,15 +15,16 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--paper);color:var(
 .mono{font-family:'IBM Plex Mono',monospace}
 header{background:var(--ink);color:#F4F1E8;padding:14px 18px 0;position:sticky;top:0;z-index:40}
 .brand-row{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:1180px;margin:0 auto}
-.brand h1{font-family:'Fraunces',serif;font-weight:700;font-size:22px}.brand h1 .x{color:var(--gold)}
+.brand h1{font-family:'Fraunces',serif;font-weight:700;font-size:23px;letter-spacing:-.3px}.brand h1 .x{color:var(--gold)}
 .uname{font-size:12.5px;color:#9FB0C3}
 nav{display:flex;gap:2px;overflow-x:auto;max-width:1180px;margin:12px auto 0;scrollbar-width:none}
 nav::-webkit-scrollbar{display:none}
-nav button{flex:0 0 auto;background:none;border:none;color:#9FB0C3;font:600 13px 'Inter',sans-serif;padding:10px 13px;cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap}
+nav button{flex:0 0 auto;background:none;border:none;color:#9FB0C3;font:600 13px 'Inter',sans-serif;padding:11px 14px;cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;transition:color .15s}
+nav button:hover{color:#D8E0EA}
 nav button.on{color:#fff;border-bottom-color:var(--gold)}
 main{max-width:1180px;margin:0 auto;padding:18px 14px 90px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
-.card h2{font-family:'Fraunces',serif;font-size:18px;font-weight:600;margin-bottom:4px}
+.card h2{font-family:'Fraunces',serif;font-size:18px;font-weight:600;margin-bottom:4px;letter-spacing:-.15px}
 .card .sub{color:var(--slate);font-size:12.5px;margin-bottom:12px}
 .grid2{display:grid;gap:14px}@media(min-width:860px){.grid2{grid-template-columns:1fr 1fr}}
 .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -46,27 +47,33 @@ main{max-width:1180px;margin:0 auto;padding:18px 14px 90px}
 .s70{background:var(--blue-soft);color:var(--blue)}.s0{background:var(--soft);color:var(--slate)}
 .item{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--panel)}
 .item .t{font-weight:600;font-size:14.5px}.item .m{color:var(--slate);font-size:12.5px;margin-top:2px}
-.item .b{margin-top:9px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.item .b{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .empty{border:1.5px dashed var(--line);border-radius:10px;padding:26px 16px;text-align:center;color:var(--slate);font-size:13px}
-button.btn{font:600 13px 'Inter',sans-serif;border-radius:8px;padding:9px 14px;cursor:pointer;border:1px solid transparent}
-.b-ink{background:var(--ink);color:#fff}.b-gold{background:var(--gold);color:#fff}
+button.btn{font:600 13px/1 'Inter',sans-serif;border-radius:9px;padding:0 16px;height:38px;min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;border:1px solid transparent;letter-spacing:.1px;transition:transform .1s ease,box-shadow .15s ease,background .15s ease;white-space:nowrap}
+button.btn:hover{transform:translateY(-1px)}button.btn:active{transform:translateY(0)}
+.b-ink{background:var(--ink);color:#fff}.b-ink:hover{background:var(--ink-2);box-shadow:0 3px 10px rgba(27,42,65,.22)}
+.b-gold{background:var(--gold);color:#fff}.b-gold:hover{background:#A67F22;box-shadow:0 3px 10px rgba(184,145,46,.28)}
 .nav-adv{display:flex;gap:8px;padding:0 4px 6px;flex-wrap:wrap}
 nav.nav-adv button.adv{font-size:11px;color:#8A93A4;border:none;background:none;padding:2px 6px;border-bottom:2px solid transparent}
 nav.nav-adv button.adv.on{color:var(--ink);border-bottom-color:var(--gold)}
-.big-btn{display:block;width:100%;text-align:left;padding:18px 20px;border-radius:14px;border:1.5px solid var(--line);background:var(--panel);cursor:pointer;margin-bottom:12px;transition:.15s}
-.big-btn:hover{border-color:var(--gold);transform:translateY(-1px)}
-.big-btn .bt{font-size:16px;font-weight:700;color:var(--ink)}
-.big-btn .bd{font-size:12.5px;color:var(--slate);margin-top:3px}
-.big-btn .bn{float:right;font-family:'Fraunces',serif;font-size:26px;color:var(--gold);font-weight:700}
+.big-btn{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;text-align:left;padding:17px 20px;border-radius:14px;border:1px solid var(--line);background:var(--panel);cursor:pointer;margin-bottom:11px;box-shadow:var(--shadow);transition:transform .12s ease,border-color .15s ease,box-shadow .15s ease}
+.big-btn:hover{border-color:var(--gold);transform:translateY(-1px);box-shadow:0 4px 16px rgba(27,42,65,.10)}
+.big-btn .bwrap{min-width:0}
+.big-btn .bt{font-size:15.5px;font-weight:700;color:var(--ink);letter-spacing:-.1px}
+.big-btn .bd{font-size:12.5px;color:var(--slate);margin-top:3px;line-height:1.4}
+.big-btn .bn{flex:0 0 auto;font-family:'Fraunces',serif;font-size:30px;color:var(--gold);font-weight:700;line-height:1;min-width:34px;text-align:right}
 .status-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
-.mcard{border:1.5px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:12px;background:var(--panel)}
-.mcard.gold{border-color:var(--gold);background:linear-gradient(0deg,var(--gold-soft),var(--panel) 40%)}
-.pct{font-family:'Fraunces',serif;font-size:30px;font-weight:700;color:var(--green)}
-.b-line{background:#fff;color:var(--ink);border-color:var(--line)}
-.b-green{background:var(--green);color:#fff}
-.b-red{background:#fff;color:var(--crimson);border-color:var(--crimson-soft)}
-.b-sm{padding:6px 10px;font-size:12px;border-radius:7px}
-button:disabled{opacity:.5;cursor:default}
+.mcard{border:1px solid var(--line);border-radius:14px;padding:17px 19px;margin-bottom:12px;background:var(--panel);box-shadow:var(--shadow)}
+.mcard.gold{border-color:var(--gold);background:linear-gradient(160deg,var(--gold-soft),var(--panel) 55%)}
+.pct{font-family:'Fraunces',serif;font-size:32px;font-weight:700;color:var(--green);line-height:1}
+.sect-title{font-family:'Fraunces',serif;font-size:21px;font-weight:600;color:var(--ink);letter-spacing:-.2px}
+.b-line{background:#fff;color:var(--ink);border-color:var(--line)}.b-line:hover{border-color:var(--slate);background:#FAFBFC}
+.b-green{background:var(--green);color:#fff}.b-green:hover{background:#1C6149;box-shadow:0 3px 10px rgba(35,116,90,.24)}
+.b-red{background:#fff;color:var(--crimson);border-color:var(--crimson-soft)}.b-red:hover{background:var(--crimson-soft)}
+.b-sm{height:32px;min-height:32px;padding:0 12px;font-size:12px;border-radius:8px}
+.b-lg{height:46px;min-height:46px;padding:0 22px;font-size:14.5px;border-radius:11px}
+button:disabled{opacity:.5;cursor:default;transform:none!important}
+.btn-group{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 label{display:block;font:600 12px 'Inter',sans-serif;color:var(--slate);margin:10px 0 4px}
 input,select,textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:400 14px 'Inter',sans-serif;background:#fff;color:var(--ink)}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--blue-soft);border-color:var(--blue)}
@@ -201,7 +208,8 @@ async function boot(first){
   }catch(e){/* auth handler already redirected */}
 }
 async function refresh(){
-  try{B=await api('/api/bundle');ME=B.me;}catch(e){toast(e.message)}
+  try{B=await api('/api/bundle');ME=B.me;}catch(e){}
+  startLive();
   render();
 }
 function render(){
@@ -229,7 +237,71 @@ function checklist(){
 /* ================= views ================= */
 
 /* ================= SIMPLE MODE ================= */
+
+let SEND_HEALTH=null;
+async function openCase(oppId){
+  toast('Opening the full case…');
+  try{
+    const [d,h]=await Promise.all([api('/api/case/'+oppId),api('/api/send-health').catch(()=>({canSend:false,note:'unknown'}))]);
+    SEND_HEALTH=h;
+    const o=d.opportunity;
+    const email=(d.emails||[]).find(m=>m.status==='PENDING'||m.status==='APPROVED')||(d.emails||[])[0];
+    const verified=o.status==='VERIFIED';
+    const recip=email?email.toEmail:'';
+    modal(`<div style="max-height:78vh;overflow:auto">
+    <h3 style="margin-right:30px">${esc(o.institution||'')}</h3>
+    <div class="sub">${esc(o.title||'')}${o.pi?' · '+esc(o.pi):''}${o.country?' · '+esc(o.country):''}</div>
+    <div class="row" style="margin:8px 0 4px">
+    ${o.matchScore?`<span class="chip c-green">${o.matchScore}% match</span>`:''}
+    <span class="chip ${verified?'c-green':'c-gray'}">${verified?'✓ Verified against source':'Verification pending'}</span>
+    ${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}</div>
+
+    <div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Recipient</div>
+    <div class="sub">${recip?'Official address the agent found and verified:':'No verified recipient found yet.'}</div>
+    <input id="cs-to" value="${esc(recip)}" placeholder="official email of supervisor or admissions">
+
+    ${email?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Email draft (editable)</div>
+    <label style="margin-top:6px">Subject</label><input id="cs-subj" value="${esc(email.subject)}">
+    <label>Message</label><textarea id="cs-body" style="min-height:190px">${esc(email.body)}</textarea>`:'<div class="empty" style="margin-top:12px">No email drafted yet. Prepare the application first.</div>'}
+
+    ${d.documents&&d.documents.length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Prepared documents (tap to view and edit)</div>
+    ${d.documents.map(x=>`<div class="item" style="margin-top:8px"><div class="spread"><div class="t" style="font-size:13px">${esc(x.title)}</div>
+    <button class="btn b-line b-sm" onclick="closeModal();openProp('${x.id}')">Open</button></div></div>`).join('')}`:''}
+
+    ${d.tasks&&d.tasks.filter(t=>t.status!=='Done').length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Still to do</div>
+    ${d.tasks.filter(t=>t.status!=='Done').map(t=>`<div class="sub">○ ${esc(t.title)}</div>`).join('')}`:''}
+
+    ${!SEND_HEALTH.canSend?`<div class="mcard" style="margin-top:14px;border-color:var(--crimson);background:var(--crimson-soft)">
+    <div style="font-weight:700;color:var(--crimson);font-size:13px">Sending is not ready</div>
+    <div class="sub" style="color:#7A2A22">${esc(SEND_HEALTH.note||'Connect email first.')}</div></div>`:
+    `<div class="sub" style="margin-top:12px;color:var(--green)">✓ Ready to send via ${esc(SEND_HEALTH.how||'email')}. The professor receives it from your address.</div>`}
+
+    <div class="btn-group" style="margin-top:16px;position:sticky;bottom:0;background:var(--panel);padding-top:10px">
+    ${email?`<button class="btn b-green b-lg" ${SEND_HEALTH.canSend?'':'disabled'} onclick="saveAndSend('${email.id}')">${SEND_HEALTH.canSend?'Approve and send now':'Cannot send yet'}</button>
+    <button class="btn b-line" onclick="saveDraftOnly('${email.id}')">Save draft</button>`:''}
+    <button class="btn b-line" onclick="closeModal()">Close</button></div></div>`);
+  }catch(e){toast(e.message)}
+}
+async function saveAndSend(emailId){
+  const to=$('cs-to').value.trim();
+  if(!to||!/@/.test(to)){toast('Enter a valid recipient email first');return}
+  try{
+    await api('/api/outbox/'+emailId,{method:'PUT',body:{subject:$('cs-subj').value,body:$('cs-body').value,toEmail:to}});
+    toast('Sending to '+to+'…');
+    const d=await api('/api/outbox/'+emailId+'/approve',{method:'POST'});
+    toast(d.message||'Sent.');closeModal();await loadHome();if(typeof render==='function')render();
+  }catch(e){toast('Not sent: '+e.message)}
+}
+async function saveDraftOnly(emailId){
+  try{await api('/api/outbox/'+emailId,{method:'PUT',body:{subject:$('cs-subj').value,body:$('cs-body').value,toEmail:$('cs-to').value.trim()}});toast('Draft saved');closeModal()}catch(e){toast(e.message)}
+}
+
 let HOME=null;
+let LIVE_TIMER=null;
+function startLive(){ stopLive(); LIVE_TIMER=setInterval(async()=>{
+  if(['home','matches','apps','action','activity2'].includes(TAB)){ await loadHome(); if(typeof render==='function')render(); }
+},25000); }
+function stopLive(){ if(LIVE_TIMER)clearInterval(LIVE_TIMER); }
 function ago(iso){const s=Math.floor((Date.now()-new Date(iso))/1000);if(s<90)return 'just now';const m=Math.floor(s/60);if(m<60)return m+' min ago';const h=Math.floor(m/60);if(h<24)return h+'h ago';return Math.floor(h/24)+'d ago';}
 async function loadHome(){ try{HOME=await api('/api/home')}catch(e){HOME=null} }
 function statusColor(st){return {'Sent':'#3b82f6','Replied':'#3b82f6','In conversation':'#3b82f6','Interview':'#8b5cf6','Closed':'#94a3b8','Email prepared':'#f59e0b','Awaiting approval':'#f59e0b'}[st]||'#94a3b8'}
@@ -237,8 +309,9 @@ function statusColor(st){return {'Sent':'#3b82f6','Replied':'#3b82f6','In conver
 async function vHome(){
   $('view').innerHTML='<div class="empty">Loading your morning brief…</div>';
   await loadHome();
-  if(!HOME){$('view').innerHTML='<div class="empty">Could not load. Pull to refresh.</div>';return}
+  if(!HOME){$('view').innerHTML='<div class="empty">Loading…<br><button class="btn b-line b-sm" style="margin-top:10px" onclick="vHome()">Retry now</button></div>';await loadHome();if(HOME){vHome();}return}
   const c=HOME.counts;const hr=new Date().getHours();
+  const searching=HOME.lastRun&&(Date.now()-new Date(HOME.lastRun.at)<180000);
   const greet=hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
   const fn=(HOME.name||'').split(' ')[0]||'';
   $('view').innerHTML=`
@@ -254,15 +327,20 @@ async function vHome(){
     <div><b style="font-size:19px">${c.submitted}</b><br><span style="color:#9FB0C3">submitted</span></div>
     <div><b style="font-size:19px;color:#E4C36B">${c.actions}</b><br><span style="color:#9FB0C3">need you</span></div>
     </div></div>
-  <button class="big-btn" onclick="go('matches')"><span class="bn">${c.best}</span><div class="bt">View best matches</div><div class="bd">Your strongest opportunities, ranked by fit</div></button>
-  <button class="big-btn" onclick="go('action')"><span class="bn" style="color:${c.actions?'var(--gold)':'var(--slate)'}">${c.actions}</span><div class="bt">Complete my actions</div><div class="bd">${c.actions?'Things only you can do, one tap each':'Nothing needs you right now'}</div></button>
-  <button class="big-btn" onclick="go('apps')"><span class="bn" style="color:var(--ink)">${c.submitted}</span><div class="bt">View applications</div><div class="bd">Track every application and its status</div></button>
-  <button class="big-btn" onclick="findNow()"><div class="bt">Find new opportunities now →</div><div class="bd">Search universities, labs and institutes immediately</div></button>`;
+  <button class="big-btn" onclick="go('matches')"><div class="bwrap"><div class="bt">View best matches</div><div class="bd">Your strongest opportunities, ranked by fit</div></div><span class="bn">${c.best}</span></button>
+  <button class="big-btn" onclick="go('action')"><div class="bwrap"><div class="bt">Complete my actions</div><div class="bd">${c.actions?'Things only you can do, one tap each':'Nothing needs you right now'}</div></div><span class="bn" style="color:${c.actions?'var(--gold)':'var(--slate)'}">${c.actions}</span></button>
+  <button class="big-btn" onclick="go('apps')"><div class="bwrap"><div class="bt">View applications</div><div class="bd">Track every application and its status</div></div><span class="bn" style="color:var(--ink)">${c.submitted}</span></button>
+  <button class="big-btn" onclick="findNow()"><div class="bwrap"><div class="bt">Find new opportunities now</div><div class="bd">Search universities, labs, institutes and job boards immediately</div></div><span class="bn" style="color:var(--gold);font-size:22px">→</span></button>`;
 }
 async function findNow(){
-  if(ME.role!=='admin'){toast('The agent searches automatically every day. Ask your admin to run it now.');return}
-  toast('Searching universities, labs and institutes…');
-  try{await api('/api/admin/run',{method:'POST'});toast('Search started. New matches appear in a few minutes.')}catch(e){toast(e.message)}
+  if(ME.role!=='admin'){toast('The agent searches for you automatically every morning and evening.');return}
+  toast('Searching universities, labs, institutes and job boards now…');
+  try{
+    await api('/api/admin/run',{method:'POST'});
+    toast('Searching live. Results appear here as they are found and verified, about 2 to 3 minutes.');
+    // poll a few times so new results pop in without a manual refresh
+    let n=0;const t=setInterval(async()=>{n++;await loadHome();if(TAB==='home'||TAB==='matches')render();if(n>=6)clearInterval(t)},20000);
+  }catch(e){toast(e.message)}
 }
 
 async function vMatches(){
@@ -270,7 +348,7 @@ async function vMatches(){
   await loadHome();
   const best=HOME?HOME.best:[];
   $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
-  <div style="font-family:'Fraunces',serif;font-size:20px;color:var(--ink)">Your best matches</div>
+  <div class="sect-title">Your best matches</div>
   <div class="sub">Only the strongest, verified against the real source</div></div>
   ${best.length?best.map(o=>{
     const sc=parseInt(o.matchScore)||0;
@@ -279,13 +357,13 @@ async function vMatches(){
     <div style="font-weight:700;color:var(--ink)">${esc(o.institution||'')}</div>
     <div style="font-size:13px;margin-top:2px">${esc(o.title||'')}</div>
     ${o.pi?`<div class="sub" style="margin-top:2px">Supervisor: ${esc(o.pi)}</div>`:''}</div>
-    <div style="text-align:right"><div class="pct" style="color:${sc>=80?'var(--green)':'var(--gold)'}">${sc}%</div><div class="sub">match</div></div></div>
+    <div style="text-align:right;flex:0 0 auto"><div class="pct" style="color:${sc>=80?'var(--green)':'var(--gold)'}">${sc}<span style="font-size:16px">%</span></div><div class="sub" style="margin:0;text-transform:uppercase;letter-spacing:.5px;font-size:10px">match</div></div></div>
     ${o.coupleKey?'<div style="margin-top:6px"><span class="chip c-gold">★ Couple fit, preferred</span></div>':''}
     <div class="sub" style="margin-top:8px">${esc((o.note||'').split('|')[0]||'')}</div>
     <div style="display:flex;gap:8px;margin-top:10px">
     ${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}
     <span class="chip c-green">${esc(o.funding||'')}</span></div>
-    <div style="margin-top:12px;display:flex;gap:8px">
+    <div class="btn-group" style="margin-top:14px">
     <button class="btn b-gold" onclick="prepareApp('${o.id}')">Prepare application</button>
     ${/fellowship|grant|scholarship|funding/i.test((o.title||'')+(o.funding||''))?`<button class="btn b-line" onclick="genFunding('${o.id}')">Funding draft</button>`:''}
     <button class="btn b-line" onclick="go('postdoc')">View details</button></div></div>`}).join(''):
@@ -306,13 +384,13 @@ async function vAction(){
   await loadHome();
   const acts=HOME?HOME.actions:[];
   $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
-  <div style="font-family:'Fraunces',serif;font-size:20px;color:var(--ink)">Action needed</div>
+  <div class="sect-title">Action needed</div>
   <div class="sub">${acts.length?'The agent handles everything else automatically':'All clear, the agent is handling everything'}</div></div>
   ${acts.length?acts.map(a=>`<div class="mcard">
   <div style="font-weight:700;color:var(--ink)">${esc(a.where||'Application')}</div>
-  <div class="sub" style="margin-top:3px">${a.kind==='approve'?'Application ready to review and send':esc(a.title)}</div>
-  <div style="margin-top:10px">${a.kind==='approve'
-    ?`<button class="btn b-green" onclick="go('activity')">Review and send</button>`
+  <div class="sub" style="margin-top:3px">${a.kind==='approve'?'Application ready. Review everything, then send to the recipient.':esc(a.title)}</div>
+  <div class="btn-group" style="margin-top:12px">${a.kind==='approve'
+    ?`<button class="btn b-green" onclick="openCase('${a.oppId}')">Review and send</button>`
     :`<button class="btn b-gold" onclick="go('mydocs')">${/upload/i.test(a.title)?'Upload document':'Open'}</button>`}</div></div>`).join(''):
   '<div class="empty">Nothing needs you right now. Enjoy your day, the agent is working.</div>'}`;
 }
@@ -322,13 +400,13 @@ async function vApps(){
   await loadHome();
   const apps=HOME?HOME.applications:[];
   $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
-  <div style="font-family:'Fraunces',serif;font-size:20px;color:var(--ink)">Applications</div>
+  <div class="sect-title">Applications</div>
   <div class="sub">Every case and where it stands</div></div>
   ${apps.length?apps.map(a=>`<div class="mcard">
   <div style="display:flex;justify-content:space-between;align-items:center">
   <div><div style="font-weight:700;color:var(--ink)">${esc(a.institution||a.title)}</div>
   <div class="sub">${esc(a.title||'')}</div></div>
-  <span class="chip" style="background:${statusColor(a.stage)}22;color:${statusColor(a.stage)}"><span class="status-dot" style="background:${statusColor(a.stage)}"></span>${esc(a.stage)}</span></div></div>`).join(''):
+  <span class="chip" style="background:${statusColor(a.stage)}1A;color:${statusColor(a.stage)};flex:0 0 auto"><span class="status-dot" style="background:${statusColor(a.stage)};margin-right:2px"></span>${esc(a.stage)}</span></div></div>`).join(''):
   '<div class="empty">No applications yet. They appear here as the agent prepares and sends them.</div>'}`;
 }
 
@@ -340,7 +418,7 @@ async function vActivitySimple(){
   const a=HOME?HOME.activityToday:[];
   const nice={CYCLE_DONE:'Completed a full search cycle',EMAIL_SENT:'Sent an email',TAILORED_CV:'Tailored a CV',COVER_LETTER:'Wrote a cover letter',AUTHORIZED:'Authorized sending',AUTOFILL:'Read your documents',MODE_CHANGED:'Changed sending mode',RESTORED:'Restored data',LAB_MAP:'Built a target lab map'};
   $('view').innerHTML=`<div class="mcard" style="border:none;background:none;padding:0 2px 8px">
-  <div style="font-family:'Fraunces',serif;font-size:20px;color:var(--ink)">Activity today</div>
+  <div class="sect-title">Activity today</div>
   <div class="sub">What your agent has been doing, in plain language</div></div>
   <div class="mcard">${a.length?a.map(x=>`<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px">✓ ${esc(nice[x.event]||x.event)}${x.detail?` <span class="sub">, ${esc((x.detail||'').slice(0,60))}</span>`:''}</div>`).join(''):'<div class="empty">Quiet so far today. The agent runs morning and evening automatically.</div>'}
   ${ME.role==='admin'?`<div style="margin-top:12px;display:flex;gap:8px">
