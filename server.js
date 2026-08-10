@@ -460,7 +460,7 @@ app.post('/api/proposals/:id/pdf', auth, async (req, res) => {
     const kind = /Tailored CV/i.test(pRow.title) ? 'CV (tailored, PDF)' : /Cover letter/i.test(pRow.title) ? 'Cover letter (PDF)' : /Concept note/i.test(pRow.title) ? 'Concept note (PDF)' : 'Document (PDF)';
     const fname = (u.name || 'Document').replace(/\s+/g, '_') + '_' + kind.replace(/[^A-Za-z]/g, '') + '_' + today().replace(/-/g, '') + '.pdf';
     const f = await storage.put(fname, 'application/pdf', buf);
-    await db.add('Documents', { id: uid(), resId: req.userId, type: kind, name: fname, url: '', attach: 'no', version: '', updatedOn: today(), note: 'Generated from: ' + pRow.title, driveId: f.id, mime: 'application/pdf', size: String(buf.length) });
+    await db.add('Documents', { id: uid(), resId: req.userId, type: kind, name: fname, url: '', attach: 'no', version: '', updatedOn: today(), note: 'Generated from: ' + pRow.title + ' | opp:[' + (pRow.oppId||'') + ']', driveId: f.id, mime: 'application/pdf', size: String(buf.length) });
     const docs = await db.all('Documents');
     const docRow = docs.filter(d => d.resId === req.userId).sort((a, b) => (b.updatedOn || '') < (a.updatedOn || '') ? -1 : 1)[0];
     res.json({ ok: true, docId: docRow ? docRow.id : '', message: 'PDF created and saved to your Documents: ' + fname });
@@ -640,7 +640,7 @@ app.get('/api/case-history/:oppId', auth, async (req, res) => {
       replies: strip(replies),
       tasks: strip(tasks.filter(t => t.oppId === oppId)),
       documents: strip(props.filter(p => p.oppId === oppId)).map(p => ({ id: p.id, title: p.title, status: p.status })),
-      attachments: docs.filter(d => d.resId === req.userId && /generated from/i.test(d.note||'') && (d.note||'').includes('opp:'+oppId)).map(d => ({ id: d.id, name: d.name, type: d.type }))
+      attachments: docs.filter(d => d.resId === req.userId && /generated from/i.test(d.note||'') && (d.note||'').includes('opp:['+oppId+']')).map(d => ({ id: d.id, name: d.name, type: d.type }))
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -759,7 +759,7 @@ app.get('/api/case/:oppId', auth, async (req, res) => {
       case: cse ? strip([cse])[0] : null,
       emails: strip(outbox),
       documents: strip(props).map(p => ({ id: p.id, title: p.title, status: p.status })),
-      attachments: (await db.all('Documents')).filter(d => d.resId === req.userId && /generated from/i.test(d.note || '') && (d.note || '').includes('opp:' + oppId)).map(d => ({ id: d.id, name: d.name, type: d.type })),
+      attachments: (await db.all('Documents')).filter(d => d.resId === req.userId && /generated from/i.test(d.note || '') && (d.note || '').includes('opp:[' + oppId + ']')).map(d => ({ id: d.id, name: d.name, type: d.type })),
       tasks: strip(tasks),
       conversation: strip(threads)
     });
