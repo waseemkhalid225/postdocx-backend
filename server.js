@@ -572,6 +572,13 @@ app.get('/api/ai-health', auth, async (req, res) => {
   res.json({ claude, openai });
 });
 
+
+app.get('/api/report', auth, async (req, res) => {
+  const settings = await db.all('Settings');
+  let rep = null; try { rep = JSON.parse((settings.find(x=>x.key==='lastReport')||{}).value||'null'); } catch(e){}
+  res.json({ report: rep });
+});
+
 /* ---- in-app approvals ---- */
 app.put('/api/outbox/:id', auth, async (req, res) => {
   const m = (await db.all('Outbox')).find(x => x.id === req.params.id && x.resId === req.userId);
@@ -607,7 +614,13 @@ app.post('/api/outbox/:id/:action', auth, async (req, res) => {
 app.get('/api/send-health', auth, async (req, res) => {
   const u = await getUser(req.userId);
   let can = false, how = '', note = '';
-  if (u.emailConnected === 'yes' && u.smtpEmail) { can = true; how = 'your Gmail'; }
+  const gmailApi = require('./lib/gmail-send');
+  if (gmailApi.isConfigured()) {
+    can = true; const addr = await gmailApi.whoAmI();
+    how = 'your Gmail (' + (addr || 'connected account') + ')';
+    note = 'The professor receives a genuine personal email from your real address. Nothing third-party is shown.';
+  }
+  else if (u.emailConnected === 'yes' && u.smtpEmail) { can = true; how = 'your Gmail'; }
   else if (process.env.BREVO_API_KEY) { can = true; how = 'the office sender over HTTPS'; note = 'Sends from the verified office address with your address as reply-to.'; }
   else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     const t = await testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
@@ -698,7 +711,9 @@ app.get('/api/admin/autopilot-health', auth, adminOnly, async (req, res) => {
   try { out.storage = await require('./lib/storage').probe(); } catch (e) { out.storage = { ok: false, note: e.message }; }
   // email
   let email = { ok: false, note: '' };
-  if (process.env.BREVO_API_KEY) email = { ok: true, note: 'HTTPS sending via Brevo configured' };
+  const gapi = require('./lib/gmail-send');
+  if (gapi.isConfigured()) { const addr = await gapi.whoAmI(); email = { ok: !!addr, note: addr ? ('Sends as your real Gmail: ' + addr) : 'Gmail API configured but token not valid yet' }; }
+  else if (process.env.BREVO_API_KEY) email = { ok: true, note: 'HTTPS sending via Brevo (fallback)' };
   else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     const t = await require('./lib/mailer').testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
     email = { ok: t.smtp, note: t.smtp ? 'SMTP sending works' : 'SMTP blocked, add BREVO_API_KEY' };
