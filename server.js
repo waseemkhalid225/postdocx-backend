@@ -514,11 +514,11 @@ app.get('/api/home', auth, async (req, res) => {
     const actions = [];
     for (const m of pendingApprovals) {
       const o = opps.find(x => x.id === m.oppId);
-      actions.push({ kind: 'approve', id: m.id, title: 'Review and send', where: o ? (o.institution) : m.toName, oppId: m.oppId });
+      actions.push({ kind: 'approve', id: m.id, title: 'Review and send', where: o ? (o.institution) : m.toName, oppId: m.oppId, section: o ? (o.section || 'postdoc') : 'postdoc' });
     }
     for (const t of openTasks.filter(t => /upload|confirm|reference/i.test(t.title))) {
       const o = opps.find(x => x.id === t.oppId);
-      actions.push({ kind: 'task', id: t.id, title: t.title, where: o ? o.institution : '', oppId: t.oppId });
+      actions.push({ kind: 'task', id: t.id, title: t.title, where: o ? o.institution : '', oppId: t.oppId, section: o ? (o.section || 'postdoc') : 'postdoc' });
     }
     const settings = await db.all('Settings');
     const autopilot = (settings.find(x => x.key === 'autopilot') || {}).value !== 'off';
@@ -579,6 +579,34 @@ app.get('/api/report', auth, async (req, res) => {
   res.json({ report: rep });
 });
 
+
+
+
+app.post('/api/tasks/:id/done', auth, async (req, res) => {
+  const t = (await db.all('Tasks')).find(x => x.id === req.params.id && x.resId === req.userId);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  t._row.set('status', 'Done'); await t._row.save();
+  res.json({ ok: true });
+});
+
+/* ===== live preparation status ===== */
+app.get('/api/prep-status', auth, async (req, res) => {
+  const opps = (await db.all('Opportunities')).filter(o => o.resId === req.userId);
+  const out = [];
+  for (const o of opps) {
+    if (!o.prepStartedAt) continue;
+    let ps = {};
+    try { ps = JSON.parse(o.prepStatus || '{}'); } catch (e) {}
+    const plan = ps.plan || [];
+    const done = ps.done || [];
+    const preparing = o.prepDone !== 'yes' && plan.length > 0;
+    out.push({ oppId: o.id, institution: o.institution, title: o.title, section: o.section || 'postdoc',
+      plan: plan, done: done, preparing: preparing,
+      pct: plan.length ? Math.round(100 * done.length / plan.length) : 0,
+      startedAt: o.prepStartedAt });
+  }
+  res.json({ preparing: out.filter(x => x.preparing), recent: out });
+});
 
 /* ===== FEATURE 1: unified case history — full timeline in one place ===== */
 app.get('/api/case-history/:oppId', auth, async (req, res) => {
