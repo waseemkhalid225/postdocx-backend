@@ -12,7 +12,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne, analyzeCase, piInsight, computeReadiness } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne, analyzeCase, piInsight, computeReadiness, buildReminders } = require('./lib/agent');
 const { testOpenAI } = require('./lib/openai');
 loadRuntimeMode().catch(() => {});
 
@@ -577,6 +577,91 @@ app.get('/api/report', auth, async (req, res) => {
   const settings = await db.all('Settings');
   let rep = null; try { rep = JSON.parse((settings.find(x=>x.key==='lastReport')||{}).value||'null'); } catch(e){}
   res.json({ report: rep });
+});
+
+
+/* ===== FEATURE 1: unified case history — full timeline in one place ===== */
+app.get('/api/case-history/:oppId', auth, async (req, res) => {
+  try {
+    const oppId = req.params.oppId;
+    const opp = (await db.all('Opportunities')).find(o => o.id === oppId && o.resId === req.userId);
+    if (!opp) return res.status(404).json({ error: 'Not found' });
+    const [cases, outbox, threads, tasks, props, docs] = await Promise.all([
+      db.all('Cases'), db.all('Outbox'), db.all('Threads'), db.all('Tasks'), db.all('Proposals'), db.all('Documents')
+    ]);
+    const cse = cases.find(c => c.oppId === oppId);
+    const emails = outbox.filter(m => m.oppId === oppId);
+    const replies = threads.filter(t => t.oppId === oppId);
+    const timeline = [];
+    if (opp.addedOn) timeline.push({ on: opp.addedOn, kind: 'found', text: 'Opportunity found and added' });
+    if (opp.verifiedOn) timeline.push({ on: opp.verifiedOn, kind: 'verified', text: 'Verified against the official source' });
+    if (opp.analyzedOn) timeline.push({ on: opp.analyzedOn, kind: 'analyzed', text: 'Requirements analyzed, documents prepared' });
+    for (const m of emails) {
+      if (m.sentOn) timeline.push({ on: m.sentOn, kind: 'sent', text: 'Email sent to ' + (m.toName || m.toEmail) + ': "' + m.subject + '"', body: m.body });
+      else timeline.push({ on: m.createdOn, kind: 'draft', text: 'Email drafted: "' + m.subject + '"' });
+    }
+    for (const t of replies) {
+      timeline.push({ on: t.receivedOn || t.createdOn, kind: 'reply', text: 'Reply from ' + (t.fromEmail || 'supervisor') + (t.intent ? ' (' + String(t.intent).replace(/_/g,' ') + ')' : ''), body: t.body });
+    }
+    timeline.sort((a, b) => (a.on || '') < (b.on || '') ? -1 : 1);
+    res.json({
+      opportunity: (() => { const o = strip([opp])[0]; try { o.requirements = JSON.parse(o.requirements||'{}'); } catch(e){ o.requirements={}; } try { o.nextSteps = JSON.parse(o.nextSteps||'[]'); } catch(e){ o.nextSteps=[]; } return o; })(),
+      case: cse ? strip([cse])[0] : null,
+      timeline,
+      emails: strip(emails),
+      replies: strip(replies),
+      tasks: strip(tasks.filter(t => t.oppId === oppId)),
+      documents: strip(props.filter(p => p.oppId === oppId)).map(p => ({ id: p.id, title: p.title, status: p.status })),
+      attachments: docs.filter(d => d.resId === req.userId && /generated from/i.test(d.note||'') && (d.note||'').includes('opp:'+oppId)).map(d => ({ id: d.id, name: d.name, type: d.type }))
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/applied', auth, async (req, res) => {
+  const [cases, opps, threads] = await Promise.all([db.all('Cases'), db.all('Opportunities'), db.all('Threads')]);
+  const mine = cases.filter(c => c.resId === req.userId);
+  const applied = mine.filter(c => ['Sent','Replied','In conversation','Interview','Closed'].includes(c.stage));
+  const rows = applied.map(c => {
+    const o = opps.find(x => x.id === c.oppId) || {};
+    const rep = threads.filter(t => t.oppId === c.oppId);
+    const lastReply = rep.sort((a,b)=>(a.receivedOn||'')<(b.receivedOn||'')?1:-1)[0];
+    return { oppId: c.oppId, caseNo: c.caseNo, institution: o.institution||'', title: o.title||'', stage: c.stage, updatedOn: c.updatedOn||'', hasReply: rep.length>0, lastReplyOn: lastReply?lastReply.receivedOn:'', nextAction: c.nextAction||'' };
+  }).sort((a,b)=>(a.updatedOn||'')<(b.updatedOn||'')?1:-1);
+  res.json({ applied: rows });
+});
+
+
+/* ===== FEATURE 4: reminders ===== */
+app.get('/api/reminders', auth, async (req, res) => {
+  try { await buildReminders(); } catch (e) {}
+  const rows = (await db.all('Reminders')).filter(r => r.resId === req.userId && r.status !== 'done')
+    .sort((a,b)=>(a.dueOn||'')<(b.dueOn||'')?-1:1);
+  res.json({ reminders: strip(rows) });
+});
+app.post('/api/reminders/:id/done', auth, async (req, res) => {
+  const r = (await db.all('Reminders')).find(x => x.id === req.params.id && x.resId === req.userId);
+  if (!r) return res.status(404).json({ error: 'Not found' });
+  r._row.set('status', 'done'); await r._row.save();
+  res.json({ ok: true });
+});
+
+/* ===== FEATURE 3: auto-run search on login (throttled) ===== */
+app.post('/api/auto-refresh', auth, async (req, res) => {
+  try {
+    const settings = await db.all('Settings');
+    const autopilot = (settings.find(x => x.key === 'autopilot') || {}).value !== 'off';
+    if (!autopilot) return res.json({ ok: true, ran: false, reason: 'Autopilot is paused' });
+    const lastRow = settings.find(x => x.key === 'lastAutoRun');
+    const last = lastRow ? new Date(lastRow.value || 0) : new Date(0);
+    const minsSince = (Date.now() - last.getTime()) / 60000;
+    if (minsSince < 180) return res.json({ ok: true, ran: false, reason: 'Searched ' + Math.round(minsSince) + ' min ago' });
+    // throttle: only admins trigger the shared cycle
+    if (req.userRole !== 'admin') return res.json({ ok: true, ran: false, reason: 'Runs on schedule' });
+    if (lastRow) { lastRow._row.set('value', new Date().toISOString()); await lastRow._row.save(); }
+    else await db.add('Settings', { key: 'lastAutoRun', value: new Date().toISOString() });
+    res.json({ ok: true, ran: true, message: 'Fresh search started in the background' });
+    runCycle({ light: true }).catch(e => console.error('auto-refresh cycle', e.message));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 /* ---- in-app approvals ---- */
