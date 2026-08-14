@@ -348,6 +348,14 @@ app.delete('/api/referees/:id', auth, async (req, res) => {
 
 /* ================= PIPELINE DATA ================= */
 const strip = a => a.map(({ _row, ...o }) => o);
+
+async function caseAttachmentList(userId, oppId) {
+  const docs = await db.all('Documents');
+  const gen = docs.filter(d => d.resId === userId && d.driveId && /generated from/i.test(d.note || '') && (d.note || '').includes('opp:[' + oppId + ']'));
+  const cred = docs.filter(d => d.resId === userId && d.driveId && !/generated from/i.test(d.note || '') && /(degree|certificat|transcript|publication|reference letter)/i.test(d.type || ''));
+  return [...gen, ...cred.slice(0, 4)].map(d => ({ id: d.id, name: d.name, type: d.type, original: !/generated from/i.test(d.note || '') }));
+}
+
 app.get('/api/bundle', auth, async (req, res) => {
   try {
     const me = await getUser(req.userId);
@@ -505,7 +513,9 @@ app.get('/api/home', auth, async (req, res) => {
     const myOpps = opps.filter(mine);
     const myCases = cases.filter(mine);
     const appliedOppIds = new Set(myCases.filter(c => ['Sent','Replied','In conversation','Interview','Closed'].includes(c.stage)).map(c => c.oppId));
-    const engaged = myOpps.filter(o => (parseInt(o.matchScore) || 0) >= (parseInt(process.env.MIN_ENGAGE_SCORE || '65')) && o.status !== 'EXPIRED' && o.archived !== 'yes' && !appliedOppIds.has(o.id));
+    // Prepared cases live in Action needed only; they never reappear in Best matches
+    const preparedOppIds = new Set(myCases.filter(c => ['Email prepared','Awaiting approval'].includes(c.stage)).map(c => c.oppId));
+    const engaged = myOpps.filter(o => (parseInt(o.matchScore) || 0) >= (parseInt(process.env.MIN_ENGAGE_SCORE || '60')) && o.status !== 'EXPIRED' && o.archived !== 'yes' && o.noEmail !== 'yes' && !appliedOppIds.has(o.id) && !preparedOppIds.has(o.id));
     const best = engaged.sort((a, b) => (parseInt(b.matchScore) || 0) - (parseInt(a.matchScore) || 0)).slice(0, 12);
     const pendingApprovals = outbox.filter(m => mine(m) && m.status === 'PENDING');
     const openTasks = tasks.filter(t => mine(t) && t.status !== 'Done');
@@ -516,7 +526,7 @@ app.get('/api/home', auth, async (req, res) => {
       const o = opps.find(x => x.id === m.oppId);
       actions.push({ kind: 'approve', id: m.id, title: 'Review and send', where: o ? (o.institution) : m.toName, oppId: m.oppId, section: o ? (o.section || 'postdoc') : 'postdoc' });
     }
-    for (const t of openTasks.filter(t => /upload|confirm|reference/i.test(t.title))) {
+    for (const t of openTasks.filter(t => /upload|confirm|reference/i.test(t.title) && !/^suggested:|^provide:/i.test(t.title))) {
       const o = opps.find(x => x.id === t.oppId);
       actions.push({ kind: 'task', id: t.id, title: t.title, where: o ? o.institution : '', oppId: t.oppId, section: o ? (o.section || 'postdoc') : 'postdoc' });
     }
@@ -640,7 +650,7 @@ app.get('/api/case-history/:oppId', auth, async (req, res) => {
       replies: strip(replies),
       tasks: strip(tasks.filter(t => t.oppId === oppId)),
       documents: strip(props.filter(p => p.oppId === oppId)).map(p => ({ id: p.id, title: p.title, status: p.status })),
-      attachments: docs.filter(d => d.resId === req.userId && /generated from/i.test(d.note||'') && (d.note||'').includes('opp:['+oppId+']')).map(d => ({ id: d.id, name: d.name, type: d.type }))
+      attachments: await caseAttachmentList(req.userId, oppId)
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -759,7 +769,7 @@ app.get('/api/case/:oppId', auth, async (req, res) => {
       case: cse ? strip([cse])[0] : null,
       emails: strip(outbox),
       documents: strip(props).map(p => ({ id: p.id, title: p.title, status: p.status })),
-      attachments: (await db.all('Documents')).filter(d => d.resId === req.userId && /generated from/i.test(d.note || '') && (d.note || '').includes('opp:[' + oppId + ']')).map(d => ({ id: d.id, name: d.name, type: d.type })),
+      attachments: await caseAttachmentList(req.userId, oppId),
       tasks: strip(tasks),
       conversation: strip(threads)
     });
@@ -791,7 +801,7 @@ app.post('/api/cases/:oppId/prepare', auth, async (req, res) => {
 app.post('/api/prepare-all', auth, async (req, res) => {
   const opps = await db.all('Opportunities');
   const engaged = opps.filter(o => o.resId === req.userId &&
-    (parseInt(o.matchScore) || 0) >= (parseInt(process.env.MIN_ENGAGE_SCORE || '65')) &&
+    (parseInt(o.matchScore) || 0) >= (parseInt(process.env.MIN_ENGAGE_SCORE || '60')) &&
     o.status !== 'EXPIRED');
   if (!engaged.length) return res.json({ ok: true, message: 'No engaged opportunities to prepare yet. Run a search first.' });
   res.json({ ok: true, message: 'Preparing ' + engaged.length + ' application(s) in parallel: tailored CVs, cover letters and concept notes. Check Applications in a few minutes.' });
@@ -806,7 +816,7 @@ app.post('/api/prepare-all', auth, async (req, res) => {
 
 // Opportunities that scored below the engagement threshold: viewable, user can promote them
 app.get('/api/below-threshold', auth, async (req, res) => {
-  const th = parseInt(process.env.MIN_ENGAGE_SCORE || '65');
+  const th = parseInt(process.env.MIN_ENGAGE_SCORE || '60');
   const opps = (await db.all('Opportunities')).filter(o => o.resId === req.userId && o.archived !== 'yes' && (parseInt(o.matchScore) || 0) < th && o.status !== 'EXPIRED');
   res.json({ threshold: th, items: strip(opps).sort((a,b)=>(parseInt(b.matchScore)||0)-(parseInt(a.matchScore)||0)) });
 });
