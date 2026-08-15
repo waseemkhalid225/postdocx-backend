@@ -334,7 +334,7 @@ async function openCase(oppId){
       <input id="cs-subj" value="${esc(email.subject)}" style="border:none;background:none;padding:8px 0">
     </div>
     <textarea id="cs-body" style="min-height:220px;border:none;border-radius:0;padding:12px 14px">${esc(email.body)}</textarea>
-    ${d.attachments&&d.attachments.length?`<div style="padding:8px 14px;border-top:1px solid var(--line)">${d.attachments.map(a=>`<span class="chip c-gray" style="margin:2px">📎 ${esc(a.name)}</span>`).join('')}</div>`:''}
+    ${d.attachments&&d.attachments.length?`<div style="padding:8px 14px;border-top:1px solid var(--line)">${d.attachments.map(a=>`<span class="chip c-gray" style="margin:2px">📎 <span onclick="viewAtt('${a.id}')" style="cursor:pointer;text-decoration:underline">${esc(a.name)}</span> <span onclick="renameAtt('${oppId}','${a.id}','${esc(a.name)}')" style="cursor:pointer;margin-left:3px">✎</span><span onclick="removeAtt('${oppId}','${a.id}')" style="cursor:pointer;font-weight:700;margin-left:4px;color:var(--crimson)">✕</span></span>`).join('')}</div>`:''}
     <div style="padding:10px 14px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center">
       <button class="btn b-green" ${SEND_HEALTH.canSend?'':'disabled'} onclick="saveAndSend('${email.id}')">${SEND_HEALTH.canSend?'📤 Send':'Cannot send yet'}</button>
       <button class="btn b-line b-sm" onclick="saveDraftOnly('${email.id}')">Save draft</button>
@@ -351,7 +351,7 @@ async function openCase(oppId){
     <div class="row"><button class="btn b-line b-sm" onclick="closeModal();openProp('${x.id}')">Open</button>
     <button class="btn b-gold b-sm" onclick="attachPdf('${x.id}','${oppId}')">Attach as PDF</button></div></div></div>`).join('')}`:''}
     ${d.attachments&&d.attachments.length?`<div style="margin-top:12px;font-weight:700;font-size:13px;color:var(--ink)">Attached to this email</div>
-    ${d.attachments.map(a=>`<div class="sub">📎 ${esc(a.name)}${a.original?' <span style="color:var(--green)">(original)</span>':''}</div>`).join('')}`:'<div class="sub" style="margin-top:10px;color:var(--gold)">No generated PDF attached yet. Tap Prepare case to create the documents.</div>'}
+    ${d.attachments.map(a=>`<div class="sub spread">📎 <span onclick="viewAtt('${a.id}')" style="cursor:pointer;text-decoration:underline">${esc(a.name)}</span>${a.original?' <span style="color:var(--green)">(original)</span>':''} <span style="flex:0 0 auto"><span onclick="renameAtt('${oppId}','${a.id}','${esc(a.name)}')" style="cursor:pointer;margin-right:8px">✎</span><span onclick="removeAtt('${oppId}','${a.id}')" style="cursor:pointer;font-weight:700;color:var(--crimson)">✕</span></span></div>`).join('')}`:'<div class="sub" style="margin-top:10px;color:var(--gold)">No generated PDF attached yet. Tap Prepare case to create the documents.</div>'}
 
     ${d.tasks&&d.tasks.filter(t=>t.status!=='Done').length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Still to do</div>
     ${d.tasks.filter(t=>t.status!=='Done').map(t=>`<div class="sub">○ ${esc(t.title)}</div>`).join('')}`:''}
@@ -511,6 +511,25 @@ async function genFunding(oppId){
 async function prepareAll(){
   toast('Preparing all your applications in parallel…');
   try{const d=await api('/api/prepare-all',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
+}
+async function viewAtt(docId){
+  toast('Opening…');
+  try{
+    const r=await fetch('/api/documents/'+docId+'/file',{headers:{authorization:'Bearer '+TOKEN}});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error||'Could not open');}
+    const b=await r.blob();const u=URL.createObjectURL(b);window.open(u,'_blank');
+  }catch(e){toast(e.message)}
+}
+async function renameAtt(oppId,docId,cur){
+  const name=prompt('New file name:',cur||'');
+  if(!name||!name.trim())return;
+  try{await api('/api/documents/'+docId+'/rename',{method:'POST',body:JSON.stringify({name:name.trim()})});toast('Renamed.');openCase(oppId);}
+  catch(e){toast('Failed: '+e.message)}
+}
+async function removeAtt(oppId,docId){
+  if(!confirm('Remove this attachment from this application?'))return;
+  try{await api('/api/case/'+oppId+'/remove-attachment',{method:'POST',body:JSON.stringify({docId})});toast('Removed.');openCase(oppId);}
+  catch(e){toast('Failed: '+e.message)}
 }
 async function attachPdf(propId,oppId){
   toast('Rendering the PDF and attaching it to this case…');
