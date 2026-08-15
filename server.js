@@ -12,10 +12,10 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne, analyzeCase, piInsight, computeReadiness, buildReminders, migrateNaming, draftEmailForCase } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne, analyzeCase, piInsight, computeReadiness, buildReminders, migrateNaming, draftEmailForCase, backfillPreparedCases } = require('./lib/agent');
 const { testOpenAI } = require('./lib/openai');
 loadRuntimeMode().catch(() => {});
-setTimeout(() => migrateNaming().catch(() => {}), 5000);
+setTimeout(() => migrateNaming().then(() => backfillPreparedCases(8)).catch(() => {}), 5000);
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
