@@ -273,6 +273,7 @@ async function openCase(oppId){
     const email=(d.emails||[]).find(m=>m.status==='PENDING'||m.status==='APPROVED')||(d.emails||[])[0];
     const verified=o.status==='VERIFIED';
     const recip=(email&&email.toEmail)||o.contact||'';
+    if(d.drafting&&!window._caseRetry){window._caseRetry=true;setTimeout(()=>{window._caseRetry=false;openCase(oppId)},20000);}
     modal(`<div style="max-height:78vh;overflow:auto">
     <h3 style="margin-right:30px">${esc(o.institution||'')}</h3>
     <div class="sub">${esc(o.title||'')}${o.pi?' · '+esc(o.pi):''}${o.country?' · '+esc(o.country):''}</div>
@@ -323,7 +324,11 @@ async function openCase(oppId){
 
     ${email?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Email draft (editable)</div>
     <label style="margin-top:6px">Subject</label><input id="cs-subj" value="${esc(email.subject)}">
-    <label>Message</label><textarea id="cs-body" style="min-height:190px">${esc(email.body)}</textarea>`:'<div class="empty" style="margin-top:12px">No email drafted yet. Prepare the application first.</div>'}
+    <label>Message</label><textarea id="cs-body" style="min-height:190px">${esc(email.body)}</textarea>`
+    :d.drafting?`<div class="mcard" style="margin-top:12px;border-color:var(--green);background:var(--green-soft)">
+    <div style="font-weight:700;color:var(--green);font-size:13px">The agent is working on this right now</div>
+    <div class="sub" style="color:#1C6149">Hunting the supervisor official email and writing your draft. This window refreshes itself in about 20 seconds.</div></div>`
+    :'<div class="empty" style="margin-top:12px">No email drafted yet. Tap Update (re-prepare).</div>'}
 
     ${d.documents&&d.documents.length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Prepared documents, written by the agent (tap to view and edit)</div>
     ${d.documents.map(x=>`<div class="item" style="margin-top:8px"><div class="spread"><div class="t" style="font-size:13px">${esc(x.title)}</div>
@@ -340,7 +345,7 @@ async function openCase(oppId){
     `<div class="sub" style="margin-top:12px;color:var(--green)">✓ Ready to send via ${esc(SEND_HEALTH.how||'email')}. The professor receives it from your address.</div>`}
 
     <div class="btn-group" style="margin-top:16px;position:sticky;bottom:0;background:var(--panel);padding-top:10px">
-    ${email&&recip?`<button class="btn b-green b-lg" ${SEND_HEALTH.canSend?'':'disabled'} onclick="saveAndSend('${email.id}')">${SEND_HEALTH.canSend?'Approve and send now':'Cannot send yet'}</button>
+    ${email&&recip?`<button class="btn b-green b-lg" ${SEND_HEALTH.canSend?'':'disabled'} onclick="saveAndSend('${email.id}')">${SEND_HEALTH.canSend?'📤 Send email now':'Cannot send yet (fix email in Admin health)'}</button>
     <button class="btn b-line" onclick="saveDraftOnly('${email.id}')">Save draft</button>`:''}
     ${email&&!recip?`<button class="btn b-gold" onclick="saveDraftOnly('${email.id}')">Save draft</button>`:''}
     <button class="btn b-line" onclick="prepareApp('${oppId}');closeModal()">Update (re-prepare)</button>
@@ -474,8 +479,10 @@ async function vMatches(){
     ${o.perks?`<div class="sub" style="margin-top:6px">✦ ${esc(o.perks)}</div>`:''}
     ${o.chance?`<div class="sub" style="margin-top:3px">${esc(o.chance)}</div>`:''}
     <div class="btn-group" style="margin-top:14px">
-    <button class="btn b-gold" onclick="prepareApp('${o.id}')">Prepare case</button>
-    <button class="btn b-line" onclick="openCase('${o.id}')">View / send</button></div></div>`}).join(''):
+    ${o.prepDone==='yes'?`<button class="btn b-green" onclick="openCase('${o.id}')">✓ Prepared, view and send</button>`
+    :o.prepStartedAt&&o.prepDone!=='yes'?`<button class="btn b-line" disabled>Preparing…</button>`
+    :`<button class="btn b-gold" onclick="prepareApp('${o.id}')">Prepare case</button>`}
+    ${o.prepDone!=='yes'?`<button class="btn b-line" onclick="openCase('${o.id}')">View</button>`:''}</div></div>`}).join(''):
     `<div class="empty">No great matches yet. ${ME.role==='admin'?'Tap Find new opportunities on Home.':'Your agent is searching, check back soon.'}</div>`}`;
 }
 async function genFunding(oppId){
