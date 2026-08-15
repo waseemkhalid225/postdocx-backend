@@ -312,10 +312,7 @@ async function openCase(oppId){
     <div style="margin-top:12px;font-weight:700;font-size:13px;color:var(--ink)">What the agent does next</div>
     ${o.nextSteps.map(n=>`<div class="sub">→ ${esc(n)}</div>`).join('')}`:''}
 
-    <div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Recipient</div>
-    <div class="sub">${recip?'The agent found this address from the official page. Please confirm it is correct before sending, sending to the wrong professor cannot be undone.':'No recipient found yet. Add the official email from the position page.'}</div>
-    <input id="cs-to" value="${esc(recip)}" placeholder="official email(s), two addresses separated by comma">
-    ${o.url?`<div class="sub" style="margin-top:4px">Verify against the source: <a href="${esc(o.url)}" target="_blank" rel="noopener">open the official posting ↗</a></div>`:''}
+    <input id="cs-to" type="hidden" value="${esc(recip)}">
     ${!recip?`<div class="mcard" style="margin-top:10px;border-color:var(--gold);background:var(--gold-soft)">
     <div style="font-weight:700;font-size:13px;color:#8A6A15">No official email found, apply yourself</div>
     <div class="sub" style="color:#8A6A15">The agent could not find a direct email for this one. Your CV and documents are prepared below, and a short email draft is ready. ${o.url?'Open the posting and apply there with these documents.':'Search the position online and apply with these documents.'}</div>
@@ -328,6 +325,7 @@ async function openCase(oppId){
       <span class="sub" style="width:52px;flex:0 0 auto">To</span>
       <input id="cs-to2" value="${esc(recip)}" placeholder="recipient@university.edu" style="border:none;background:none;padding:8px 0" oninput="$('cs-to').value=this.value">
     </div>
+    ${o.url?`<div style="padding:4px 14px;border-bottom:1px solid var(--line)"><span class="sub" style="font-size:11px">Verify: <a href="${esc(o.url)}" target="_blank" rel="noopener">official posting ↗</a></span></div>`:''}
     <div style="padding:6px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px">
       <span class="sub" style="width:52px;flex:0 0 auto">Subject</span>
       <input id="cs-subj" value="${esc(email.subject)}" style="border:none;background:none;padding:8px 0">
@@ -360,9 +358,7 @@ async function openCase(oppId){
     `<div class="sub" style="margin-top:12px;color:var(--green)">✓ Ready to send via ${esc(SEND_HEALTH.how||'email')}. The professor receives it from your address.</div>`}
 
     <div class="btn-group" style="margin-top:16px;position:sticky;bottom:0;background:var(--panel);padding-top:10px">
-    ${email&&recip?`<button class="btn b-green b-lg" ${SEND_HEALTH.canSend?'':'disabled'} onclick="saveAndSend('${email.id}')">${SEND_HEALTH.canSend?'📤 Send email now':'Cannot send yet (fix email in Admin health)'}</button>
-    <button class="btn b-line" onclick="saveDraftOnly('${email.id}')">Save draft</button>`:''}
-    ${email&&!recip?`<button class="btn b-gold" onclick="saveDraftOnly('${email.id}')">Save draft</button>`:''}
+
     <button class="btn b-line" onclick="prepareApp('${oppId}');closeModal()">Update (re-prepare)</button>
     <button class="btn b-line" onclick="closeModal()">Close</button></div></div>`);
   }catch(e){toast(e.message)}
