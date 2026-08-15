@@ -322,9 +322,23 @@ async function openCase(oppId){
     ${o.url?`<a class="btn b-gold b-sm" style="margin-top:8px" href="${esc(o.url)}" target="_blank" rel="noopener">Open posting to apply ↗</a>`:''}</div>`:''}
     <div class="sub" style="margin-top:4px;color:var(--green)">A copy is BCC'd to your address, so you keep a record of exactly what was sent.</div>
 
-    ${email?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Email draft (editable)</div>
-    <label style="margin-top:6px">Subject</label><input id="cs-subj" value="${esc(email.subject)}">
-    <label>Message</label><textarea id="cs-body" style="min-height:190px">${esc(email.body)}</textarea>`
+    ${email?`<div class="mcard" style="margin-top:14px;padding:0;overflow:hidden">
+    <div style="background:var(--ink);color:#fff;padding:10px 14px;font-weight:700;font-size:13px">New message</div>
+    <div style="padding:6px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px">
+      <span class="sub" style="width:52px;flex:0 0 auto">To</span>
+      <input id="cs-to2" value="${esc(recip)}" placeholder="recipient@university.edu" style="border:none;background:none;padding:8px 0" oninput="$('cs-to').value=this.value">
+    </div>
+    <div style="padding:6px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px">
+      <span class="sub" style="width:52px;flex:0 0 auto">Subject</span>
+      <input id="cs-subj" value="${esc(email.subject)}" style="border:none;background:none;padding:8px 0">
+    </div>
+    <textarea id="cs-body" style="min-height:220px;border:none;border-radius:0;padding:12px 14px">${esc(email.body)}</textarea>
+    ${d.attachments&&d.attachments.length?`<div style="padding:8px 14px;border-top:1px solid var(--line)">${d.attachments.map(a=>`<span class="chip c-gray" style="margin:2px">📎 ${esc(a.name)}</span>`).join('')}</div>`:''}
+    <div style="padding:10px 14px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center">
+      <button class="btn b-green" ${SEND_HEALTH.canSend?'':'disabled'} onclick="saveAndSend('${email.id}')">${SEND_HEALTH.canSend?'📤 Send':'Cannot send yet'}</button>
+      <button class="btn b-line b-sm" onclick="saveDraftOnly('${email.id}')">Save draft</button>
+      <span class="sub" style="margin-left:auto">BCC to you</span>
+    </div></div>`
     :d.drafting?`<div class="mcard" style="margin-top:12px;border-color:var(--green);background:var(--green-soft)">
     <div style="font-weight:700;color:var(--green);font-size:13px">The agent is working on this right now</div>
     <div class="sub" style="color:#1C6149">Hunting the supervisor official email and writing your draft. This window refreshes in about 20 seconds, or run it now:</div>
