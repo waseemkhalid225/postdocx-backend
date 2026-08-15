@@ -772,10 +772,10 @@ app.get('/api/send-health', auth, async (req, res) => {
     note = 'The professor receives a genuine personal email from your real address. Nothing third-party is shown.';
   }
   else if (u.emailConnected === 'yes' && u.smtpEmail) { can = true; how = 'your Gmail'; }
-  else if (process.env.BREVO_API_KEY) { can = true; how = 'the office sender over HTTPS'; note = 'Sends from the verified office address with your address as reply-to.'; }
+
   else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     const t = await testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
-    can = t.smtp; how = t.smtp ? 'the office Gmail' : ''; if (!t.smtp) note = 'SMTP is blocked by the host. Add a BREVO_API_KEY to enable sending over HTTPS.';
+    can = false; note = 'Connect your Gmail: set the three GOOGLE_OAUTH variables in Railway.';
   } else note = 'No sending method configured. Connect your Gmail in Profile, or add a Brevo API key.';
   res.json({ canSend: can, how, note });
 });
@@ -878,11 +878,8 @@ app.get('/api/admin/autopilot-health', auth, adminOnly, async (req, res) => {
   let email = { ok: false, note: '' };
   const gapi = require('./lib/gmail-send');
   if (gapi.isConfigured()) { const addr = await gapi.whoAmI(); email = { ok: !!addr, note: addr ? ('Sends as your real Gmail: ' + addr) : 'Gmail API configured but token not valid yet' }; }
-  else if (process.env.BREVO_API_KEY) email = { ok: true, note: 'HTTPS sending via Brevo (fallback)' };
-  else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-    const t = await require('./lib/mailer').testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
-    email = { ok: t.smtp, note: t.smtp ? 'SMTP sending works' : 'SMTP blocked, add BREVO_API_KEY' };
-  } else email = { ok: false, note: 'No sending method configured' };
+
+  else email = { ok: false, note: 'Connect your Gmail: set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REFRESH_TOKEN.' };
   out.email = email;
   out.ai = { ok: !!process.env.ANTHROPIC_API_KEY, note: (process.env.ANTHROPIC_API_KEY ? 'Claude ready' : 'No Claude key') + (process.env.OPENAI_API_KEY ? ', GPT ready' : '') };
   const settings = await db.all('Settings');
@@ -934,12 +931,8 @@ app.get('/api/admin/diag', auth, adminOnly, async (req, res) => {
   try { out.drive = await gdrive.probe(); } catch (e) { out.drive = { token: { ok: false, note: String(e.message).slice(0, 200) } }; }
   if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     const t = await testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
-    const brevo = process.env.BREVO_API_KEY ? 'HTTPS fallback (Brevo): configured' : 'HTTPS fallback: not configured (set BREVO_API_KEY)';
-    out.gmail = { ok: t.smtp || t.imap || !!process.env.BREVO_API_KEY,
-      note: 'Sending SMTP: ' + (t.smtp ? 'OK' : 'BLOCKED (' + (t.smtpError || '').slice(0, 60) + ')') +
-        ' | Reading IMAP: ' + (t.imap ? 'OK' : 'BLOCKED (' + (t.imapError || '').slice(0, 60) + ')') +
-        ' | ' + brevo +
-        ((!t.smtp || !t.imap) ? ' | Railway blocks mail ports on free/trial plans, upgrading to Hobby unblocks both.' : '') };
+    out.gmail = { ok: t.imap,
+      note: 'Sending: your Gmail via the Gmail API (see Autopilot health). Reading replies IMAP: ' + (t.imap ? 'OK' : 'BLOCKED (' + (t.imapError || '').slice(0, 60) + ')') };
   } else out.gmail = { ok: false, note: 'GMAIL_USER / GMAIL_APP_PASSWORD not set' };
   out.anthropic = { ok: !!process.env.ANTHROPIC_API_KEY, note: process.env.ANTHROPIC_API_KEY ? 'API key present' : 'ANTHROPIC_API_KEY not set' };
   res.json(out);
