@@ -12,7 +12,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne, analyzeCase, piInsight, computeReadiness, buildReminders, migrateNaming, draftEmailForCase, backfillPreparedCases } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne, analyzeCase, piInsight, computeReadiness, buildReminders, migrateNaming, draftEmailForCase, backfillPreparedCases, ensureCasePdfs } = require('./lib/agent');
 const { testOpenAI } = require('./lib/openai');
 loadRuntimeMode().catch(() => {});
 setTimeout(() => migrateNaming().then(() => backfillPreparedCases(8)).catch(() => {}), 5000);
@@ -803,6 +803,9 @@ app.get('/api/case/:oppId', auth, async (req, res) => {
     const hasDraft = outbox.some(m => m.status === 'PENDING' || m.status === 'APPROVED');
     let drafting = false;
     if (!hasDraft) { drafting = true; draftEmailForCase(oppId).catch(() => {}); }
+    // If the agent-written PDFs are missing (old cases), render them now in the background
+    const att0 = await caseAttachmentList(req.userId, oppId);
+    if (!att0.some(a => !a.original) && props.length) ensureCasePdfs(oppId).catch(() => {});
     const tasks = (await db.all('Tasks')).filter(t => t.oppId === oppId);
     const threads = (await db.all('Threads')).filter(t => t.oppId === oppId);
     res.json({
