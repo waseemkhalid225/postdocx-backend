@@ -351,9 +351,18 @@ app.delete('/api/referees/:id', auth, async (req, res) => {
 const strip = a => a.map(({ _row, ...o }) => o);
 
 async function caseAttachmentList(userId, oppId) {
-  const docs = await db.all('Documents');
-  const gen = docs.filter(d => d.resId === userId && d.driveId && /generated from/i.test(d.note || '') && (d.note || '').includes('opp:[' + oppId + ']'));
-  const cred = docs.filter(d => d.resId === userId && d.driveId && !/generated from/i.test(d.note || '') && /(degree|certificat|transcript|publication|reference letter)/i.test(d.type || ''));
+  const [docs, opps] = await Promise.all([db.all('Documents'), db.all('Opportunities')]);
+  const opp = opps.find(o => o.id === oppId) || {};
+  const excluded = new Set(String(opp.excludeDocs || '').split(',').map(x => x.trim()).filter(Boolean));
+  const KIND = d => /cv/i.test(d.type) ? 'cv' : /cover/i.test(d.type) ? 'cover' : /concept|proposal/i.test(d.type) ? 'concept' : /funding/i.test(d.type) ? 'funding' : (d.type || d.name);
+  const gen0 = docs.filter(d => d.resId === userId && d.driveId && !excluded.has(d.id) && /generated from/i.test(d.note || '') && (d.note || '').includes('opp:[' + oppId + ']'));
+  // newest per kind only, never duplicates
+  const byKind = {};
+  for (const d of gen0) { const k = KIND(d); if (!byKind[k] || String(d.updatedOn || '') >= String(byKind[k].updatedOn || '') && d.id > (byKind[k].id || '')) byKind[k] = d; }
+  const gen = Object.values(byKind);
+  const seen = new Set();
+  const cred = docs.filter(d => d.resId === userId && d.driveId && !excluded.has(d.id) && !/generated from/i.test(d.note || '') && /(degree|certificat|transcript|publication|reference letter)/i.test(d.type || ''))
+    .filter(d => { const n = (d.name || '').toLowerCase(); if (seen.has(n)) return false; seen.add(n); return true; });
   return [...gen, ...cred.slice(0, 4)].map(d => ({ id: d.id, name: d.name, type: d.type, original: !/generated from/i.test(d.note || '') }));
 }
 
@@ -625,6 +634,52 @@ app.post('/api/opps/:id/archive', auth, async (req, res) => {
   if (!o) return res.status(404).json({ error: 'Not found' });
   o._row.set('archived', 'yes'); await o._row.save();
   res.json({ ok: true });
+});
+
+
+app.post('/api/case/:oppId/remove-attachment', auth, async (req, res) => {
+  try {
+    const { docId } = req.body || {};
+    const oppId = req.params.oppId;
+    const opp = (await db.all('Opportunities')).find(o => o.id === oppId && o.resId === req.userId);
+    const doc = (await db.all('Documents')).find(d => d.id === docId && d.resId === req.userId);
+    if (!opp || !doc) return res.status(404).json({ error: 'Not found' });
+    if (/generated from/i.test(doc.note || '')) {
+      await doc._row.delete();
+    } else {
+      // exclude ALL copies with the same file name for this case, so the chip truly disappears
+      const twins = (await db.all('Documents')).filter(d => d.resId === req.userId && (d.name || '').toLowerCase() === (doc.name || '').toLowerCase()).map(d => d.id);
+      const ex = String(opp.excludeDocs || '').split(',').map(x => x.trim()).filter(Boolean);
+      for (const t of twins) if (!ex.includes(t)) ex.push(t);
+      opp._row.set('excludeDocs', ex.join(','));
+      await opp._row.save();
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+app.get('/api/documents/:id/file', auth, async (req, res) => {
+  try {
+    const d = (await db.all('Documents')).find(x => x.id === req.params.id && x.resId === req.userId);
+    if (!d || !d.driveId) return res.status(404).json({ error: 'File not found' });
+    const buf = storage.isStorageId(d.driveId) ? await storage.get(d.driveId) : await gdrive.getBuffer(d.driveId);
+    res.setHeader('Content-Type', d.mime || 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="' + String(d.name || 'document.pdf').replace(/"/g, '') + '"');
+    res.send(buf);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/documents/:id/rename', auth, async (req, res) => {
+  try {
+    const d = (await db.all('Documents')).find(x => x.id === req.params.id && x.resId === req.userId);
+    if (!d) return res.status(404).json({ error: 'Not found' });
+    let name = String((req.body || {}).name || '').replace(/[^A-Za-z0-9 ._,()-]/g, '').trim().slice(0, 80);
+    if (!name) return res.status(400).json({ error: 'Enter a name' });
+    const oldExt = (d.name || '').match(/\.[A-Za-z0-9]{2,5}$/);
+    if (oldExt && !name.toLowerCase().endsWith(oldExt[0].toLowerCase())) name += oldExt[0];
+    d._row.set('name', name); await d._row.save();
+    res.json({ ok: true, name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 /* ===== live preparation status ===== */
