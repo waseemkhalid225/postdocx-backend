@@ -327,7 +327,8 @@ async function openCase(oppId){
     <label>Message</label><textarea id="cs-body" style="min-height:190px">${esc(email.body)}</textarea>`
     :d.drafting?`<div class="mcard" style="margin-top:12px;border-color:var(--green);background:var(--green-soft)">
     <div style="font-weight:700;color:var(--green);font-size:13px">The agent is working on this right now</div>
-    <div class="sub" style="color:#1C6149">Hunting the supervisor official email and writing your draft. This window refreshes itself in about 20 seconds.</div></div>`
+    <div class="sub" style="color:#1C6149">Hunting the supervisor official email and writing your draft. This window refreshes in about 20 seconds, or run it now:</div>
+    <button class="btn b-green b-sm" style="margin-top:8px" onclick="draftNow('${oppId}')">Hunt email and draft now</button></div>`
     :'<div class="empty" style="margin-top:12px">No email drafted yet. Tap Update (re-prepare).</div>'}
 
     ${d.documents&&d.documents.length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Prepared documents, written by the agent (tap to view and edit)</div>
@@ -493,6 +494,15 @@ async function prepareAll(){
   toast('Preparing all your applications in parallel…');
   try{const d=await api('/api/prepare-all',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
 }
+async function draftNow(oppId){
+  toast('Hunting the official email and writing the draft, up to a minute…');
+  try{
+    const d=await api('/api/case/'+oppId+'/draft-now',{method:'POST'});
+    if(d.hasEmail){toast(d.contact?'Done. Address: '+d.contact:'Draft ready. No official address found yet, add it or apply via the posting.');}
+    else{toast('The agent could not write the draft, likely an AI budget or key issue. Check Activity.');}
+    openCase(oppId);
+  }catch(e){toast('Failed: '+e.message)}
+}
 async function prepareApp(oppId){
   toast('Preparing the full case: reading requirements, writing every document…');
   try{
@@ -523,7 +533,7 @@ async function vAction(){
   const renderAct=a=>`<div class="mcard">
   <div style="font-weight:700;color:var(--ink)">${esc(a.where||'Application')}</div>
   <div class="sub" style="margin-top:3px">${a.kind==='approve'?'Application ready. Review everything, then send to the recipient.':esc(a.title)}</div>
-  <div class="btn-group" style="margin-top:12px">${a.kind==='approve'
+  <div class="btn-group" style="margin-top:12px">${a.kind==='approve'||a.kind==='case'
     ?`<button class="btn b-green" onclick="openCase('${a.oppId}')">Review and send</button>`
     :`<button class="btn b-gold" onclick="go('mydocs')">${/upload/i.test(a.title)?'Upload document':'Open'}</button>`}
     <button class="btn b-line b-sm" onclick="dismissAction('${a.kind}','${a.id}','${a.oppId||''}')">Remove</button></div></div>`;
@@ -538,6 +548,7 @@ async function dismissAction(kind,id,oppId){
   try{
     if(kind==='task'){await api('/api/tasks/'+id+'/done',{method:'POST'})}
     else if(kind==='approve'){await api('/api/outbox/'+id+'/reject',{method:'POST'})}
+    else if(kind==='case'){await api('/api/opps/'+id+'/archive',{method:'POST'})}
     toast('Removed from your list');await loadHome();vAction();
   }catch(e){toast(e.message)}
 }
