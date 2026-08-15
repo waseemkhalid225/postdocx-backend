@@ -523,7 +523,13 @@ app.get('/api/home', auth, async (req, res) => {
     const submitted = myCases.filter(c => ['Sent', 'Replied', 'In conversation', 'Interview'].includes(c.stage));
     // action items: pending approvals + open document/confirm tasks
     const actions = [];
+    // Every prepared case appears here until it is sent, no exceptions
+    const sentOpp = new Set(outbox.filter(m => mine(m) && m.status === 'SENT').map(m => m.oppId));
+    for (const o of myOpps.filter(o => o.prepDone === 'yes' && !sentOpp.has(o.id) && o.archived !== 'yes')) {
+      actions.push({ kind: 'case', id: o.id, title: 'Review and send', where: o.institution, oppId: o.id, section: 'postdoc' });
+    }
     for (const m of pendingApprovals) {
+      if (actions.some(a => a.oppId === m.oppId)) continue;
       const o = opps.find(x => x.id === m.oppId);
       actions.push({ kind: 'approve', id: m.id, title: 'Review and send', where: o ? (o.institution) : m.toName, oppId: m.oppId, section: o ? (o.section || 'postdoc') : 'postdoc' });
     }
@@ -597,6 +603,27 @@ app.post('/api/tasks/:id/done', auth, async (req, res) => {
   const t = (await db.all('Tasks')).find(x => x.id === req.params.id && x.resId === req.userId);
   if (!t) return res.status(404).json({ error: 'Not found' });
   t._row.set('status', 'Done'); await t._row.save();
+  res.json({ ok: true });
+});
+
+
+app.post('/api/case/:oppId/draft-now', auth, async (req, res) => {
+  try {
+    const oppId = req.params.oppId;
+    const opp = (await db.all('Opportunities')).find(o => o.id === oppId && o.resId === req.userId);
+    if (!opp) return res.status(404).json({ error: 'Not found' });
+    await draftEmailForCase(oppId);
+    const opp2 = (await db.all('Opportunities')).find(o => o.id === oppId);
+    const draft = (await db.all('Outbox')).find(m => m.oppId === oppId && (m.status === 'PENDING' || m.status === 'APPROVED'));
+    res.json({ ok: true, contact: opp2.contact || '', hasEmail: !!draft, subject: draft ? draft.subject : '' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+app.post('/api/opps/:id/archive', auth, async (req, res) => {
+  const o = (await db.all('Opportunities')).find(x => x.id === req.params.id && x.resId === req.userId);
+  if (!o) return res.status(404).json({ error: 'Not found' });
+  o._row.set('archived', 'yes'); await o._row.save();
   res.json({ ok: true });
 });
 
