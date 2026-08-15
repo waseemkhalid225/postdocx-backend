@@ -12,7 +12,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = requir
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
-const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne, analyzeCase, piInsight, computeReadiness, buildReminders, migrateNaming } = require('./lib/agent');
+const { runCycle, cfg, draftProposal, interviewBrief, coupleDossier, weeklyReview, draftRefereeRequests, tailoredCV, coverLetter, setRuntimeMode, loadRuntimeMode, targetLabMap, fundingNarrative, sendOne, analyzeCase, piInsight, computeReadiness, buildReminders, migrateNaming, draftEmailForCase } = require('./lib/agent');
 const { testOpenAI } = require('./lib/openai');
 loadRuntimeMode().catch(() => {});
 setTimeout(() => migrateNaming().catch(() => {}), 5000);
@@ -762,7 +762,20 @@ app.get('/api/case/:oppId', auth, async (req, res) => {
     const cases = await db.all('Cases');
     const cse = cases.find(c => c.oppId === oppId);
     const outbox = (await db.all('Outbox')).filter(m => m.oppId === oppId);
-    const props = (await db.all('Proposals')).filter(p => p.oppId === oppId);
+    let props = (await db.all('Proposals')).filter(p => p.oppId === oppId);
+    // Only the four core kinds, newest of each: exactly the files that attach to the email
+    const CORE = ['CV: ', 'Cover letter: ', 'Concept note: ', 'Funding application: '];
+    const newest = {};
+    for (const p2 of props) {
+      const kind = CORE.find(k => (p2.title || '').startsWith(k));
+      if (!kind) continue;
+      if (!newest[kind] || String(p2.createdOn || '') >= String(newest[kind].createdOn || '')) newest[kind] = p2;
+    }
+    props = Object.values(newest);
+    // If the case has no email draft yet (older cases), write it now in the background
+    const hasDraft = outbox.some(m => m.status === 'PENDING' || m.status === 'APPROVED');
+    let drafting = false;
+    if (!hasDraft) { drafting = true; draftEmailForCase(oppId).catch(() => {}); }
     const tasks = (await db.all('Tasks')).filter(t => t.oppId === oppId);
     const threads = (await db.all('Threads')).filter(t => t.oppId === oppId);
     res.json({
@@ -772,7 +785,8 @@ app.get('/api/case/:oppId', auth, async (req, res) => {
       documents: strip(props).map(p => ({ id: p.id, title: p.title, status: p.status })),
       attachments: await caseAttachmentList(req.userId, oppId),
       tasks: strip(tasks),
-      conversation: strip(threads)
+      conversation: strip(threads),
+      drafting
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
