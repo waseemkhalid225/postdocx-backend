@@ -110,6 +110,9 @@ hr.sep{border:none;border-top:1px solid var(--line);margin:14px 0}
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',3200)}
+function fmtEmails(v){
+  return String(v||'').split(/[,;\s]+/).map(x=>x.trim().replace(/^mailto:/i,'').replace(/^[<(\[]+|[>)\].,;:]+$/g,'')).filter(x=>/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(x)).filter((x,i,a)=>a.indexOf(x)===i).join(', ');
+}
 function daysLeft(d){if(!d)return null;return Math.ceil((new Date(d+'T23:59:59')-new Date())/86400000)}
 function dlChip(d){const n=daysLeft(d);if(n===null)return '<span class="chip c-gray">no deadline</span>';
 if(n<0)return '<span class="chip c-gray">expired</span>';
@@ -323,7 +326,7 @@ async function openCase(oppId){
     <div style="background:var(--ink);color:#fff;padding:10px 14px;font-weight:700;font-size:13px">New message</div>
     <div style="padding:6px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px">
       <span class="sub" style="width:52px;flex:0 0 auto">To</span>
-      <input id="cs-to2" value="${esc(recip)}" placeholder="recipient@university.edu" style="border:none;background:none;padding:8px 0" oninput="$('cs-to').value=this.value">
+      <input id="cs-to2" value="${esc(recip)}" placeholder="recipient@university.edu" style="border:none;background:none;padding:8px 0" oninput="$('cs-to').value=this.value" onblur="this.value=fmtEmails(this.value)||this.value;$('cs-to').value=this.value" onpaste="setTimeout(()=>{this.value=fmtEmails(this.value)||this.value;$('cs-to').value=this.value},50)">
     </div>
     ${o.url?`<div style="padding:4px 14px;border-bottom:1px solid var(--line)"><span class="sub" style="font-size:11px">Verify: <a href="${esc(o.url)}" target="_blank" rel="noopener">official posting ↗</a></span></div>`:''}
     <div style="padding:6px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px">
@@ -345,7 +348,8 @@ async function openCase(oppId){
 
     ${d.documents&&d.documents.length?`<div style="margin-top:14px;font-weight:700;font-size:13px;color:var(--ink)">Prepared documents, written by the agent (tap to view and edit)</div>
     ${d.documents.map(x=>`<div class="item" style="margin-top:8px"><div class="spread"><div class="t" style="font-size:13px">${esc(x.title)}</div>
-    <button class="btn b-line b-sm" onclick="closeModal();openProp('${x.id}')">Open</button></div></div>`).join('')}`:''}
+    <div class="row"><button class="btn b-line b-sm" onclick="closeModal();openProp('${x.id}')">Open</button>
+    <button class="btn b-gold b-sm" onclick="attachPdf('${x.id}','${oppId}')">Attach as PDF</button></div></div></div>`).join('')}`:''}
     ${d.attachments&&d.attachments.length?`<div style="margin-top:12px;font-weight:700;font-size:13px;color:var(--ink)">Attached to this email</div>
     ${d.attachments.map(a=>`<div class="sub">📎 ${esc(a.name)}${a.original?' <span style="color:var(--green)">(original)</span>':''}</div>`).join('')}`:'<div class="sub" style="margin-top:10px;color:var(--gold)">No generated PDF attached yet. Tap Prepare case to create the documents.</div>'}
 
@@ -365,8 +369,9 @@ async function openCase(oppId){
 }
 async function saveAndSend(emailId){
   const to=$('cs-to').value.trim();
-  const parts=to.split(',').map(x=>x.trim()).filter(Boolean);
-  if(!parts.length||parts.some(x=>!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(x))){toast('Enter valid recipient email(s), separate two addresses with a comma');return}
+  const parts=to.split(',').map(x=>x.trim().replace(/[.,;:]+$/,'')).filter(Boolean);
+  if(!parts.length||parts.some(x=>!/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(x))){toast('Enter valid recipient email(s), separate two addresses with a comma');return}
+  const cleanTo=parts.join(', ');
   try{
     await api('/api/outbox/'+emailId,{method:'PUT',body:{subject:$('cs-subj').value,body:$('cs-body').value,toEmail:to}});
     toast('Sending to '+to+'…');
@@ -401,6 +406,9 @@ function startLive(){ stopLive(); loadPrep(); LIVE_TIMER=setInterval(async()=>{ 
   if(['home','matches','apps','action','activity2'].includes(TAB)){ await loadHome(); if(typeof render==='function')render(); }
 },25000); }
 function stopLive(){ if(LIVE_TIMER)clearInterval(LIVE_TIMER); }
+function fmtEmails(v){
+  return String(v||'').split(/[,;\s]+/).map(x=>x.trim().replace(/^mailto:/i,'').replace(/^[<(\[]+|[>)\].,;:]+$/g,'')).filter(x=>/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(x)).filter((x,i,a)=>a.indexOf(x)===i).join(', ');
+}
 function daysLeft(d){try{return Math.ceil((new Date(d)-Date.now())/86400000)}catch(e){return 999}}
 function daysLeftLabel(d){const n=daysLeft(d);if(n<0)return 'Closed';if(n===0)return 'Closes today';return n+' day'+(n===1?'':'s')+' left';}
 function ago(iso){const s=Math.floor((Date.now()-new Date(iso))/1000);if(s<90)return 'just now';const m=Math.floor(s/60);if(m<60)return m+' min ago';const h=Math.floor(m/60);if(h<24)return h+'h ago';return Math.floor(h/24)+'d ago';}
@@ -503,6 +511,11 @@ async function genFunding(oppId){
 async function prepareAll(){
   toast('Preparing all your applications in parallel…');
   try{const d=await api('/api/prepare-all',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
+}
+async function attachPdf(propId,oppId){
+  toast('Rendering the PDF and attaching it to this case…');
+  try{await api('/api/proposals/'+propId+'/pdf',{method:'POST'});toast('Attached.');openCase(oppId);}
+  catch(e){toast('Failed: '+e.message)}
 }
 async function draftNow(oppId){
   toast('Hunting the official email and writing the draft, up to a minute…');
