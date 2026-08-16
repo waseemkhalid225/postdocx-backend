@@ -1,3 +1,7 @@
+
+/* ===== crash guards: background errors are logged, never fatal ===== */
+process.on('unhandledRejection', (e) => { try { console.error('[unhandledRejection]', e && e.message); db.log('BG_ERROR', String(e && e.message || e).slice(0, 200)); } catch (_) {} });
+process.on('uncaughtException', (e) => { try { console.error('[uncaughtException]', e && e.message); db.log('BG_ERROR', String(e && e.message || e).slice(0, 200)); } catch (_) {} });
 // server.js — PostDocX v2: multi-user portal + agent engine in one Railway deployment
 require('dotenv').config();
 const express = require('express');
@@ -192,7 +196,10 @@ app.post('/api/documents', auth, upload.array('files', 12), async (req, res) => 
         results.push({ name: file.originalname, type });
       } catch (e) { results.push({ name: file.originalname, error: e.message }); }
     }
-    res.json({ ok: true, results });
+    const profileDocs = results.some(x => x.type && /(CV|Research statement|Thesis|Publication|Reference)/i.test(x.type));
+    res.json({ ok: true, results, autofill: profileDocs });
+    // The agent reads the new documents by itself: profile + referees fill automatically, positions re-searched.
+    if (profileDocs) setTimeout(() => runAutofill(req.userId, false).catch(e => db.log('AUTOFILL_FAIL', e.message)), 1500);
   } catch (e) { res.status(500).json({ error: 'Upload failed. ' + e.message }); }
 });
 
@@ -258,12 +265,10 @@ DEEP ANALYSIS: read ALL documents together as one body of evidence, CV, theses, 
   return parseJSON(txt);
 }
 
-app.post('/api/profile/autofill', auth, async (req, res) => {
-  try {
-    const v = await extractProfile(req.userId);
-    const u = await getUser(req.userId);
+async function runAutofill(userId, force) {
+    const v = await extractProfile(userId);
+    const u = await getUser(userId);
     const fields = ['title', 'field', 'methods', 'pubs', 'orcid', 'links', 'phone', 'nationality'];
-    const force = !!(req.body || {}).force;
     const filled = [];
     for (const k of fields) {
       const val = String(v[k] || '').trim();
@@ -275,12 +280,12 @@ app.post('/api/profile/autofill', auth, async (req, res) => {
     // Referee extraction from the documents' references section
     let refsAdded = 0;
     if (v.referees && v.referees.length > 10) {
-      const existingRefs = (await db.all('Referees')).filter(x => x.resId === req.userId);
+      const existingRefs = (await db.all('Referees')).filter(x => x.resId === userId);
       for (const line of String(v.referees).split('\n')) {
         const parts = line.split('|').map(x => x.trim()).filter(Boolean);
         if (parts.length < 2 || !/@/.test(parts[1] || '')) continue;
         if (existingRefs.some(x => x.email.toLowerCase() === parts[1].toLowerCase())) continue;
-        await db.add('Referees', { id: uid(), resId: req.userId, name: parts[0], email: parts[1], relationship: parts[2] || 'listed as reference in CV', status: 'pending', note: 'Extracted from uploaded documents' });
+        await db.add('Referees', { id: uid(), resId: userId, name: parts[0], email: parts[1], relationship: parts[2] || 'listed as reference in CV', status: 'pending', note: 'Extracted from uploaded documents' });
         refsAdded++;
       }
     }
@@ -288,16 +293,16 @@ app.post('/api/profile/autofill', auth, async (req, res) => {
       const rows2 = await db.all('Settings');
       const fl = rows2.find(x => x.key === 'rescorePending');
       const cur = fl ? String(fl.value || '') : '';
-      const nv = cur.includes(req.userId) ? cur : (cur ? cur + ',' : '') + req.userId;
+      const nv = cur.includes(userId) ? cur : (cur ? cur + ',' : '') + userId;
       if (fl) { fl._row.set('value', nv); await fl._row.save(); }
       else await db.add('Settings', { key: 'rescorePending', value: nv });
       setTimeout(() => runCycle({ light: true }).catch(() => {}), 2000);
     }
     // #3 close missing-document tasks that this upload satisfies, resume those cases
     try {
-      const myDocs = (await db.all('Documents')).filter(d => d.resId === req.userId);
+      const myDocs = (await db.all('Documents')).filter(d => d.resId === userId);
       const haveTypes = myDocs.map(d => (d.type || '').toLowerCase());
-      const openTasks = (await db.all('Tasks')).filter(t => t.resId === req.userId && t.status !== 'Done' && /^provide:|^upload/i.test(t.title));
+      const openTasks = (await db.all('Tasks')).filter(t => t.resId === userId && t.status !== 'Done' && /^provide:|^upload/i.test(t.title));
       const resumed = new Set();
       for (const t of openTasks) {
         const want = t.title.replace(/^provide:\s*|^upload( missing documents:)?\s*/i, '').toLowerCase();
@@ -309,7 +314,12 @@ app.post('/api/profile/autofill', auth, async (req, res) => {
       for (const oppId of resumed) analyzeCase(oppId).catch(() => {});
     } catch (e) {}
     await db.log('AUTOFILL', u.name + ': ' + (filled.join(', ') || 'nothing new') + (refsAdded ? ' +' + refsAdded + ' referees' : ''));
-    res.json({ ok: true, filled, refsAdded, docsRead: (await db.all('Documents')).filter(d => d.resId === req.userId && d.driveId).length, user: publicUser(await getUser(req.userId)) });
+    return { ok: true, filled, refsAdded };
+}
+app.post('/api/profile/autofill', auth, async (req, res) => {
+  try {
+    const out = await runAutofill(req.userId, !!(req.body || {}).force);
+    res.json({ ...out, docsRead: (await db.all('Documents')).filter(d => d.resId === req.userId && d.driveId).length, user: publicUser(await getUser(req.userId)) });
   } catch (e) { res.status(400).json({ error: e.message, detail: 'autofill' }); }
 });
 
