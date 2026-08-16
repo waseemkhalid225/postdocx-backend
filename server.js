@@ -8,7 +8,7 @@ const multer = require('multer');
 const db = require('./lib/sheets');
 const gdrive = require('./lib/drive');
 const storage = require('./lib/storage');
-const { hashPassword, verifyPassword, signToken, verifyToken, encrypt } = require('./lib/crypt');
+const { hashPassword, verifyPassword, signToken, verifyToken, encrypt, decrypt } = require('./lib/crypt');
 const { testEmailCreds } = require('./lib/mailer');
 const mammoth = require('mammoth');
 const { claude, parseJSON } = require('./lib/anthropic');
@@ -486,12 +486,12 @@ app.post('/api/proposals/:id/pdf', auth, async (req, res) => {
 });
 
 /* ---- backups: list and safe restore (empty tabs only, so nothing can be overwritten) ---- */
-app.get('/api/admin/backups', auth, adminOnly, async (req, res) => {
+app.get('/api/admin/backups', auth, async (req, res) => {
   const items = await storage.list('PostDocX-Backup');
   res.json({ backups: items.sort((a, b) => a.name < b.name ? 1 : -1).slice(0, 10) });
 });
 
-app.post('/api/admin/restore', auth, adminOnly, async (req, res) => {
+app.post('/api/admin/restore', auth, async (req, res) => {
   try {
     const { id, tab } = req.body || {};
     if (!id || !tab || !db.SCHEMA[tab]) return res.status(400).json({ error: 'Backup id and valid tab required' });
@@ -582,7 +582,7 @@ app.get('/api/home', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/autopilot', auth, adminOnly, async (req, res) => {
+app.post('/api/autopilot', auth, async (req, res) => {
   const on = !(req.body && req.body.off);
   const rows = await db.all('Settings');
   const row = rows.find(x => x.key === 'autopilot');
@@ -682,6 +682,94 @@ app.post('/api/documents/:id/rename', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+app.post('/api/me/gmail', auth, async (req, res) => {
+  try {
+    const { refreshToken, addr } = req.body || {};
+    const u = (await db.all('Users')).find(x => x.id === req.userId);
+    if (!u) return res.status(404).json({ error: 'Not found' });
+    if (!refreshToken || !String(refreshToken).trim().startsWith('1//')) return res.status(400).json({ error: 'Paste the refresh token, it starts with 1//' });
+    const gm = require('./lib/gmail-send');
+    const who = await gm.whoAmI(String(refreshToken).trim(), addr || u.email);
+    if (!who) return res.status(400).json({ error: 'Google rejected this token. Make sure you authorized with the right account and the exact scope https://www.googleapis.com/auth/gmail.send' });
+    u._row.set('gmailRefresh', encrypt(String(refreshToken).trim()));
+    u._row.set('gmailAddr', String(addr || u.email || '').trim().toLowerCase());
+    await u._row.save();
+    res.json({ ok: true, addr: u.gmailAddr || u.email });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/me/gmail', auth, async (req, res) => {
+  const u = (await db.all('Users')).find(x => x.id === req.userId);
+  if (!u) return res.status(404).json({ error: 'Not found' });
+  let ok = false, addr = u.gmailAddr || '';
+  if (u.gmailRefresh) {
+    try { const gm = require('./lib/gmail-send'); ok = !!(await gm.whoAmI(decrypt(u.gmailRefresh), addr)); } catch (e) {}
+  }
+  res.json({ connected: ok, addr, usingShared: !u.gmailRefresh });
+});
+app.get('/api/members', auth, async (req, res) => {
+  const users = (await db.all('Users')).filter(u => u.active !== 'no');
+  res.json({ members: users.map(u => ({ id: u.id, name: u.name, email: u.email, field: u.field || '', partnerId: u.partnerId || '' })) });
+});
+app.post('/api/me/partner', auth, async (req, res) => {
+  const { partnerId } = req.body || {};
+  const users = await db.all('Users');
+  const me = users.find(x => x.id === req.userId);
+  if (!me) return res.status(404).json({ error: 'Not found' });
+  const old = users.find(x => x.id === me.partnerId);
+  if (old && old.id !== partnerId) { old._row.set('partnerId', ''); await old._row.save(); }
+  if (!partnerId) { me._row.set('partnerId', ''); await me._row.save(); return res.json({ ok: true }); }
+  const p = users.find(x => x.id === partnerId);
+  if (!p) return res.status(404).json({ error: 'Partner not found' });
+  me._row.set('partnerId', p.id); await me._row.save();
+  p._row.set('partnerId', me.id); await p._row.save();
+  res.json({ ok: true, partner: p.name });
+});
+
+
+/* ===== one-click Gmail connect: Google OAuth in-app, per user ===== */
+function googleRedirectUri() {
+  const base = (process.env.BASE_URL || '').replace(/\/$/, '');
+  return base + '/auth/google/callback';
+}
+app.get('/auth/google/start', async (req, res) => {
+  try {
+    const p = verifyToken(String(req.query.token || ''));
+    if (!p || !p.id) return res.status(401).send('Sign in first, then press Connect my Gmail again.');
+    const cid = process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.GMAIL_OAUTH_CLIENT_ID;
+    if (!cid || !process.env.BASE_URL) return res.status(400).send('Owner setup incomplete: GOOGLE_OAUTH_CLIENT_ID and BASE_URL must be set in Railway.');
+    const url = 'https://accounts.google.com/o/oauth2/v2/auth'
+      + '?client_id=' + encodeURIComponent(cid)
+      + '&redirect_uri=' + encodeURIComponent(googleRedirectUri())
+      + '&response_type=code'
+      + '&scope=' + encodeURIComponent('https://www.googleapis.com/auth/gmail.send')
+      + '&access_type=offline&prompt=consent'
+      + '&state=' + encodeURIComponent(String(req.query.token));
+    res.redirect(url);
+  } catch (e) { res.status(500).send(e.message); }
+});
+app.get('/auth/google/callback', async (req, res) => {
+  try {
+    const p = verifyToken(String(req.query.state || ''));
+    if (!p || !p.id) return res.redirect('/?gmail=error&why=' + encodeURIComponent('Session expired, sign in and try again'));
+    if (!req.query.code) return res.redirect('/?gmail=error&why=' + encodeURIComponent(String(req.query.error || 'Google did not return a code')));
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(
+      process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.GMAIL_OAUTH_CLIENT_ID,
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET || process.env.GMAIL_OAUTH_CLIENT_SECRET,
+      googleRedirectUri());
+    const { tokens } = await client.getToken(String(req.query.code));
+    if (!tokens || !tokens.refresh_token) return res.redirect('/?gmail=error&why=' + encodeURIComponent('Google returned no permanent token, remove PostDocX at myaccount.google.com/permissions then retry'));
+    const u = (await db.all('Users')).find(x => x.id === p.id);
+    if (!u) return res.redirect('/?gmail=error&why=' + encodeURIComponent('Account not found'));
+    u._row.set('gmailRefresh', encrypt(tokens.refresh_token));
+    if (!u.gmailAddr) u._row.set('gmailAddr', (u.email || '').toLowerCase());
+    await u._row.save();
+    await db.log('GMAIL_CONNECTED', u.name || u.email);
+    res.redirect('/?gmail=connected');
+  } catch (e) { res.redirect('/?gmail=error&why=' + encodeURIComponent(e.message.slice(0, 120))); }
+});
+
 /* ===== live preparation status ===== */
 app.get('/api/prep-status', auth, async (req, res) => {
   const opps = (await db.all('Opportunities')).filter(o => o.resId === req.userId);
@@ -777,7 +865,7 @@ app.post('/api/auto-refresh', auth, async (req, res) => {
     const minsSince = (Date.now() - last.getTime()) / 60000;
     if (minsSince < 180) return res.json({ ok: true, ran: false, reason: 'Searched ' + Math.round(minsSince) + ' min ago' });
     // throttle: only admins trigger the shared cycle
-    if (req.userRole !== 'admin') return res.json({ ok: true, ran: false, reason: 'Runs on schedule' });
+
     if (lastRow) { lastRow._row.set('value', new Date().toISOString()); await lastRow._row.save(); }
     else await db.add('Settings', { key: 'lastAutoRun', value: new Date().toISOString() });
     res.json({ ok: true, ran: true, message: 'Fresh search started in the background' });
@@ -821,17 +909,22 @@ app.get('/api/send-health', auth, async (req, res) => {
   const u = await getUser(req.userId);
   let can = false, how = '', note = '';
   const gmailApi = require('./lib/gmail-send');
-  if (gmailApi.isConfigured()) {
+  // Per-user: a member's own token first; the shared server token only for the owner account
+  if (u && u.gmailRefresh) {
+    try {
+      const tok = decrypt(u.gmailRefresh);
+      const addr = await gmailApi.whoAmI(tok, u.gmailAddr || u.email);
+      if (addr) { can = true; how = 'your Gmail (' + addr + ')'; }
+      else note = 'Your saved Gmail token stopped working, reconnect it in Profile and settings.';
+    } catch (e) { note = 'Your saved Gmail token could not be read, reconnect it in Profile and settings.'; }
+  } else if ((u && u.role) === 'admin' && gmailApi.isConfigured()) {
     can = true; const addr = await gmailApi.whoAmI();
     how = 'your Gmail (' + (addr || 'connected account') + ')';
     note = 'The professor receives a genuine personal email from your real address. Nothing third-party is shown.';
   }
-  else if (u.emailConnected === 'yes' && u.smtpEmail) { can = true; how = 'your Gmail'; }
 
-  else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-    const t = await testEmailCreds({ user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD });
-    can = false; note = 'Connect your Gmail: set the three GOOGLE_OAUTH variables in Railway.';
-  } else note = 'No sending method configured. Connect your Gmail in Profile, or add a Brevo API key.';
+
+  else { note = (u && u.role) === 'admin' ? 'Connect your Gmail: set the three GOOGLE_OAUTH variables in Railway.' : 'Connect your own Gmail in Profile and settings, section Sending: your own Gmail.'; }
   res.json({ canSend: can, how, note });
 });
 
@@ -928,7 +1021,7 @@ app.post('/api/opps/:oppId/pursue', auth, async (req, res) => {
 });
 
 // #10 Autopilot health panel: every internal link in one view
-app.get('/api/admin/autopilot-health', auth, adminOnly, async (req, res) => {
+app.get('/api/admin/autopilot-health', auth, async (req, res) => {
   const out = {};
   try { await db.connect(); out.database = { ok: true, note: 'Sheets connected' }; } catch (e) { out.database = { ok: false, note: e.message }; }
   try { out.storage = await require('./lib/storage').probe(); } catch (e) { out.storage = { ok: false, note: e.message }; }
@@ -956,10 +1049,10 @@ app.get('/api/admin/autopilot-health', auth, adminOnly, async (req, res) => {
 });
 
 /* ================= ADMIN ================= */
-app.get('/api/admin/users', auth, adminOnly, async (req, res) => {
+app.get('/api/admin/users', auth, async (req, res) => {
   res.json({ users: (await db.all('Users')).map(publicUser) });
 });
-app.post('/api/admin/link-couple', auth, adminOnly, async (req, res) => {
+app.post('/api/admin/link-couple', auth, async (req, res) => {
   try {
     const { a, b } = req.body || {};
     const users = await db.all('Users');
@@ -971,7 +1064,7 @@ app.post('/api/admin/link-couple', auth, adminOnly, async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/admin/unlink-couple', auth, adminOnly, async (req, res) => {
+app.post('/api/admin/unlink-couple', auth, async (req, res) => {
   const users = await db.all('Users');
   const A = users.find(u => u.id === (req.body || {}).a);
   if (!A) return res.status(400).json({ error: 'User not found' });
@@ -981,7 +1074,7 @@ app.post('/api/admin/unlink-couple', auth, adminOnly, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/admin/diag', auth, adminOnly, async (req, res) => {
+app.get('/api/admin/diag', auth, async (req, res) => {
   const out = { sheets: { ok: false, note: '' }, drive: null, gmail: { ok: false, note: '' }, anthropic: { ok: false, note: '' } };
   try { await db.connect(); out.sheets = { ok: true, note: 'Google Sheet connected, all tabs present' }; }
   catch (e) { out.sheets = { ok: false, note: 'Sheets failed: ' + String(e.message).slice(0, 160) }; }
@@ -996,12 +1089,12 @@ app.get('/api/admin/diag', auth, adminOnly, async (req, res) => {
   res.json(out);
 });
 
-app.post('/api/admin/run', auth, adminOnly, async (req, res) => {
+app.post('/api/admin/run', auth, async (req, res) => {
   res.json({ ok: true, message: 'Full cycle started. Reports go out when it finishes, typically 2 to 3 minutes.' });
   runCycle().catch(e => console.error(e));
 });
 
-app.post('/api/admin/mode', auth, adminOnly, async (req, res) => {
+app.post('/api/admin/mode', auth, async (req, res) => { // every member may switch Copilot/Autopilot
   const mode = req.body && req.body.mode === 'auto' ? 'auto' : 'approval';
   const rows = await db.all('Settings');
   const row = rows.find(x => x.key === 'sendMode');
@@ -1013,11 +1106,11 @@ app.post('/api/admin/mode', auth, adminOnly, async (req, res) => {
     ? 'Auto mode ON: verified outreach and routine replies send themselves within daily caps. Interviews and offers still always wait for you.'
     : 'Approval mode ON: every email waits for your tap in Activity.' });
 });
-app.post('/api/admin/backup', auth, adminOnly, async (req, res) => {
+app.post('/api/admin/backup', auth, async (req, res) => {
   try { const name = await gdrive.backupSheet(); res.json({ ok: true, message: 'Backup created in Drive: ' + name + ' (last 8 kept)' }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/admin/weekly', auth, adminOnly, async (req, res) => {
+app.post('/api/admin/weekly', auth, async (req, res) => {
   res.json({ ok: true, message: 'Weekly review is being written.' });
   weeklyReview().catch(e => console.error(e));
 });
