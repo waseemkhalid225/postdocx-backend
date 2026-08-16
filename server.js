@@ -239,10 +239,12 @@ async function extractProfile(userId) {
   const order = t => /cv/i.test(t) ? 0 : /statement/i.test(t) ? 1 : /publication/i.test(t) ? 2 : 3;
   const picked = docs.sort((a, b) => order(a.type) - order(b.type)).slice(0, 3);
   const blocks = [];
-  let budget = 9 * 1024 * 1024;
+  let budget = 6 * 1024 * 1024; // stay well under the API request limit
+  const PER_FILE = 4 * 1024 * 1024;
   for (const d of picked) {
     try {
       const buf = storage.isStorageId(d.driveId) ? await storage.get(d.driveId) : await gdrive.getBuffer(d.driveId);
+      if (buf.length > PER_FILE) { continue; } // a single huge file would break the request, skip it
       if (buf.length > budget) continue;
       budget -= buf.length;
       if (d.mime === 'application/pdf') {
@@ -261,7 +263,16 @@ async function extractProfile(userId) {
 {"title":"academic credentials in one line, degrees and research standing first, current job title last or omitted","field":"REWRITE, do not copy the CV summary: describe this person purely as a RESEARCHER in 2-3 sentences: their research lines, disease areas, molecular targets, computational and experimental angles. A professional summary about operations, management or job duties is wrong here","methods":"ONLY research-relevant methods: laboratory, computational, statistical, animal or cell models, assays, regulatory science where research-relevant; comma separated","pubs":"key publications: title, journal, year, role; one per line","orcid":"ORCID id if present else empty","links":"Scholar/ResearchGate/LinkedIn URLs found, else empty","phone":"phone if present else empty","nationality":"if stated else empty","prefs":"","referees":"if a references section exists: one per line as Name | email | relationship, else empty"}
 
 DEEP ANALYSIS: read ALL documents together as one body of evidence, CV, theses, publications, statements, certificates. Synthesize across them: connect thesis topics to publications, methods to the projects where they were actually used, and tag techniques with their evidence level in brackets, for example molecular docking [PhD, published], HPLC [MPhil], pharmacovigilance systems [professional, research-relevant]. Never list a technique without evidence in the documents.\n\nSTRICT FILTER: extract ONLY what strengthens a postdoctoral research application. Include research techniques, experimental and computational methods, models, publications, thesis work, research awards. EXCLUDE routine job duties, business or administrative operations, retail or management experience, generic software, and anything a hiring PI would not care about. When a professional role contains research-relevant elements (for example pharmacovigilance systems, regulatory science, clinical data), keep only those elements, framed as research skills.` });
-  const txt = await claude(blocks, { search: false, maxTokens: 1800 });
+  let txt;
+  try {
+    txt = await claude(blocks, { search: false, maxTokens: 1800 });
+  } catch (e) {
+    const msg = String(e.message || '');
+    if (/400|too large|exceed|request_too_large|max.*tokens|prompt is too long/i.test(msg) && blocks.length > 2) {
+      // retry with just the CV + the instruction, the smallest possible request
+      txt = await claude([blocks[0], blocks[blocks.length - 1]], { search: false, maxTokens: 1800 });
+    } else throw e;
+  }
   return parseJSON(txt);
 }
 
@@ -1042,7 +1053,25 @@ app.get('/api/admin/autopilot-health', auth, async (req, res) => {
 
   else email = { ok: false, note: 'Connect your Gmail: set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REFRESH_TOKEN.' };
   out.email = email;
-  out.ai = { ok: !!process.env.ANTHROPIC_API_KEY, note: (process.env.ANTHROPIC_API_KEY ? 'Claude ready' : 'No Claude key') + (process.env.OPENAI_API_KEY ? ', GPT ready' : '') };
+  // LIVE check: a key with no credits is not "ready". Tiny ping, cached 10 minutes.
+  out.ai = await (async () => {
+    if (!process.env.ANTHROPIC_API_KEY) return { ok: false, note: 'No Claude key set' };
+    const now = Date.now();
+    if (global._aiHealthCache && now - global._aiHealthCache.t < 600000) return global._aiHealthCache.v;
+    let v;
+    try {
+      const { claude } = require('./lib/anthropic');
+      await claude('ping', { maxTokens: 4 });
+      v = { ok: true, note: 'Claude live and answering' + (process.env.OPENAI_API_KEY ? ', GPT key set' : '') };
+    } catch (e) {
+      const m = String(e.message || '');
+      if (/credit balance is too low/i.test(m)) v = { ok: false, note: 'Anthropic CREDITS EXHAUSTED. Top up at console.anthropic.com, Plans and Billing. Nothing can search or write until then.' };
+      else if (/401|invalid.*key|authentication/i.test(m)) v = { ok: false, note: 'Claude key invalid, check ANTHROPIC_API_KEY in Railway.' };
+      else v = { ok: false, note: 'Claude not answering: ' + m.slice(0, 120) };
+    }
+    global._aiHealthCache = { t: now, v };
+    return v;
+  })();
   const settings = await db.all('Settings');
   let lastRun = null; try { lastRun = JSON.parse((settings.find(x=>x.key==='lastRun')||{}).value||'null'); } catch(e){}
   out.lastCycle = { ok: !!lastRun, note: lastRun ? ('Last ran ' + lastRun.at) : 'No cycle recorded yet' };
