@@ -509,10 +509,7 @@ async function vMatches(){
     ${o.prepDone!=='yes'?`<button class="btn b-line" onclick="openCase('${o.id}')">View</button>`:''}</div></div>`}).join(''):
     `<div class="empty">No great matches yet. Tap Find new opportunities on Home.</div>`}`;
 }
-async function genFunding(oppId){
-  toast('Reading the scheme criteria and drafting your funding application…');
-  try{await api('/api/generate/funding/'+oppId,{method:'POST'});toast('Funding application draft is being written, see Applications and your email.')}catch(e){toast(e.message)}
-}
+
 async function prepareAll(){
   toast('Preparing all your applications in parallel…');
   try{const d=await api('/api/prepare-all',{method:'POST'});toast(d.message)}catch(e){toast(e.message)}
@@ -984,7 +981,7 @@ async function upload(){
       const a=await api('/api/profile/autofill',{method:'POST',body:{}});
       ME=a.user;
       toast((a.filled&&a.filled.length?'Profile updated: '+a.filled.join(', ')+'. ':'Files stored. ')+(a.refsAdded?a.refsAdded+' referee(s) added. ':'')+'Review in Profile. Existing matches are being re-scored against your updated profile automatically.');
-    }catch(e){}
+    }catch(e){toast('Files stored, but reading them failed: '+e.message+'. Tap Fill from documents in Profile to retry.')}
   }catch(e){toast(e.message)}
   $('upBtn').disabled=false;
 }
