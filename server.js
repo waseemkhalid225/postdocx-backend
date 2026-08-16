@@ -1129,8 +1129,16 @@ app.get('/api/admin/diag', auth, async (req, res) => {
 });
 
 app.post('/api/admin/run', auth, async (req, res) => {
-  res.json({ ok: true, message: 'Full cycle started. Reports go out when it finishes, typically 2 to 3 minutes.' });
-  runCycle().catch(e => console.error(e));
+  try {
+    const rows = await db.all('Settings');
+    const last = rows.find(x => x.key === 'lastManualRun');
+    const mins = last ? (Date.now() - new Date(last.value || 0).getTime()) / 60000 : 999;
+    if (mins < 30) return res.json({ ok: true, ran: false, message: 'The engine ran ' + Math.round(mins) + ' minutes ago and is still digesting. It can run again in ' + Math.ceil(30 - mins) + ' minutes, results keep arriving meanwhile.' });
+    if (last) { last._row.set('value', new Date().toISOString()); await last._row.save(); }
+    else await db.add('Settings', { key: 'lastManualRun', value: new Date().toISOString() });
+    res.json({ ok: true, ran: true, message: 'Full search started for every member. Verified postdoctoral opportunities arrive within 2 to 3 minutes.' });
+    runCycle().catch(e => console.error(e));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/admin/mode', auth, async (req, res) => { // every member may switch Copilot/Autopilot
