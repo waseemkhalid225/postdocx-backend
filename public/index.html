@@ -210,10 +210,16 @@ async function boot(first){
     await refresh();
   }catch(e){/* auth handler already redirected */}
 }
+function gmailReturnCheck(){
+  const q=new URLSearchParams(location.search);
+  if(q.get('gmail')==='connected'){toast('✓ Gmail connected! Your emails now send from your own address.');history.replaceState({},'','/');setTimeout(()=>{go('profile')},800);}
+  else if(q.get('gmail')==='error'){toast('Gmail connect failed: '+(q.get('why')||'unknown'));history.replaceState({},'','/');}
+}
 async function refresh(){
   try{B=await api('/api/bundle');ME=B.me;}catch(e){}
   startLive();
   render();
+  gmailReturnCheck();
   // FEATURE 3: trigger a fresh search shortly after login (throttled server-side)
   if(!window._autoRan){window._autoRan=true;setTimeout(async()=>{
     try{const d=await api('/api/auto-refresh',{method:'POST'});if(d.ran){toast('Searching for new opportunities…');let n=0;const t=setInterval(async()=>{n++;await loadHome();if(['home','matches'].includes(TAB))render();if(n>=5)clearInterval(t)},25000);}}catch(e){}
@@ -462,10 +468,9 @@ async function vHome(){
   ${c.belowThreshold?`<button class="big-btn" onclick="go('more')"><div class="bwrap"><div class="bt">More possible opportunities</div><div class="bd">${c.belowThreshold} scored below the bar. Review and pick any to pursue.</div></div><span class="bn" style="color:var(--slate)">${c.belowThreshold}</span></button>`:''}`;
 }
 async function findNow(){
-  if(ME.role!=='admin'){toast('The agent searches for you automatically every morning and evening.');return}
-  toast('Searching universities, labs, institutes and job boards now…');
+  toast('Searching universities, labs and institutes now…');
   try{
-    await api('/api/admin/run',{method:'POST'});
+    await api(ME.role==='admin'?'/api/admin/run':'/api/auto-refresh',{method:'POST'});
     toast('Searching live. Results appear here as they are found and verified, about 2 to 3 minutes.');
     // poll a few times so new results pop in without a manual refresh
     let n=0;const t=setInterval(async()=>{n++;await loadHome();if(TAB==='home'||TAB==='matches')render();if(n>=6)clearInterval(t)},20000);
@@ -502,7 +507,7 @@ async function vMatches(){
     :o.prepStartedAt&&o.prepDone!=='yes'?`<button class="btn b-line" disabled>Preparing…</button>`
     :`<button class="btn b-gold" onclick="prepareApp('${o.id}')">Prepare case</button>`}
     ${o.prepDone!=='yes'?`<button class="btn b-line" onclick="openCase('${o.id}')">View</button>`:''}</div></div>`}).join(''):
-    `<div class="empty">No great matches yet. ${ME.role==='admin'?'Tap Find new opportunities on Home.':'Your agent is searching, check back soon.'}</div>`}`;
+    `<div class="empty">No great matches yet. Tap Find new opportunities on Home.</div>`}`;
 }
 async function genFunding(oppId){
   toast('Reading the scheme criteria and drafting your funding application…');
@@ -1082,6 +1087,26 @@ function vProfile(host){
   <input id="pjp-minsal" value="${esc(ME.minSalary||'')}" placeholder="Leave empty for no floor">
   <div class="b" style="margin-top:10px"><button class="btn b-ink b-sm" onclick="savePrefsCats()">Save interests</button></div>
   </div>
+  <div class="card"><h2>Sending: your own Gmail</h2>
+  <div class="sub" id="gm-status">Checking…</div>
+  <div class="m" style="margin:8px 0">Emails to supervisors go FROM your personal Gmail and appear in your own Sent folder.</div>
+  <div class="b"><button class="btn b-green" onclick="startGmailConnect()">Connect my Gmail, one click</button></div>
+  <div class="m" style="font-size:12px;color:var(--slate);margin-top:6px">A Google window opens, choose YOUR account, press Allow, done. Nothing to copy, nothing to paste.</div>
+  <details style="margin-top:10px"><summary class="sub" style="cursor:pointer">Advanced: paste a token manually instead</summary>
+  <label style="margin-top:8px">Refresh token</label><input id="gm-token" type="password" placeholder="1//...">
+  <label>Your Gmail address</label><input id="gm-addr" value="${esc(ME.email)}" placeholder="you@gmail.com">
+  <div class="b" style="margin-top:8px"><button class="btn b-line b-sm" onclick="saveGmailToken()">Save token</button></div></details>
+  </div>
+  <div class="card"><h2>Sending mode</h2>
+  <div class="sub">Copilot: every email waits for your tap. Autopilot: verified outreach sends itself within daily limits. Interviews and offers always wait for a human in both.</div>
+  <div class="row" style="margin-top:10px">
+  <button class="btn ${(B&&B.mode)!=='auto'?'b-ink':'b-line'}" onclick="setMode('approval')">Copilot</button>
+  <button class="btn ${(B&&B.mode)==='auto'?'b-gold':'b-line'}" onclick="setMode('auto')">Autopilot</button></div>
+  </div>
+  <div class="card"><h2>Partner (couple applications)</h2>
+  <div class="sub">Link your partner so the agent hunts places where you can BOTH go, marked with a gold star.</div>
+  <div id="partnerBox" class="m">Loading members…</div>
+  </div>
   <div class="card"><h2>Your email</h2>
   <div class="sub">${ME.emailMode==='yes'?'Connected fully ✓ Outreach sends from your own Gmail and replies are detected in your inbox.':ME.emailMode==='imap'?'Connected for reading ✓ Your inbox replies are detected. Direct sending from your address is blocked by the hosting network, so outreach goes through the office account with Reply-To set to you.':'Connect your Gmail so professors receive emails from you and replies are detected automatically.'}</div>
   ${ME.emailConnected?`<div class="b"><button class="btn b-red" onclick="disconnectEmail()">Disconnect</button></div>`:`
@@ -1091,6 +1116,26 @@ function vProfile(host){
   <div class="b" style="margin-top:12px"><button class="btn b-ink" id="emBtn" onclick="connectEmail()">Test connection</button></div>`}
   </div></div>`;
 }
+function startGmailConnect(){window.location='/auth/google/start?token='+encodeURIComponent(TOKEN);}
+async function loadGmailStatus(){
+  try{const d=await api('/api/me/gmail');const el=$('gm-status');if(!el)return;
+    el.innerHTML=d.connected?'<span style="color:var(--green)">✓ Connected. Emails send from '+esc(d.addr||ME.email)+'</span>':(!d.usingShared?'<span style="color:var(--crimson)">Token saved but not working, paste a fresh one.</span>':'Not connected yet.');
+  }catch(e){}}
+async function saveGmailToken(){
+  const t=$('gm-token').value.trim(), a=$('gm-addr').value.trim();
+  if(!t||!t.startsWith('1//')){toast('Paste the refresh token, it starts with 1//');return}
+  try{await api('/api/me/gmail',{method:'POST',body:JSON.stringify({refreshToken:t,addr:a})});toast('Connected! Testing…');loadGmailStatus();}
+  catch(e){toast('Failed: '+e.message)}}
+async function loadPartnerBox(){
+  try{const d=await api('/api/members');const el=$('partnerBox');if(!el)return;
+    const others=(d.members||[]).filter(m=>m.id!==ME.id);
+    if(!others.length){el.innerHTML='<span class="sub">No other members yet. When they register, link them here.</span>';return}
+    el.innerHTML=others.map(m=>`<div class="spread" style="margin-top:6px"><div><b style="font-size:13px">${esc(m.name)}</b> <span class="sub">${esc(m.field||'')}</span></div>
+    ${ME.partnerId===m.id?'<span class="chip c-gold">★ Your partner</span>':`<button class="btn b-line b-sm" onclick="setPartner('${m.id}')">Link as partner</button>`}</div>`).join('');
+  }catch(e){}}
+async function setPartner(id){
+  try{await api('/api/me/partner',{method:'POST',body:JSON.stringify({partnerId:id})});toast('Linked! The agent now hunts couple placements.');ME.partnerId=id;loadPartnerBox();}
+  catch(e){toast(e.message)}}
 async function loadAiHealth(){
   try{const d=await api('/api/ai-health');const el=$('aihealth');if(!el)return;
   el.innerHTML='OpenAI '+(d.openai.ok?'✓ Connected':'⚠ '+d.openai.note)+' &nbsp;·&nbsp; Claude '+(d.claude.ok?'✓ Connected':'⚠ '+d.claude.note);
