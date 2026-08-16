@@ -470,7 +470,8 @@ async function vHome(){
 async function findNow(){
   toast('Searching universities, labs and institutes now…');
   try{
-    await api(ME.role==='admin'?'/api/admin/run':'/api/auto-refresh',{method:'POST'});
+    const rr=await api('/api/admin/run',{method:'POST'});
+    if(rr.ran===false){toast(rr.message);return}
     toast('Searching live. Results appear here as they are found and verified, about 2 to 3 minutes.');
     // poll a few times so new results pop in without a manual refresh
     let n=0;const t=setInterval(async()=>{n++;await loadHome();if(TAB==='home'||TAB==='matches')render();if(n>=6)clearInterval(t)},20000);
@@ -714,7 +715,7 @@ function vCases(host){
   (host||$('view')).innerHTML=`<div class="card"><div class="spread"><div><h2>Cases</h2>
   <div class="sub">Every strong verified match becomes a case automatically and moves through the pipeline. You only step in where the timeline says so.</div></div>
   <div class="row"><button class="btn b-line b-sm" onclick="refresh().then(()=>toast('Up to date'))">Check for updates</button>
-  ${ME.role==='admin'?`<button class="btn b-gold b-sm" onclick="adminRun()">Run agent now</button>`:''}</div></div>
+  <button class="btn b-gold b-sm" onclick="adminRun()">Run agent now</button></div></div>
   ${cases.length?cases.map(c=>{
     const o=opps.find(x=>x.id===c.oppId)||{};
     const idx=Math.max(0,CASE_STAGES.indexOf(c.stage));
@@ -735,7 +736,7 @@ function vCases(host){
     <button class="btn b-line b-sm" onclick="gen('interview','${c.oppId}')">Interview brief</button>
     ${c.coupleKey?`<button class="btn b-line b-sm" onclick="gen('dossier','${c.oppId}')">Two-body dossier</button>`:''}
     ${o.url?`<a href="${esc(o.url)}" target="_blank" rel="noopener" class="chip c-blue">source ↗</a>`:''}
-    </div></div>`}).join(''):`<div class="empty">No cases yet. Cases open automatically when the agent finds AND verifies a match scoring 65+, which happens during the morning and evening cycles.${ME.role==='admin'?' Tap Run agent now to start a cycle immediately, the first one takes about 2 to 3 minutes.':''}</div>`}</div>`;
+    </div></div>`}).join(''):`<div class="empty">No cases yet. Cases open automatically when the agent finds AND verifies a match scoring 65+, which happens during the morning and evening cycles. Tap Run agent now to start one immediately, it takes about 2 to 3 minutes.</div>`}</div>`;
 }
 
 
@@ -766,7 +767,7 @@ function vPostdoc(){
     const o=pd.sort((a,b)=>{const ca=a.coupleKey?1:0,cb=b.coupleKey?1:0;if(cb-ca)return cb-ca;return (+b.matchScore||0)-(+a.matchScore||0)});
     host.innerHTML=`<div class="card"><div class="spread"><div><h2>Postdoc pipeline</h2>
     <div class="sub">The core engine: 5 verified searches per researcher per day, its own schedule, never shared with the Jobs section.</div></div>
-    <div class="row">${ME.role==='admin'?`<button class="btn b-gold" onclick="adminRun()">Run agent now</button>`:''}
+    <div class="row"><button class="btn b-gold" onclick="adminRun()">Run agent now</button>
     <button class="btn b-line" onclick="labMap()">Build target lab map</button></div></div>
     ${o.length?o.map(oppRow).join(''):'<div class="empty">The engine has not run since deploy. Tap Run agent now, verified postdoctoral opportunities arrive within a few minutes.</div>'}</div>`;
   }
