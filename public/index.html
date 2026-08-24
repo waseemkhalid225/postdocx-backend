@@ -115,6 +115,7 @@ async function doAuth(mode){
 async function vHome(){
   $('view').innerHTML=`<div class="hero"><h1>Assalam o alaikum, ${esc((ME&&ME.full_name)||'')}</h1>
   <p>Mode: <b style="color:#fff">${esc(ME.mode)}</b> · Credits: <b style="color:#fff">${CREDITS}</b> · 1 credit = 1 complete application, prepared end to end.</p></div>
+  <div class="card spread" style="cursor:pointer" onclick="runSearch()"><div><h3>Find opportunities for me now</h3><div class="sub">Profile-driven search of official sources</div></div><span style="font-size:22px">→</span></div>
   <div class="card spread" style="cursor:pointer" onclick="go('browse')"><div><h3>Browse verified opportunities</h3><div class="sub">Programs, scholarships and positions checked against official sources</div></div><span style="font-size:22px">→</span></div>
   <div class="card spread" style="cursor:pointer" onclick="go('apps')"><div><h3>My applications</h3><div class="sub">Every case and where it stands</div></div><span style="font-size:22px">→</span></div>
   <div class="card spread" style="cursor:pointer" onclick="go('profile')"><div><h3>My profile</h3><div class="sub">Your background powers every document, keep it complete</div></div><span style="font-size:22px">→</span></div>
@@ -140,8 +141,44 @@ async function vBrowse(){
     <div class="row" style="margin-top:10px">
     <button class="btn b-gold" onclick="startApp('${o.id}','${esc(o.institution)}')">Start application (1 credit)</button>
     <a class="btn b-line" href="${esc(o.url)}" target="_blank" rel="noopener">Official page ↗</a></div></div>`).join('')
-  :`<div class="empty">No verified ${kind} opportunities in the database yet.<br><span class="sub">The ingestion engine fills this list; opportunities appear as they are found and verified against official sources.</span></div>`}`;
+  :`<div class="empty">No verified ${kind} opportunities yet.<br><br><button class="btn b-gold" onclick="runSearch('${kind}')">Search for me now</button><br><span class="sub" style="margin-top:8px;display:inline-block">The agent searches official sources against YOUR profile, 2 to 3 minutes.</span></div>`}`;
 }
+async function runSearch(kind){
+  toast('Searching official sources against your profile…');
+  try{const d=await api('/api/run',{method:'POST',body:{kind:kind||undefined}});
+    toast(d.message);if(d.ran)setTimeout(()=>{if(TAB==='browse')vBrowse()},150000);
+  }catch(e){toast(e.message)}
+}
+async function openApp(id){
+  let d;try{d=await api('/api/applications/'+id)}catch(e){toast(e.message);return}
+  const a=d.application,opp=a.opportunities||{};
+  const msg=(d.messages||[]).find(m=>m.status==='pending')||(d.messages||[])[0];
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:50;overflow:auto;padding:20px 10px';
+  wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:#fff;border-radius:16px;padding:18px">
+  <div class="spread"><h2>${esc(opp.institution||'')}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="sub">${esc(opp.title||'')} · ${esc(a.case_no)} · <span class="chip c-gold">${esc(a.stage.replace(/_/g,' '))}</span></div>
+  ${a.next_action?`<div class="card" style="margin-top:10px;background:var(--gold-soft);border-color:var(--gold)"><b>Next:</b> ${esc(a.next_action)}</div>`:''}
+  ${(a.stage==='matched'||a.stage==='preparing')&&!(d.documents||[]).length?`<div class="row" style="margin:10px 0"><button class="btn b-gold" onclick="prepApp('${a.id}',this)">Prepare documents and email now</button></div>`:''}
+  ${(d.documents||[]).map(x=>`<div class="card"><div class="spread"><b>${esc(x.title)}</b><span class="chip c-green">ready</span></div>
+  <pre style="white-space:pre-wrap;font:12.5px Inter;color:#333;margin-top:8px;max-height:220px;overflow:auto">${esc(x.content)}</pre></div>`).join('')}
+  ${msg?`<div class="card" style="border-color:var(--ink)"><h3>Application email</h3>
+  <div class="sub" style="margin:6px 0">To: ${msg.to_emails&&msg.to_emails.length?esc(msg.to_emails.join(', ')):'<i>no official email published, portal application</i>'}</div>
+  <div style="font-weight:600">${esc(msg.subject)}</div>
+  <pre style="white-space:pre-wrap;font:12.5px Inter;color:#333;margin-top:6px">${esc(msg.body)}</pre>
+  ${msg.status==='pending'&&msg.to_emails&&msg.to_emails.length?`<button class="btn b-green" style="margin-top:10px" onclick="authorizeMsg('${msg.id}',this)">Authorize this email</button>`:msg.status==='approved'?'<span class="chip c-green">Authorized by you</span>':''}
+  </div>`:''}
+  </div>`;
+  document.body.appendChild(wrap);
+}
+async function prepApp(id,btn){btn.disabled=true;
+  try{const d=await api('/api/applications/'+id+'/prepare',{method:'POST'});toast(d.message);
+  setTimeout(()=>{document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());openApp(id)},60000);
+  }catch(e){toast(e.message);btn.disabled=false}}
+async function authorizeMsg(id,btn){btn.disabled=true;
+  try{const d=await api('/api/messages/'+id+'/authorize',{method:'POST'});toast(d.note||'Authorized.');
+  document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());vApps();
+  }catch(e){toast(e.message);btn.disabled=false}}
 async function startApp(id,inst){
   if(CREDITS<1){toast('You need a credit first. Opening the credit packs.');go('buy');return}
   if(!confirm('Start the application for '+inst+'? This consumes 1 credit and the agent begins preparing your documents.'))return;
@@ -158,7 +195,7 @@ async function vApps(){
   const apps=d.applications||[];
   const stageChip=s=>({matched:'c-gray',preparing:'c-gold',prepared:'c-green',awaiting_authorization:'c-gold',submitted_email:'c-blue',submitted_portal:'c-blue',replied:'c-green',interview:'c-green',offer:'c-green',closed:'c-gray',archived:'c-gray'}[s]||'c-gray');
   $('view').innerHTML=`<h2 style="margin-bottom:10px">My applications</h2>
-  ${apps.length?apps.map(a=>`<div class="card">
+  ${apps.length?apps.map(a=>`<div class="card" style="cursor:pointer" onclick="openApp('${a.id}')">
   <div class="spread"><div style="min-width:0"><b>${esc((a.opportunities||{}).institution||'')}</b>
   <div class="sub">${esc((a.opportunities||{}).title||'')}</div>
   <div class="sub" style="font-size:11px;margin-top:2px">${esc(a.case_no)} · started ${esc((a.created_at||'').slice(0,10))}</div></div>
