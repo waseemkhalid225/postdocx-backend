@@ -24,6 +24,12 @@ async function staffOnly(req, res, next) {
   next();
 }
 
+
+/* ---------- public config for the frontend ---------- */
+app.get('/api/config', (req, res) => {
+  res.json({ supabaseUrl: process.env.SUPABASE_URL || '', supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '' });
+});
+
 /* ---------- health ---------- */
 app.get('/health', async (req, res) => {
   let db = false;
