@@ -132,5 +132,40 @@ app.get('/api/applications', auth, async (req, res) => {
   res.json({ applications: data || [] });
 });
 
+
+/* ---------- pipeline endpoints ---------- */
+const { discoverForUser, prepareApplication } = require('./lib/engine');
+app.post('/api/run', auth, async (req, res) => {
+  const { data: st } = await admin().from('app_settings').select('value').eq('key', 'lastRun').single();
+  const last = st ? new Date(st.value.at || 0) : new Date(0);
+  const mins = (Date.now() - last.getTime()) / 60000;
+  if (mins < 30) return res.json({ ok: true, ran: false, message: 'Searched ' + Math.round(mins) + ' min ago. Next run possible in ' + Math.ceil(30 - mins) + ' min.' });
+  await admin().from('app_settings').upsert({ key: 'lastRun', value: { at: new Date().toISOString() } });
+  res.json({ ok: true, ran: true, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.' });
+  discoverForUser(req.userId, req.body && req.body.kind).catch(e => console.error('[discover]', e.message));
+});
+app.post('/api/applications/:id/prepare', auth, async (req, res) => {
+  const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
+  if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true, message: 'Preparing your documents and email now.' });
+  prepareApplication(a.id).catch(e => console.error('[prepare]', e.message));
+});
+app.get('/api/applications/:id', auth, async (req, res) => {
+  const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
+  if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  const { data: docs } = await admin().from('application_documents').select('id,kind,title,content').eq('application_id', a.id);
+  const { data: msgs } = await admin().from('messages').select('*').eq('application_id', a.id).order('created_at', { ascending: false });
+  res.json({ application: a, documents: docs || [], messages: msgs || [] });
+});
+app.post('/api/messages/:id/authorize', auth, async (req, res) => {
+  const { data: m } = await admin().from('messages').select('*').eq('id', req.params.id).single();
+  if (!m || m.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  if (m.status !== 'pending') return res.status(400).json({ error: 'Already ' + m.status });
+  await admin().from('messages').update({ status: 'approved' }).eq('id', m.id);
+  await admin().from('applications').update({ stage: 'prepared', authorized_at: new Date().toISOString(), authorized_by: req.userId, next_action: 'Queued for sending from your Gmail (connect arrives next build)' }).eq('id', m.application_id);
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'AUTHORIZED', detail: m.id });
+  res.json({ ok: true, note: 'Authorized. Gmail sending ships in the next build; your authorization is recorded and nothing sends without it.' });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('ForiForeign core on :' + PORT));
