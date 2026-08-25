@@ -135,7 +135,17 @@ app.get('/api/opportunities', auth, async (req, res) => {
     ({ data, error } = await q2);
   }
   if (error) return res.status(400).json({ error: error.message });
-  res.json({ opportunities: data || [] });
+  let opportunities = data || [];
+  // Phase 4: annotate with match status when requested (?match=1)
+  if (String(req.query.match || '') === '1' && opportunities.length) {
+    try {
+      const { matchMany } = require('./lib/match');
+      const m = await matchMany(req.userId, opportunities);
+      const byId = {}; m.forEach(x => { byId[x.id] = x; });
+      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct } : null }));
+    } catch (e) { /* matching is best-effort; never blocks the list */ }
+  }
+  res.json({ opportunities });
 });
 
 /* ---------- applications: 1 credit = 1 application (consume on create) ---------- */
@@ -235,9 +245,110 @@ app.post('/api/profile/autofill', auth, async (req, res) => {
   try { const out = await extractProfile(req.userId); res.json({ ok: true, ...out }); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
+// Item 13: preview extraction without committing, so the user can review first.
+app.post('/api/profile/autofill/preview', auth, async (req, res) => {
+  try { const out = await extractProfile(req.userId, { dry: true }); res.json({ ok: true, ...out }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+// Apply only the fields the user confirmed from the preview.
+app.post('/api/profile/autofill/apply', auth, async (req, res) => {
+  const patch = (req.body && req.body.patch) || {};
+  const referees = (req.body && req.body.referees) || [];
+  const allowed = ['headline','field','methods','phone','education','publications','experience','licenses','links'];
+  const clean = {};
+  for (const k of allowed) if (k in patch) clean[k] = patch[k];
+  if (Object.keys(clean).length) { clean.updated_at = new Date().toISOString(); await admin().from('profiles').update(clean).eq('id', req.userId); }
+  let refsAdded = 0;
+  for (const r of referees.slice(0, 6)) {
+    if (!r || !r.name) continue;
+    const { data: ex } = await admin().from('referees').select('id').eq('user_id', req.userId).eq('name', r.name).limit(1);
+    if (ex && ex.length) continue;
+    await admin().from('referees').insert({ user_id: req.userId, name: r.name, title: r.title || '', institution: r.institution || '', email: String(r.email || '').toLowerCase(), relationship: r.relationship || '' });
+    refsAdded++;
+  }
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'AUTOFILL_APPLIED', detail: Object.keys(clean).join(',') + (refsAdded ? ' +' + refsAdded + ' referees' : '') });
+  res.json({ ok: true, applied: Object.keys(clean), refsAdded });
+});
+// Profile readiness — computed from real profile fields + document checklist.
+// Honest by construction: a section is 'complete' only if the underlying data
+// actually exists. Nothing here infers or invents.
+app.get('/api/profile/readiness', auth, async (req, res) => {
+  const { data: p } = await admin().from('profiles').select('*').eq('id', req.userId).single();
+  const { data: docs } = await admin().from('documents').select('kind').eq('user_id', req.userId).eq('generated', false);
+  const { data: refs } = await admin().from('referees').select('id').eq('user_id', req.userId);
+  const have = new Set((docs || []).map(d => String(d.kind || '').toLowerCase()));
+  const nonEmpty = v => Array.isArray(v) ? v.length > 0 : !!(v && String(v).trim());
+  const prof = p || {};
+  // Each section: whether it's filled, and whether a supporting document backs it (=> verified-ish)
+  const sections = [
+    { key: 'personal',    label: 'Personal information', filled: nonEmpty(prof.full_name) && nonEmpty(prof.phone), doc: false,                 required: true },
+    { key: 'headline',    label: 'Professional headline', filled: nonEmpty(prof.headline),                          doc: false,                 required: true },
+    { key: 'education',   label: 'Education',             filled: nonEmpty(prof.education),                          doc: have.has('degree'),    required: true },
+    { key: 'transcript',  label: 'Academic transcript',  filled: have.has('transcript'),                           doc: have.has('transcript'), required: true },
+    { key: 'cv',          label: 'CV / Resume',          filled: have.has('cv'),                                   doc: have.has('cv'),        required: true },
+    { key: 'experience',  label: 'Work experience',      filled: nonEmpty(prof.experience),                        doc: have.has('certificate'),required: false },
+    { key: 'research',    label: 'Publications / research', filled: nonEmpty(prof.publications),                    doc: have.has('publication'),required: false },
+    { key: 'english',     label: 'English test',         filled: have.has('english_test'),                         doc: have.has('english_test'),required: false },
+    { key: 'passport',    label: 'Passport',             filled: have.has('passport'),                             doc: have.has('passport'),  required: false },
+    { key: 'licenses',    label: 'Professional license', filled: nonEmpty(prof.licenses) || have.has('license'),   doc: have.has('license'),   required: false },
+    { key: 'referees',    label: 'Referees',             filled: (refs || []).length > 0,                          doc: false,                 required: false }
+  ].map(s => ({
+    ...s,
+    status: s.filled ? (s.doc ? 'verified' : 'provided') : (s.required ? 'required' : 'recommended')
+  }));
+  const reqSecs = sections.filter(s => s.required);
+  const reqDone = reqSecs.filter(s => s.filled).length;
+  const allDone = sections.filter(s => s.filled).length;
+  // Weighted: required sections carry more weight than optional ones.
+  const wReq = 0.7, wOpt = 0.3;
+  const optSecs = sections.filter(s => !s.required);
+  const optDone = optSecs.filter(s => s.filled).length;
+  const pct = Math.round(100 * (
+    (reqSecs.length ? wReq * reqDone / reqSecs.length : 0) +
+    (optSecs.length ? wOpt * optDone / optSecs.length : 0)
+  ));
+  // Recommended next actions, ordered: required-missing first, then recommended-missing.
+  const actions = sections
+    .filter(s => !s.filled)
+    .sort((a, b) => (b.required - a.required))
+    .slice(0, 4)
+    .map(s => ({ key: s.key, label: s.label, required: s.required }));
+  res.json({ pct, sections, requiredTotal: reqSecs.length, requiredDone: reqDone, sectionsFilled: allDone, sectionsTotal: sections.length, actions });
+});
 app.get('/api/referees', auth, async (req, res) => {
   const { data } = await admin().from('referees').select('*').eq('user_id', req.userId).order('created_at');
   res.json({ referees: data || [] });
+});
+
+/* ---------- Phase 2: field provenance + conflict resolution ---------- */
+
+/* ---------- Phase 2: per-field provenance + cross-doc verification ---------- */
+const { rebuildProvenance, listFields, resolveField } = require('./lib/provenance');
+app.get('/api/profile/fields', auth, async (req, res) => {
+  try {
+    const fields = await listFields(req.userId);
+    const conflicts = fields.filter(f => f.status === 'conflicting' && !f.resolved).length;
+    const verified = fields.filter(f => f.status === 'verified').length;
+    res.json({ fields, conflicts, verified });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/profile/verify', auth, async (req, res) => {
+  // Kick the cross-document verification. Returns immediately; work continues in background.
+  res.json({ ok: true, message: 'Reading your documents and cross-checking them. Refresh in a moment.' });
+  rebuildProvenance(req.userId).catch(e => admin().from('audit_log').insert({ actor: req.userId, event: 'PROVENANCE_FAIL', detail: String(e.message).slice(0, 200) }).then(() => {}, () => {}));
+});
+app.post('/api/profile/fields/:key/resolve', auth, async (req, res) => {
+  try {
+    const out = await resolveField(req.userId, String(req.params.key), (req.body && req.body.value) || '');
+    res.json(out);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+/* ---------- Phase 4: eligibility matching + Why You Match ---------- */
+const { matchOpportunity, matchMany } = require('./lib/match');
+app.get('/api/opportunities/:id/match', auth, async (req, res) => {
+  try { res.json(await matchOpportunity(req.userId, req.params.id)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 
