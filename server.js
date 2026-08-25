@@ -77,6 +77,22 @@ app.get('/terms', async (req, res) => {
   policyPage(res, 'Terms of Service', (cfg.content && cfg.content.terms) || 'Terms are being prepared.');
 });
 
+/* ---------- public: opportunity counts per country (powers the 3D globe) ---------- */
+app.get('/api/public/opportunity-counts', async (req, res) => {
+  try {
+    const { data } = await admin().from('opportunities').select('country_code,kind,verified_at').eq('status', 'verified').limit(2000);
+    const counts = {};
+    (data || []).forEach(o => {
+      if (!o.country_code) return;
+      const c = counts[o.country_code] || (counts[o.country_code] = { total: 0, study: 0, work: 0, scholarship: 0, last: null });
+      c.total++;
+      if (o.kind === 'work') c.work++; else if (o.kind === 'scholarship') c.scholarship++; else c.study++;
+      if (o.verified_at && (!c.last || o.verified_at > c.last)) c.last = o.verified_at;
+    });
+    res.json({ counts });
+  } catch (e) { res.json({ counts: {} }); }
+});
+
 /* ---------- public config for the frontend ---------- */
 app.get('/api/config', (req, res) => {
   res.json({ supabaseUrl: process.env.SUPABASE_URL || '', supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '' });
@@ -110,6 +126,81 @@ app.get('/api/admin/audit', auth, perm('audit.read'), async (req, res) => {
 });
 
 /* ---------- RBAC: my permissions + user role management ---------- */
+/* ---------- Spec 35/36: Complete Opportunity Intelligence report ---------- */
+app.get('/api/opportunities/:id/report', auth, async (req, res) => {
+  const { data: o } = await admin().from('opportunities').select('*').eq('id', req.params.id).single();
+  if (!o) return res.status(404).json({ error: 'Opportunity not found' });
+  // record 'viewed' (spec 41) — best effort
+  admin().from('user_opportunity_history').insert({ user_id: req.userId, opportunity_id: o.id, event: 'viewed' }).then(() => {}, () => {});
+  // match + eligibility gaps (spec 13/15)
+  let match = null;
+  try { const { matchOpportunity } = require('./lib/match'); match = await matchOpportunity(req.userId, o.id); } catch (e) {}
+  // financial summary (spec 12): stated figures only + clearly-labeled living estimate
+  const { livingEstimate } = require('./lib/costs');
+  const cfg = await siteSettings.getConfig().catch(() => siteSettings.DEFAULTS);
+  const rate = Number(cfg.ai && cfg.ai.usd_to_pkr) || 278;
+  const living = livingEstimate(o.country_code);
+  const financial = {
+    tuition_stated: o.tuition || null,
+    application_fee_stated: o.application_fee || null,
+    stipend_stated: o.stipend || null,
+    funding_stated: o.funding || null,
+    living_estimate: living ? {
+      usd_per_month: living.usd_low + '–' + living.usd_high,
+      pkr_per_month_approx: Math.round(living.usd_low * rate).toLocaleString() + '–' + Math.round(living.usd_high * rate).toLocaleString(),
+      rate_used: '1 USD ≈ PKR ' + rate + ' (admin-set rate)',
+      basis: living.basis
+    } : null,
+    note: 'Stated figures come from the official source. Living cost is an approximate public average, not an official figure.'
+  };
+  const now = Date.now(), day = 86400000;
+  const freshness = (o.deadline && new Date(o.deadline).getTime() < now - day) ? 'deadline_passed'
+    : (o.verified_at && now - new Date(o.verified_at).getTime() < day) ? 'verified_today'
+    : (o.verified_at && now - new Date(o.verified_at).getTime() < 14 * day) ? 'verified_recently' : 'needs_reverification';
+  res.json({
+    opportunity: o, match, financial, freshness,
+    provenance: { source_url: o.url, source_type: 'official_page', retrieved_at: o.created_at, last_verified: o.verified_at, verification: o.status }
+  });
+});
+/* ---------- Spec 41: save / unsave + saved list ---------- */
+app.post('/api/opportunities/:id/save', auth, async (req, res) => {
+  const ev = req.body && req.body.unsave ? 'unsaved' : 'saved';
+  const { error } = await admin().from('user_opportunity_history').insert({ user_id: req.userId, opportunity_id: req.params.id, event: ev });
+  if (error) return res.status(400).json({ error: /user_opportunity_history/.test(error.message) ? 'Run migration 0015 first' : error.message });
+  res.json({ ok: true, event: ev });
+});
+app.get('/api/opportunities/saved/list', auth, async (req, res) => {
+  const { data: hist } = await admin().from('user_opportunity_history').select('opportunity_id,event,created_at').eq('user_id', req.userId).in('event', ['saved', 'unsaved']).order('created_at', { ascending: false }).then(r => r, () => ({ data: [] }));
+  const state = {}; (hist || []).forEach(h => { if (!(h.opportunity_id in state)) state[h.opportunity_id] = h.event; });
+  const ids = Object.keys(state).filter(id => state[id] === 'saved');
+  if (!ids.length) return res.json({ opportunities: [] });
+  const { data: opps } = await admin().from('opportunities').select('*').in('id', ids);
+  res.json({ opportunities: opps || [] });
+});
+/* ---------- Spec 2: configurable university database (admin) ---------- */
+app.get('/api/admin/universities', auth, perm('countries.read'), async (req, res) => {
+  let q = admin().from('universities').select('*').order('country_code').order('priority');
+  if (req.query.country) q = q.eq('country_code', String(req.query.country).toUpperCase());
+  const { data } = await q.then(r => r, () => ({ data: [] }));
+  res.json({ universities: data || [] });
+});
+app.post('/api/admin/universities', auth, perm('countries.write'), async (req, res) => {
+  const b = req.body || {};
+  const cc = String(b.country_code || '').toUpperCase().slice(0, 2);
+  const name = String(b.name || '').trim().slice(0, 160);
+  if (!cc || !name) return res.status(400).json({ error: 'country_code and name required' });
+  const { error } = await admin().from('universities').upsert({ country_code: cc, name, priority: parseInt(b.priority) || 100, enabled: b.enabled !== false }, { onConflict: 'country_code,name' });
+  if (error) return res.status(400).json({ error: /universities/.test(error.message) ? 'Run migration 0015 first' : error.message });
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'UNIVERSITY_UPSERT', detail: cc + ' ' + name }).then(() => {}, () => {});
+  res.json({ ok: true });
+});
+app.post('/api/admin/universities/:id/toggle', auth, perm('countries.write'), async (req, res) => {
+  const { data: u } = await admin().from('universities').select('enabled').eq('id', req.params.id).single();
+  if (!u) return res.status(404).json({ error: 'Not found' });
+  const { error } = await admin().from('universities').update({ enabled: !u.enabled }).eq('id', req.params.id);
+  if (error) return res.status(400).json({ error: error.message });
+  res.json({ ok: true, enabled: !u.enabled });
+});
 app.get('/api/admin/applications', auth, perm('overview.read'), async (req, res) => {
   const status = String(req.query.status || '');
   let q = admin().from('applications').select('id,user_id,status,created_at,submission_status,opportunity_id,opportunities(title,org,country_code,kind)').order('created_at', { ascending: false }).limit(100);
@@ -402,35 +493,47 @@ app.get('/api/countries', async (req, res) => {
 app.get('/api/opportunities', auth, async (req, res) => {
   const kind = String(req.query.kind || 'study');
   const q = String(req.query.q || '').trim();
-  // 'study' is the umbrella for browsing academic routes; when the caller asks for
-  // study we include scholarship + postdoc so the Study Abroad page shows every level.
   const studyKinds = ['study', 'scholarship', 'postdoc'];
-  let query = admin().from('opportunities').select('*').eq('status', 'verified')
-    .order('deadline', { ascending: true }).limit(60);
+  const multi = v => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
+  let query = admin().from('opportunities').select('*').eq('status', 'verified').limit(80);
+  query = (String(req.query.sort) === 'recent') ? query.order('verified_at', { ascending: false }) : query.order('deadline', { ascending: true });
   if (kind === 'study') query = query.in('kind', studyKinds);
+  else if (kind === 'scholarship') query = query.eq('kind', 'scholarship');
   else query = query.eq('kind', kind);
-  if (req.query.country) query = query.eq('country_code', String(req.query.country).toUpperCase());
-  // funding filter: fully | partial | self. Unknown (null) rows are shown unless a
-  // strict filter is requested, so instant browsing is never empty by accident.
-  const ft = String(req.query.funding_type || '').trim();
-  if (['fully', 'partial', 'self'].includes(ft)) query = query.eq('funding_type', ft);
-  // level filter for the BS -> Postdoc control
-  const lvl = String(req.query.level || '').trim();
-  if (['bachelors', 'masters', 'phd', 'postdoc'].includes(lvl)) query = query.eq('level', lvl);
+  // Multi-select filters (spec 16), each backed by a real column:
+  const cc = multi(req.query.country).map(s => s.toUpperCase());
+  if (cc.length) query = query.in('country_code', cc);
+  const lvls = multi(req.query.level).filter(l => ['bachelors', 'masters', 'phd', 'postdoc'].includes(l));
+  if (lvls.length) query = query.in('level', lvls);
+  const fts = multi(req.query.funding_type).filter(f => ['fully', 'partial', 'self'].includes(f));
+  if (fts.length) query = query.in('funding_type', fts);
+  if (String(req.query.no_language_test) === '1') query = query.or('req_language.is.null,req_language.eq.none');
+  if (String(req.query.has_stipend) === '1') query = query.neq('stipend', '');
+  if (String(req.query.has_deadline) === '1') query = query.not('deadline', 'is', null);
   if (q) query = query.textSearch('search_blob', q.split(/\s+/).join(' & '));
   let { data, error } = await query;
-  // Graceful fallback: if funding_type / level columns don't exist yet (migration not
-  // run), Postgres returns 42703. Retry without those filters so search still works.
-  if (error && /funding_type|level|column/.test(error.message || '') && (ft || lvl)) {
-    let q2 = admin().from('opportunities').select('*').eq('status', 'verified')
-      .order('deadline', { ascending: true }).limit(60);
+  if (error && /funding_type|level|req_language|column/.test(error.message || '')) {
+    let q2 = admin().from('opportunities').select('*').eq('status', 'verified').order('deadline', { ascending: true }).limit(80);
     if (kind === 'study') q2 = q2.in('kind', studyKinds); else q2 = q2.eq('kind', kind);
-    if (req.query.country) q2 = q2.eq('country_code', String(req.query.country).toUpperCase());
-    if (q) q2 = q2.textSearch('search_blob', q.split(/\s+/).join(' & '));
-    ({ data, error } = await q2);
+    ({ data } = await q2);
   }
-  if (error) return res.status(400).json({ error: error.message });
-  let opportunities = data || [];
+  let rows = data || [];
+  // USER PROTECTION (spec 18/41): never re-show an opportunity this user already applied to.
+  try {
+    const { data: apps } = await admin().from('applications').select('opportunity_id').eq('user_id', req.userId);
+    const applied = new Set((apps || []).map(a => a.opportunity_id));
+    rows = rows.filter(o => !applied.has(o.id));
+  } catch (e) {}
+  // Freshness (spec 38), computed from real timestamps only.
+  const now = Date.now(), day = 86400000;
+  rows.forEach(o => {
+    if (o.deadline && new Date(o.deadline).getTime() < now - day) o.freshness = 'deadline_passed';
+    else if (o.verified_at && now - new Date(o.verified_at).getTime() < day) o.freshness = 'verified_today';
+    else if (o.verified_at && now - new Date(o.verified_at).getTime() < 14 * day) o.freshness = 'verified_recently';
+    else o.freshness = 'needs_reverification';
+  });
+  rows = rows.filter(o => o.freshness !== 'deadline_passed').slice(0, 60);
+  let opportunities = rows;
   // Phase 4: annotate with match status when requested (?match=1)
   if (String(req.query.match || '') === '1' && opportunities.length) {
     try {
@@ -790,9 +893,29 @@ app.post('/api/applications/:id/prepare', auth, async (req, res) => {
 app.get('/api/applications/:id', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
-  const { data: docs } = await admin().from('application_documents').select('id,kind,title,content').eq('application_id', a.id);
+  let { data: docs } = await admin().from('application_documents').select('id,kind,title,content,status').eq('application_id', a.id).then(r => r, async () => await admin().from('application_documents').select('id,kind,title,content').eq('application_id', a.id));
   const { data: msgs } = await admin().from('messages').select('*').eq('application_id', a.id).order('created_at', { ascending: false });
   res.json({ application: a, documents: docs || [], messages: msgs || [] });
+});
+/* ---------- Spec 27: case editor — edit/rename/approve documents, case notes ---------- */
+app.post('/api/applications/:id/documents/:docId', auth, async (req, res) => {
+  const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
+  if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  const patch = {};
+  if (typeof (req.body || {}).content === 'string') patch.content = req.body.content.slice(0, 40000);
+  if (typeof (req.body || {}).title === 'string' && req.body.title.trim()) patch.title = req.body.title.trim().slice(0, 160);
+  if (['draft', 'under_review', 'approved'].includes((req.body || {}).status)) patch.status = req.body.status;
+  if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update' });
+  const { error } = await admin().from('application_documents').update(patch).eq('id', req.params.docId).eq('application_id', a.id);
+  if (error) return res.status(400).json({ error: /status.*column/.test(error.message || '') ? 'Run migration 0016 first' : error.message });
+  res.json({ ok: true });
+});
+app.post('/api/applications/:id/notes', auth, async (req, res) => {
+  const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
+  if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  const { error } = await admin().from('applications').update({ notes: String((req.body || {}).notes || '').slice(0, 8000) }).eq('id', a.id);
+  if (error) return res.status(400).json({ error: /notes.*column/.test(error.message || '') ? 'Run migration 0016 first' : error.message });
+  res.json({ ok: true });
 });
 app.post('/api/messages/:id/authorize', auth, async (req, res) => {
   const { data: m } = await admin().from('messages').select('*').eq('id', req.params.id).single();
