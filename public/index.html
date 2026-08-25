@@ -11,6 +11,19 @@
 --blue:#2563EB;--blue-soft:#EAF1FE;--slate:#5A6B82;--line:#E3E9F2;--soft:#F4F8FD;--panel:#FFFFFF;--bg:#F7FAFE}
 *{box-sizing:border-box;margin:0}
 body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+/* ===== Full-screen 3D world layers ===== */
+#worldBg{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none;background:radial-gradient(ellipse at 60% 40%,#0e2a55 0%,#071630 55%,#040d1f 100%);opacity:0;transition:opacity .8s}
+#worldBg.on{opacity:1}
+#worldBg canvas{display:block}
+#worldOverlay{position:fixed;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(4,13,31,.35),rgba(4,13,31,.55));opacity:0;transition:opacity .8s}
+#worldOverlay.on{opacity:1}
+body.world-on header{position:relative;z-index:3;background:rgba(8,20,44,.72);backdrop-filter:blur(10px);border-bottom:1px solid rgba(120,160,255,.18)}
+body.world-on header .brand{color:#fff}
+body.world-on #nav button{color:#cfe1ff}
+body.world-on #nav button.on{color:#fff}
+body.world-on main#view{position:relative;z-index:2}
+/* let the globe receive drags only where the page opts in */
+#worldBg.interactive{pointer-events:auto}
 h1,h2,h3,.brand{font-family:Fraunces,serif}
 .brand{font-size:22px;font-weight:700}.brand b{color:var(--gold)}
 header{background:var(--ink);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;box-shadow:0 1px 0 rgba(15,39,72,.06)}
@@ -98,15 +111,58 @@ textarea{min-height:90px}
 .ring-bg{fill:none;stroke:var(--soft);stroke-width:9}
 .ring-fg{fill:none;stroke:var(--gold);stroke-width:9;stroke-linecap:round;transition:stroke-dashoffset .5s ease}
 .ring-pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:700 24px Fraunces,serif;color:var(--ink)}
+/* ===== Opportunity dashboard (spec 33) ===== */
+.dash-head{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;background:linear-gradient(180deg,#FFF,#EFF5FD);border:1px solid var(--line);border-radius:16px;padding:16px;flex-wrap:wrap}
+.dash-sec{margin:14px 0}
+.dash-sec h3{margin-bottom:6px}
+table.rep{width:100%;border-collapse:collapse;font-size:13px}
+table.rep td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+table.rep td.rk{color:var(--slate);white-space:nowrap;width:40%}
+/* ===== 3D globe landing ===== */
+.auth-split{display:flex;gap:26px;align-items:center;justify-content:center;flex-wrap:wrap}
+.globe-side{flex:1;min-width:300px;max-width:640px;position:relative}
+.globe-hero{width:100%;height:440px;border-radius:20px;background:radial-gradient(ellipse at 50% 40%,#0e2a55 0%,#071630 60%,#040d1f 100%);overflow:hidden;border:1px solid #1d3f74;box-shadow:0 20px 60px rgba(8,25,60,.45)}
+.globe-loading{color:#9db8e8;font:600 13px Inter;display:flex;align-items:center;justify-content:center;height:100%}
+.globe-cap{color:var(--slate);font:500 12.5px Inter;text-align:center;margin-top:8px}
+.globe-panel{position:absolute;top:14px;left:14px;background:rgba(8,22,48,.92);border:1px solid rgba(120,160,255,.35);border-radius:14px;padding:12px 16px;color:#fff;z-index:6;max-width:230px;backdrop-filter:blur(4px)}
+.globe2d{height:100%;display:flex;flex-direction:column;justify-content:center;padding:18px 22px;gap:10px}
+.g2d-pk{color:#fff;font:700 15px Inter;margin-bottom:4px}
+.g2d-route{display:flex;align-items:center;gap:8px}
+.g2d-line{height:2px;flex:0 0 46px;border-radius:2px;position:relative}
+.g2d-line:after{content:'✈';position:absolute;right:-4px;top:-9px;font-size:11px;color:#fff}
+.g2d-dest{flex:1;display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,.04);border:1px solid;border-radius:10px;padding:7px 12px;color:#e6efff;font:600 13px Inter}
+@media(max-width:900px){.globe-hero{height:320px}}
+.gchip{display:inline-block;border:1px solid;border-radius:999px;padding:2px 9px;color:#fff;font:600 11.5px Inter;background:rgba(255,255,255,.06)}
+.dash-globe-wrap{position:relative;border-radius:20px;overflow:hidden;border:1px solid #1d3f74;box-shadow:0 16px 50px rgba(8,25,60,.35)}
+.dash-globe{width:100%;height:380px;background:radial-gradient(ellipse at 50% 40%,#0e2a55 0%,#071630 60%,#040d1f 100%)}
+.dash-globe-overlay{position:absolute;top:0;left:0;padding:20px 22px;z-index:4;pointer-events:none}
+.dash-globe-overlay .globe-panel,.dash-globe-overlay button{pointer-events:auto}
+@media(max-width:700px){.dash-globe{height:260px}.dash-globe-overlay h2{font-size:18px}}
+/* ===== Content floating over the 3D world ===== */
+.auth-over{display:flex;gap:32px;align-items:center;justify-content:space-between;min-height:78vh;flex-wrap:wrap}
+.auth-hero-copy{flex:1;min-width:280px;max-width:520px;color:#fff}
+.auth-brand-lg{font:700 44px Fraunces,serif;color:#fff}.auth-brand-lg b{color:#7fb0ff}
+.auth-hero-copy p{color:#cfe1ff;font:500 15px Inter;line-height:1.7;max-width:440px}
+.globe-panel-float{background:rgba(8,22,48,.9);border:1px solid rgba(120,160,255,.4);border-radius:14px;padding:12px 16px;color:#fff;max-width:280px;margin-top:12px;backdrop-filter:blur(6px)}
+.auth-card.glass{background:rgba(255,255,255,.97);box-shadow:0 24px 70px rgba(4,13,31,.55)}
+.dash-hero-float{padding:20px 4px 6px}
+body.world-on main#view{padding-bottom:40px}
+/* content cards get solid bg so they stay readable over the globe */
+body.world-on .card{background:rgba(255,255,255,.97)}
+body.world-on .dash-sec>h3,body.world-on .dash-sec .spread h3{color:#fff}
+body.world-on .dash-head{background:rgba(255,255,255,.92)}
+body.world-on .empty,body.world-on .sub.dash-white{color:#dbe8ff}
 @media(max-width:640px){.pid-card{flex-direction:column;text-align:center}.pid-id .row{justify-content:center}}
 </style></head>
 <body>
+<div id="worldBg"></div>
+<div id="worldOverlay"></div>
 <header>
-  <span class="brand">Fori<b>Foreign</b></span>
+  <span class="brand" style="cursor:pointer" onclick="if(SESSION)go('home')">Fori<b>Foreign</b></span>
   <nav id="nav" style="display:none">
-    <button data-t="home">Home</button>
-    <button data-t="browse">Opportunities</button>
-    <button data-t="apps">My applications</button>
+    <button data-t="home">Dashboard</button>
+    <button data-t="browse">Find Opportunities</button>
+    <button data-t="apps">My Cases</button>
     <button data-t="profile">Profile</button>
     <button data-t="adminx" id="adminTab" style="display:none">Admin</button>
   </nav>
@@ -168,7 +224,7 @@ function showAnnouncement(){
   document.body.insertBefore(b,document.body.firstChild);
 }
 async function signOut(){await SB.auth.signOut();location.reload()}
-function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render()}
+function go(t){TAB=t;if(typeof worldInteractive==='function')worldInteractive(t==='home');document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));if(WORLD&&WORLD.resetView&&t!=='home')try{WORLD.resetView()}catch(e){}render()}
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b){if(b.dataset.t==='browse')window._lane='';go(b.dataset.t)}});
 function render(){({home:vHome,browse:vBrowse,apps:vApps,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)()}
 
@@ -176,8 +232,14 @@ function render(){({home:vHome,browse:vBrowse,apps:vApps,profile:vProfile,buy:vB
 function renderAuth(mode){
   mode=mode||'signin';
   $('view').innerHTML=`
-  <div class="auth-screen">
-    <div class="auth-card">
+  <div class="auth-screen auth-over">
+    <div class="auth-hero-copy">
+      <div class="auth-brand-lg">Fori<b>Foreign</b></div>
+      <p>From <b>🇵🇰 Pakistan</b> to the world. ForiForeign finds verified study, scholarship and work opportunities abroad and prepares every application for you.</p>
+      <div id="globePanel" class="globe-panel-float" style="display:none"></div>
+      <div class="sub" style="color:#9db8e8;margin-top:10px">Drag the globe · tap a glowing country to see live opportunities</div>
+    </div>
+    <div class="auth-card glass">
       <div class="auth-brand">Fori<b>Foreign</b></div>
       <div class="auth-tag">${esc((SITE&&SITE.brand&&SITE.brand.tagline)||'Your path to studying and working abroad.')}</div>
       ${mode==='signup'?`<label>Full name</label><input id="a-name" type="text" placeholder="Your name">`:''}
@@ -193,6 +255,64 @@ function renderAuth(mode){
       </div>
     </div>
   </div>`;
+  bootGlobe();
+}
+async function bootGlobe(){
+  window._worldSelectHandler=authGlobeSelect;
+  await ensureWorld();
+  worldInteractive(true);
+}
+function authGlobeSelect(sel){
+  const p=$('globePanel');if(!p)return;
+  if(!sel){p.style.display='none';return}
+  p.style.display='block';
+  const d=sel.detail||{};
+  p.innerHTML=sel.code==='PK'
+    ?`<b>🇵🇰 Pakistan — your starting point</b><div class="sub" style="color:#cfe1ff">Every route begins here. Create your profile and let the agent map your path.</div>`
+    :`<b>${esc(sel.name)}</b><div style="font:700 26px Fraunces,serif;color:#fff">${sel.count}</div><div class="sub" style="color:#cfe1ff">verified ${sel.count===1?'opportunity':'opportunities'} right now</div>
+    ${sel.count?`<div class="row" style="gap:5px;margin-top:6px;flex-wrap:wrap">
+    ${d.study?`<span class="gchip" style="border-color:#4f8ef7">🎓 ${d.study} study</span>`:''}
+    ${d.scholarship?`<span class="gchip" style="border-color:#f59e0b">🏅 ${d.scholarship} scholarships</span>`:''}
+    ${d.work?`<span class="gchip" style="border-color:#22c55e">💼 ${d.work} jobs</span>`:''}</div>
+    ${d.last?`<div class="sub" style="color:#9db8e8;margin-top:4px">Last verified ${esc(String(d.last).slice(0,10))}</div>`:''}`:''}
+    <button class="btn b-gold" style="margin-top:8px" onclick="renderAuth('signup')">Start free →</button>`;
+}
+/* ---------- Persistent full-screen 3D world (login + app background) ---------- */
+function loadScript(src){return new Promise((res,rej)=>{if(document.querySelector('script[src="'+src+'"]'))return res();const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s)})}
+let WORLD=null,WORLD_COUNTS=null,WORLD_ON=false;
+async function ensureWorld(){
+  if(WORLD)return WORLD;
+  const bg=$('worldBg');if(!bg)return null;
+  const lowPerf=window.innerWidth<700||(navigator.deviceMemory&&navigator.deviceMemory<=2);
+  document.body.classList.add('world-on');bg.classList.add('on');$('worldOverlay').classList.add('on');WORLD_ON=true;
+  if(!WORLD_COUNTS){try{WORLD_COUNTS=(await (await fetch('/api/public/opportunity-counts')).json()).counts||{}}catch(e){WORLD_COUNTS={}}}
+  if(lowPerf){world2D(bg,WORLD_COUNTS);return null}
+  try{
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js');
+    await loadScript('/globe.js');
+    if(window.FFGlobe&&FFGlobe.supported()){
+      WORLD=FFGlobe.init(bg,WORLD_COUNTS,onWorldSelect,{background:true});
+      return WORLD;
+    }
+  }catch(e){}
+  world2D(bg,WORLD_COUNTS);return null;
+}
+function worldInteractive(on){const bg=$('worldBg');if(bg)bg.classList.toggle('interactive',!!on)}
+function onWorldSelect(sel){
+  // Routed to whichever screen registered a handler (login or dashboard).
+  if(window._worldSelectHandler)window._worldSelectHandler(sel);
+}
+function world2D(bg,counts){
+  bg.classList.add('on');
+  const regions=[['🇬🇧 UK',['GB','IE'],'#8b5cf6'],['🇪🇺 Europe',['DE','FR','IT','ES','NL','SE','NO','FI'],'#4f8ef7'],['🇺🇸 N. America',['US','CA'],'#22c55e'],['🇦🇺 Australia',['AU','NZ'],'#f59e0b'],['🕌 Gulf',['SA','AE','QA'],'#f97316'],['🌏 Asia',['MY','JP','KR','TR'],'#ec4899']];
+  const sum=codes=>codes.reduce((s,c)=>s+((counts[c]&&(counts[c].total||counts[c]))||0),0);
+  bg.innerHTML=`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;padding:6vh 6vw;pointer-events:none">
+  <div style="max-width:340px">
+  <div style="color:#fff;font:700 16px Inter;margin-bottom:10px">🇵🇰 Pakistan → the world</div>
+  ${regions.map(([label,codes,col])=>`<div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span style="height:2px;flex:0 0 40px;border-radius:2px;background:linear-gradient(90deg,#fff,${col})"></span>
+  <span style="flex:1;display:flex;justify-content:space-between;background:rgba(255,255,255,.05);border:1px solid ${col};border-radius:10px;padding:6px 11px;color:#e6efff;font:600 12.5px Inter">${label}<b style="color:${col}">${sum(codes)||'—'}</b></span></div>`).join('')}
+  </div></div>`;
 }
 function landingInfo(which){
   const c=(SITE&&SITE.content)||{};
@@ -271,27 +391,70 @@ async function sendSupport(btn){
   }catch(e){toast(e.message);btn.disabled=false}
 }
 async function vHome(){
-  const first=(ME&&ME.full_name||'').split(' ')[0];
   $('view').innerHTML=`
-  <div class="home-hero">
-    <h1>${SITE&&SITE.brand&&SITE.brand.hero_heading?esc(SITE.brand.hero_heading):'Welcome'+(first?', '+esc(first):'')+' 👋'}</h1>
-    <p>${esc((SITE&&SITE.brand&&SITE.brand.hero_subtitle)||'Your intelligent path to studying and working abroad. Upload your documents once — we understand your background, find verified opportunities that truly match you, and prepare every application for your approval.')}</p>
-    <div id="readyStrip"></div>
+  <div class="dash-hero-float">
+    <h2 style="margin:0;color:#fff;font-family:Fraunces">Find your next opportunity abroad</h2>
+    <div class="sub" style="color:#cfe1ff;max-width:520px">ForiForeign searches verified international sources, checks eligibility and funding, and prepares the strongest opportunities for you. Tap a country on the globe to explore it.</div>
+    <div id="dashGlobePanel" style="display:none;margin-top:10px"></div>
   </div>
-  <div class="row" style="gap:12px;margin:14px 0">
-    <div class="lane lane-study" onclick="window._lane='study';go('browse')"><div class="lane-ic">🎓</div><h3>Study Abroad</h3><div class="sub">Bachelors to Postdoc, scholarships included, filtered by funding.</div></div>
-    <div class="lane lane-work" onclick="window._lane='work';go('browse')"><div class="lane-ic">💼</div><h3>Work Abroad</h3><div class="sub">Real jobs with the exact licensing route named for you.</div></div>
+  <div class="dash-head" style="margin-top:12px">
+    <div class="row" style="gap:10px;flex:1;flex-wrap:wrap">
+    <div class="lane lane-study" style="padding:12px;flex:1;min-width:200px" onclick="window._lane='study';go('browse')"><div class="lane-ic">🎓</div><h3>Study Abroad</h3><div class="sub">Bachelors to Postdoc · scholarships · funding filters</div></div>
+    <div class="lane lane-work" style="padding:12px;flex:1;min-width:200px" onclick="window._lane='work';go('browse')"><div class="lane-ic">💼</div><h3>Work Abroad</h3><div class="sub">Verified jobs · licensing route named</div></div>
+    </div>
+    <div id="readyStrip" style="min-width:220px"></div>
   </div>
-  <div class="home-how">
-    <div class="hstep"><b>1 · Your documents</b><div class="sub">Upload your CV and certificates. The agent reads them and builds your profile itself.</div></div>
-    <div class="hstep"><b>2 · Your best matches</b><div class="sub">Every opportunity is verified on its official page and scored against your real credentials.</div></div>
-    <div class="hstep"><b>3 · Your approval</b><div class="sub">Applications are prepared end to end — nothing is sent until you approve it.</div></div>
+  <div class="row" style="gap:8px;margin:12px 0">
+    <button class="btn b-gold" onclick="runSearch()">🔎 Search for me now</button>
+    <button class="btn b-line" onclick="go('apps')">My Cases</button>
+    <button class="btn b-line" onclick="go('buy')">Packages</button>
+    <button class="btn b-line" onclick="openSupport()">Support</button>
   </div>
-  <div class="card spread" style="cursor:pointer" onclick="runSearch()"><div><h3>Find opportunities for me now</h3><div class="sub">Profile-driven search of official sources</div></div><span style="font-size:22px">→</span></div>
-  <div class="card spread" style="cursor:pointer" onclick="go('apps')"><div><h3>My applications</h3><div class="sub">Every case and where it stands</div></div><span style="font-size:22px">→</span></div>
-  <div class="card spread" style="cursor:pointer;border-color:var(--gold)" onclick="go('buy')"><div><h3>Credit packages</h3><div class="sub">Your first case is free. Each case after is prepared completely, end to end.</div></div><span style="font-size:22px">→</span></div>
-  <div class="card spread" style="cursor:pointer" onclick="openSupport()"><div><h3>Need help?</h3><div class="sub">Contact our support team</div></div><span style="font-size:22px">→</span></div>`;
+  <div class="dash-sec"><div class="spread"><h3>Recommended for you</h3><a class="sub" style="cursor:pointer" onclick="go('browse')">See all →</a></div><div id="dashRec"><div class="sub">Loading…</div></div></div>
+  <div class="dash-sec"><div class="spread"><h3>Recently verified</h3></div><div id="dashRecent"><div class="sub">Loading…</div></div></div>
+  <div class="dash-sec"><div class="spread"><h3>Scholarships &amp; funding</h3></div><div id="dashSchol"><div class="sub">Loading…</div></div></div>
+  ${SITE&&(SITE.country_updates||[]).length?`<div class="dash-sec"><h3>Important country updates</h3>
+  ${SITE.country_updates.map(u=>`<div class="card"><b>${esc(u.title||'')}</b>${u.date?` <span class="sub">· ${esc(u.date)}</span>`:''}<div class="sub" style="margin-top:4px;white-space:pre-wrap">${esc(u.text||'')}</div></div>`).join('')}</div>`:''}
+  <div class="dash-sec"><div class="spread"><h3>Saved by you</h3></div><div id="dashSaved"><div class="sub">Loading…</div></div></div>
+  <div class="dash-sec"><div class="spread"><h3>Your cases</h3><a class="sub" style="cursor:pointer" onclick="go('apps')">All cases →</a></div><div id="dashCases"><div class="sub">Loading…</div></div></div>`;
   loadReadiness();
+  dashLoad('dashRec','/api/opportunities?kind=study&match=1&sort=recent',3);
+  dashLoad('dashRecent','/api/opportunities?kind=study&sort=recent',3);
+  dashLoad('dashSchol','/api/opportunities?kind=scholarship&sort=recent',3);
+  dashLoad('dashSaved','/api/opportunities/saved/list',3);
+  dashCases();
+  window._worldSelectHandler=dashGlobeSelect;
+  ensureWorld().then(()=>worldInteractive(true));
+}
+async function bootDashGlobe(){/* replaced by persistent world */}
+function dashGlobeSelect(sel){
+  const p=$('dashGlobePanel');if(!p)return;
+  if(!sel){p.style.display='none';return}
+  p.style.display='block';
+  const d=sel.detail||{};
+  p.innerHTML=sel.code==='PK'
+    ?`<div class="globe-panel" style="position:static;max-width:280px"><b>🇵🇰 Home</b><div class="sub" style="color:#cfe1ff">Your journey starts here.</div></div>`
+    :`<div class="globe-panel" style="position:static;max-width:300px"><b>${esc(sel.name)}</b>
+    <div style="font:700 22px Fraunces,serif;color:#fff">${sel.count} <span style="font:500 12px Inter;color:#cfe1ff">verified</span></div>
+    <div class="row" style="gap:5px;margin-top:4px;flex-wrap:wrap">
+    ${d.study?`<span class="gchip" style="border-color:#4f8ef7">🎓 ${d.study}</span>`:''}
+    ${d.scholarship?`<span class="gchip" style="border-color:#f59e0b">🏅 ${d.scholarship}</span>`:''}
+    ${d.work?`<span class="gchip" style="border-color:#22c55e">💼 ${d.work}</span>`:''}</div>
+    <div class="row" style="margin-top:8px;gap:6px">
+    <button class="btn b-gold" style="padding:5px 12px" onclick="window._lane='study';window._study=window._study||{};Object.assign(window._study,{levels:[],fundings:[],ctrys:['${sel.code}'],subj:'',noLang:false,stipend:false});go('browse')">🎓 Study here</button>
+    <button class="btn b-green" style="padding:5px 12px" onclick="window._lane='work';window._work=window._work||{};window._work.ctry='${sel.code}';go('browse')">💼 Work here</button></div></div>`;
+}
+async function dashLoad(elId,url,n){
+  try{const d=await api(url);const el=$(elId);if(!el)return;
+    const list=(d.opportunities||[]).slice(0,n);
+    el.innerHTML=list.length?list.map(o=>oppCard(o)).join(''):'<div class="sub">Nothing yet — run a search and the agent will fill this.</div>';
+  }catch(e){const el=$(elId);if(el)el.innerHTML='<div class="sub">'+esc(e.message)+'</div>'}
+}
+async function dashCases(){
+  try{const d=await api('/api/applications');const el=$('dashCases');if(!el)return;
+    const list=(d.applications||[]).slice(0,3);
+    el.innerHTML=list.length?list.map(a=>{const o=a.opportunities||{};return `<div class="card spread" style="cursor:pointer" onclick="go('apps')"><div><b>${esc(o.title||a.case_no||'Case')}</b><div class="sub">${esc(o.institution||'')} · ${esc(a.stage||a.status||'')}</div></div><span>→</span></div>`}).join(''):'<div class="sub">No cases yet. Your first case is free — open one from any opportunity.</div>';
+  }catch(e){}
 }
 async function loadReadiness(){
   let d;try{d=await api('/api/profile/readiness')}catch(e){return}
@@ -366,16 +529,75 @@ function oppCard(o,ctaColor){
   }
   return `<div class="card">
     <div class="spread"><div style="min-width:0"><b>${esc(o.institution)}</b><div class="sub">${esc(o.title)}</div></div>
-    ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}</span>`:''}</div>
+    ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}${o.city?' · '+esc(o.city):''}</span>`:''}</div>
     <div class="row" style="margin-top:8px">
     ${matchBadge(o.match)}${levelChip}${fundingChip}
     ${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}
     ${o.funding&&!fundingChip?`<span class="chip c-green">${esc(o.funding)}</span>`:''}
-    ${o.stipend?`<span class="chip c-green">${esc(o.stipend)}</span>`:''}</div>
+    ${o.stipend?`<span class="chip c-green">${esc(o.stipend)}</span>`:''}
+    ${o.tuition?`<span class="chip c-gray">Tuition: ${esc(o.tuition)}</span>`:''}
+    ${o.req_language&&o.req_language!=='none'?`<span class="chip c-blue">${esc(o.req_language)}${o.req_language_min?' '+esc(o.req_language_min):''}</span>`:o.req_language==='none'?'<span class="chip c-green">No IELTS stated</span>':''}
+    ${o.freshness==='verified_today'?'<span class="chip c-green">Verified today</span>':o.freshness==='verified_recently'?'<span class="chip c-blue">Recently verified</span>':o.freshness==='needs_reverification'?'<span class="chip c-gold">Needs re-verification</span>':''}</div>
     <div class="row" style="margin-top:10px">
-    <button class="btn ${ctaColor||'b-gold'}" onclick="startApp('${o.id}','${escAttr(o.institution)}')">Start application (1 credit)</button>
-    <button class="btn b-line" onclick="whyMatch('${o.id}')">Why you match</button>
-    <a class="btn b-line" href="${esc(o.url)}" target="_blank" rel="noopener">Official page ↗</a></div></div>`;
+    <button class="btn ${ctaColor||'b-gold'}" onclick="oppReport('${o.id}')">View Complete Intelligence</button>
+    <button class="btn b-line" onclick="startApp('${o.id}','${escAttr(o.institution)}')">Start case</button>
+    <button class="btn b-line" onclick="saveOpp('${o.id}',this)">☆ Save</button></div></div>`;
+}
+async function saveOpp(id,btn){
+  btn.disabled=true;
+  try{await api('/api/opportunities/'+id+'/save',{method:'POST',body:{}});btn.textContent='★ Saved';}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function oppReport(id){
+  toast('Building the complete intelligence report…');
+  let d;try{d=await api('/api/opportunities/'+id+'/report')}catch(e){toast(e.message);return}
+  const o=d.opportunity||{},m=d.match,f=d.financial||{};
+  const R=(k,v)=>v?`<tr><td class="rk">${k}</td><td>${v}</td></tr>`:'';
+  const icon=x=>x==='yes'?'<span style="color:var(--green)">✓</span>':x==='no'?'<span style="color:var(--crimson)">✕</span>':'<span style="color:var(--gold)">?</span>';
+  const gaps=(m&&m.reasons||[]).filter(r=>r.ok==='no');
+  const fresh={verified_today:'Verified today',verified_recently:'Verified recently',needs_reverification:'Needs re-verification',deadline_passed:'Deadline passed'}[d.freshness]||d.freshness;
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;overflow:auto;padding:18px 8px';
+  wrap.innerHTML=`<div style="max-width:640px;margin:0 auto;background:#fff;border-radius:16px;padding:18px">
+  <div class="spread"><h2 style="min-width:0">${esc(o.institution)}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="sub" style="margin-bottom:8px">${esc(o.title)}</div>
+  ${m&&m.pct!==null&&m.status!=='criteria_not_published'?`<div class="chip ${m.status==='eligible'?'c-green':m.status==='not_eligible'?'c-red':'c-gold'}" style="font-size:14px;padding:6px 12px;margin-bottom:8px">${m.pct}% · ${esc(m.status.replace(/_/g,' '))}</div>`:'<div class="chip c-gray" style="margin-bottom:8px">Criteria not published by the source</div>'}
+  <table class="rep">
+  ${R('Country',esc(o.country_code||''))}${R('City',esc(o.city||''))}
+  ${R('Level',esc(o.level||''))}${R('Deadline',esc(o.deadline||''))}
+  ${R('Duration',esc(o.duration||''))}
+  ${R('Funding',esc(o.funding||''))}${R('Funding type',esc(o.funding_type||''))}
+  ${R('Stipend',esc(o.stipend||''))}${R('Tuition (stated)',esc(o.tuition||''))}
+  ${R('Application fee (stated)',esc(o.application_fee||''))}
+  ${R('Language requirement',o.req_language?esc(o.req_language)+(o.req_language_min?' '+esc(o.req_language_min):''):'')}
+  ${R('Min CGPA (stated)',o.req_min_cgpa?esc(o.req_min_cgpa)+(o.req_cgpa_scale?' / '+esc(o.req_cgpa_scale):''):'')}
+  ${R('Experience (stated)',o.req_experience_years?esc(o.req_experience_years)+' years':'')}
+  ${R('License required',esc(o.req_license||''))}
+  ${R('Required documents',(o.req_documents||[]).map(esc).join(', '))}
+  ${R('Apply via',esc(o.apply_via||''))}
+  ${R('Verified contact',(o.contact_emails||[]).length?(o.contact_emails||[]).map(esc).join(', '):'No official email published — apply via portal')}
+  ${R('Freshness',esc(fresh))}
+  ${R('Last verified',esc((d.provenance&&d.provenance.last_verified||'').slice(0,10)))}
+  </table>
+  ${m&&m.reasons&&m.reasons.length?`<h3 style="margin-top:12px">Why this matches you</h3>
+  <div style="margin-top:6px">${m.reasons.map(r=>`<div style="padding:3px 0">${icon(r.ok)} ${esc(r.text)}</div>`).join('')}</div>`:''}
+  ${gaps.length?`<div class="card" style="border-color:var(--crimson);margin-top:10px"><b>Your missing requirements</b>
+  <div style="margin-top:4px">${gaps.map(g=>`<div class="sub">• ${esc(g.text)}</div>`).join('')}</div>
+  <button class="btn b-line" style="margin-top:8px" onclick="this.closest('div[style*=fixed]').remove();go('profile')">Add the missing information in Profile →</button></div>`:''}
+  <h3 style="margin-top:12px">Financial summary</h3>
+  <table class="rep">
+  ${R('Tuition (stated)',esc(f.tuition_stated||'Not stated'))}
+  ${R('Application fee',esc(f.application_fee_stated||'Not stated'))}
+  ${R('Stipend',esc(f.stipend_stated||'Not stated'))}
+  ${f.living_estimate?R('Living cost (approx.)','$'+esc(f.living_estimate.usd_per_month)+'/mo ≈ PKR '+esc(f.living_estimate.pkr_per_month_approx)+'/mo'):R('Living cost','No estimate available for this country')}
+  </table>
+  <div class="sub" style="margin-top:6px">${esc(f.note||'')}${f.living_estimate?' '+esc(f.living_estimate.rate_used):''}</div>
+  <h3 style="margin-top:12px">Official source</h3>
+  <div class="sub"><a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.url)}</a><br>Retrieved ${esc((d.provenance&&d.provenance.retrieved_at||'').slice(0,10))} · Status: ${esc(o.status||'')}</div>
+  <div class="row" style="margin-top:14px">
+  <button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();startApp('${o.id}','${escAttr(o.institution)}')">Start my case</button>
+  <button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">Close</button></div></div>`;
+  document.body.appendChild(wrap);
 }
 async function whyMatch(id){
   toast('Checking your eligibility…');
@@ -399,17 +621,25 @@ async function whyMatch(id){
 /* ---- STUDY lane: level + funding + country + subject filters, scholarships inside ---- */
 async function renderStudyLane(){
   await ensureCountries();
-  const st=window._study||(window._study={level:'',funding:'',ctry:'',subj:''});
+  const st=window._study||(window._study={levels:[],fundings:[],ctrys:[],subj:'',noLang:false,stipend:false});
+  if(!st.levels)Object.assign(st,{levels:[],fundings:[],ctrys:[],noLang:false,stipend:false});
+  const tog=(arr,v)=>{const i=arr.indexOf(v);i>=0?arr.splice(i,1):arr.push(v)};
+  window._togStudy=(k,v)=>{tog(st[k],v);renderStudyLane()};
   $('view').innerHTML=laneBar('study')+`
   <h2 style="margin-bottom:2px">Study Abroad</h2>
-  <div class="sub" style="margin-bottom:10px">All levels from Bachelors to Postdoc, scholarships included. Verified against official pages.</div>
+  <div class="sub" style="margin-bottom:10px">All levels from Bachelors to Postdoc, scholarships included. Verified against official pages. Select multiple filters.</div>
   <div class="card" style="padding:12px">
-    <label style="margin-top:0">Level</label>
-    <div class="row seg">${[['','All levels'],['bachelors','Bachelors'],['masters','Masters'],['phd','PhD'],['postdoc','Postdoc']].map(([v,l])=>`<button class="segbtn ${st.level===v?'on':''}" onclick="window._study.level='${v}';renderStudyLane()">${l}</button>`).join('')}</div>
-    <label>Funding</label>
-    <div class="row seg">${[['','Any funding'],['fully','Fully funded'],['partial','Partial'],['self','Self-finance']].map(([v,l])=>`<button class="segbtn ${st.funding===v?'on':''}" onclick="window._study.funding='${v}';renderStudyLane()">${l}</button>`).join('')}</div>
+    <label style="margin-top:0">Level (multi-select)</label>
+    <div class="row seg">${[['bachelors','Bachelors'],['masters','Masters'],['phd','PhD'],['postdoc','Postdoc']].map(([v,l])=>`<button class="segbtn ${st.levels.includes(v)?'on':''}" onclick="_togStudy('levels','${v}')">${l}</button>`).join('')}</div>
+    <label>Funding (multi-select)</label>
+    <div class="row seg">${[['fully','Fully funded'],['partial','Partial'],['self','Self-finance']].map(([v,l])=>`<button class="segbtn ${st.fundings.includes(v)?'on':''}" onclick="_togStudy('fundings','${v}')">${l}</button>`).join('')}</div>
+    <label>Countries (multi-select)</label>
+    <div class="row seg" style="flex-wrap:wrap">${(window._countries||[]).slice(0,24).map(c=>`<button class="segbtn ${st.ctrys.includes(c.code)?'on':''}" onclick="_togStudy('ctrys','${c.code}')">${esc(c.name)}</button>`).join('')}</div>
+    <div class="row" style="margin-top:8px">
+      <button class="segbtn ${st.noLang?'on':''}" onclick="window._study.noLang=!window._study.noLang;renderStudyLane()">No IELTS/TOEFL stated</button>
+      <button class="segbtn ${st.stipend?'on':''}" onclick="window._study.stipend=!window._study.stipend;renderStudyLane()">Has stipend</button>
+    </div>
     <div class="row" style="margin-top:10px">
-      <select style="width:auto" onchange="window._study.ctry=this.value;renderStudyLane()"><option value="">All countries</option>${(window._countries||[]).map(c=>`<option value="${c.code}" ${st.ctry===c.code?'selected':''}>${esc(c.name)} ${c.study_rating==='green'?'🟢':c.study_rating==='yellow'?'🟡':'🔴'}</option>`).join('')}</select>
       <input id="study-subj" style="width:auto;flex:1;min-width:150px" placeholder="Subject, e.g. pharmacology" value="${escAttr(st.subj)}" onkeydown="if(event.key==='Enter'){window._study.subj=this.value;renderStudyLane()}" onchange="window._study.subj=this.value;renderStudyLane()">
       <button class="btn b-ink" onclick="window._study.subj=(document.getElementById('study-subj')||{}).value||'';renderStudyLane()">Search</button>
     </div>
@@ -417,7 +647,12 @@ async function renderStudyLane(){
   <div id="studyResults"><div class="empty">Loading verified opportunities…</div></div>`;
   let d;
   try{
-    const qs='/api/opportunities?kind=study'+(st.ctry?'&country='+encodeURIComponent(st.ctry):'')+(st.funding?'&funding_type='+st.funding:'')+(st.level?'&level='+st.level:'')+(st.subj?'&q='+encodeURIComponent(st.subj):'')+'&match=1';
+    const qs='/api/opportunities?kind=study'
+      +(st.ctrys.length?'&country='+encodeURIComponent(st.ctrys.join(',')):'')
+      +(st.fundings.length?'&funding_type='+st.fundings.join(','):'')
+      +(st.levels.length?'&level='+st.levels.join(','):'')
+      +(st.noLang?'&no_language_test=1':'')+(st.stipend?'&has_stipend=1':'')
+      +(st.subj?'&q='+encodeURIComponent(st.subj):'')+'&match=1';
     d=await api(qs);
   }catch(e){const el=$('studyResults');if(el)el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const opps=d.opportunities||[];const el=$('studyResults');if(!el)return;
@@ -502,8 +737,18 @@ async function openApp(id){
   <div class="sub" style="margin-top:6px"><b>Required now:</b> ${(rq.required_now||[]).map(esc).join(', ')||'none'}</div>
   <div class="sub"><b>Required later (after acceptance/visa):</b> ${(rq.required_later||[]).map(esc).join(', ')||'none'}</div>
   <div class="sub"><b>Optional but strengthens:</b> ${(rq.optional||[]).map(esc).join(', ')||'none'}</div></div>`})()}
-  ${(d.documents||[]).map(x=>`<div class="card"><div class="spread"><b>${esc(x.title)}</b><span class="chip c-green">ready</span></div>
-  <pre style="white-space:pre-wrap;font:12.5px Inter;color:#333;margin-top:8px;max-height:220px;overflow:auto">${esc(x.content)}</pre></div>`).join('')}
+  ${(d.documents||[]).map(x=>{const st=x.status||'draft';const stc={draft:'c-gray',under_review:'c-gold',approved:'c-green'}[st]||'c-gray';return `<div class="card" id="doc-${x.id}">
+  <div class="spread"><b>${esc(x.title)}</b><span class="chip ${stc}">${esc(st.replace('_',' '))}</span></div>
+  <pre class="docview" style="white-space:pre-wrap;font:12.5px Inter;color:#333;margin-top:8px;max-height:220px;overflow:auto">${esc(x.content)}</pre>
+  <textarea class="docedit" style="display:none;min-height:220px;font:12.5px Inter;margin-top:8px">${esc(x.content)}</textarea>
+  <div class="row" style="margin-top:8px">
+  <button class="btn b-line" onclick="editDoc('${x.id}',this)">✏️ Edit</button>
+  <button class="btn b-gold docsave" style="display:none" onclick="saveDoc('${a.id}','${x.id}',this)">Save</button>
+  ${st!=='approved'?`<button class="btn b-green" onclick="setDocStatus('${a.id}','${x.id}','approved',this)">Approve</button>`:`<button class="btn b-line" onclick="setDocStatus('${a.id}','${x.id}','draft',this)">Reopen</button>`}
+  </div></div>`}).join('')}
+  <div class="card"><h3>Case notes</h3>
+  <textarea id="case-notes" style="min-height:70px" placeholder="Your private notes for this case…">${esc(a.notes||'')}</textarea>
+  <div class="row" style="margin-top:8px"><button class="btn b-line" onclick="saveNotes('${a.id}',this)">Save notes</button></div></div>
   ${msg?`<div class="card" style="border-color:var(--ink)"><h3>Application email</h3>
   <div class="sub" style="margin:6px 0">To: ${msg.to_emails&&msg.to_emails.length?esc(msg.to_emails.join(', ')):'<i>no official email published, portal application</i>'}</div>
   <div style="font-weight:600">${esc(msg.subject)}</div>
@@ -512,6 +757,31 @@ async function openApp(id){
   </div>`:''}
   </div>`;
   document.body.appendChild(wrap);
+}
+function editDoc(docId,btn){
+  const card=$('doc-'+docId);if(!card)return;
+  card.querySelector('.docview').style.display='none';
+  card.querySelector('.docedit').style.display='block';
+  card.querySelector('.docsave').style.display='inline-block';
+  btn.style.display='none';
+}
+async function saveDoc(appId,docId,btn){
+  btn.disabled=true;
+  const card=$('doc-'+docId);const content=card.querySelector('.docedit').value;
+  try{await api('/api/applications/'+appId+'/documents/'+docId,{method:'POST',body:{content,status:'under_review'}});
+    toast('Saved.');document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());openApp(appId);
+  }catch(e){toast(e.message);btn.disabled=false}
+}
+async function setDocStatus(appId,docId,status,btn){
+  btn.disabled=true;
+  try{await api('/api/applications/'+appId+'/documents/'+docId,{method:'POST',body:{status}});
+    document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());openApp(appId);
+  }catch(e){toast(e.message);btn.disabled=false}
+}
+async function saveNotes(appId,btn){
+  btn.disabled=true;
+  try{await api('/api/applications/'+appId+'/notes',{method:'POST',body:{notes:($('case-notes')||{}).value||''}});toast('Notes saved.');btn.disabled=false;}
+  catch(e){toast(e.message);btn.disabled=false}
 }
 async function prepApp(id,btn){btn.disabled=true;
   try{const d=await api('/api/applications/'+id+'/prepare',{method:'POST'});toast(d.message);
@@ -808,7 +1078,7 @@ async function vAdmin(){
   if(!window._adminPerms){try{const d=await api('/api/admin/me');window._adminPerms=new Set(d.permissions||[]);window._adminRoles=d.roles||[]}catch(e){window._adminPerms=new Set()}}
   const P=window._adminPerms;const can=p=>P.has(p);
   const t=window._adminTab||'overview';
-  const allTabs=[['overview','Overview','overview.read'],['cases','Cases','overview.read'],['payments','Payments','payments.read'],['packages','Packages','packages.read'],['countries','Countries','countries.read'],['content','Content','content.read'],['reviews','Reviews','reviews.read'],['support','Support','support.read'],['users','Users','users.read'],['aicost','AI Costs','aicost.read'],['settings','Settings','settings.read'],['audit','Audit log','audit.read']];
+  const allTabs=[['overview','Overview','overview.read'],['cases','Cases','overview.read'],['payments','Payments','payments.read'],['packages','Packages','packages.read'],['countries','Countries','countries.read'],['universities','Universities','countries.read'],['content','Content','content.read'],['reviews','Reviews','reviews.read'],['support','Support','support.read'],['users','Users','users.read'],['aicost','AI Costs','aicost.read'],['settings','Settings','settings.read'],['audit','Audit log','audit.read']];
   const tabs=allTabs.filter(([k,l,p])=>can(p));
   const cur=tabs.find(([k])=>k===t)?t:(tabs[0]&&tabs[0][0])||'overview';
   $('view').innerHTML=`<h2 style="margin-bottom:8px">Admin Control Center</h2>
@@ -825,6 +1095,7 @@ async function vAdmin(){
   if(cur==='users')return adminUsers();
   if(cur==='cases')return adminCases();
   if(cur==='payments')return adminPayments();
+  if(cur==='universities')return adminUniversities();
   return adminOverview();
 }
 async function adminOverview(){
@@ -876,6 +1147,9 @@ async function adminSettings(){
   <div class="card"><h3>Public statistics (admin-entered)</h3>
   <div class="sub" style="margin-bottom:6px">Only enter figures you can stand behind. Blank = hidden.</div>
   ${F('stats','users_helped','Users helped')}${F('stats','applications_prepared','Applications prepared')}</div>
+  <div class="card"><h3>Case document plan (what every prepared case includes)</h3>
+  <div class="sub" style="margin-bottom:6px">The agent generates these documents for each case, from the client's real profile only.</div>
+  ${[['cv','CV'],['cover','Cover letter'],['sop','Statement of Purpose'],['research_proposal','Research proposal outline'],['scholarship_statement','Scholarship statement']].map(([k,l])=>{const on=((window._cfg&&window._cfg.case_plan&&window._cfg.case_plan.docs)||['cv','cover']).includes(k);return `<div class="row" style="margin-top:6px"><label style="margin:0"><input type="checkbox" data-plandoc="${k}" ${on?'checked':''} style="width:auto"> ${l}</label></div>`}).join('')}</div>
   <div class="card"><h3>AI cost settings</h3>
   ${F('ai','usd_to_pkr','USD → PKR exchange rate')}
   ${F('ai','pkr_override_per_case','Fixed PKR cost per case (blank = auto-calculate)')}</div>
@@ -890,6 +1164,8 @@ async function saveAdminSettings(btn){
     patch[s]=patch[s]||{};
     patch[s][k]=el.type==='checkbox'?el.checked:el.value;
   });
+  const planDocs=[...document.querySelectorAll('#adminBody [data-plandoc]')].filter(el=>el.checked).map(el=>el.dataset.plandoc);
+  if(planDocs.length)patch.case_plan={docs:planDocs};
   try{const d=await api('/api/admin/settings',{method:'PUT',body:{patch}});
     toast('Saved as v'+d.version+'. Live everywhere within 30 seconds.');await loadSiteConfig();vAdmin();
   }catch(e){toast(e.message);btn.disabled=false}
@@ -963,15 +1239,31 @@ async function adminAiCost(){
 async function adminContent(){
   let d;try{d=await api('/api/admin/settings')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const c=d.config.content||{};window._cfg=d.config;
+  window._cupdates=(d.config.country_updates||[]).slice();
   const TA=(key,label)=>`<label>${label}</label><textarea data-sec="content" data-key="${key}" style="min-height:120px">${esc(c[key]||'')}</textarea>`;
   $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Edit the text users see. Saved with version history; live within 30 seconds.</div>
   <div class="card">${TA('privacy','Privacy content')}${TA('help','Help / how it works')}${TA('terms','Terms')}${TA('faq','FAQ')}</div>
+  <div class="card"><h3>Important country updates (shown on user dashboard)</h3>
+  <div class="sub" style="margin-bottom:6px">Only post updates you have verified from official sources (embassies, HEC, universities). Blank list = section hidden.</div>
+  <div id="cupList"></div>
+  <button class="btn b-line" style="margin-top:8px" onclick="window._cupdates.push({title:'',text:'',date:new Date().toISOString().slice(0,10)});renderCupdates()">+ Add update</button></div>
   <div class="row" style="margin:12px 0"><button class="btn b-gold" onclick="saveContentTab(this)">Save content</button></div>`;
+  renderCupdates();
+}
+function renderCupdates(){
+  const el=$('cupList');if(!el)return;
+  el.innerHTML=(window._cupdates||[]).map((u,i)=>`<div class="card">
+  <div class="spread"><b>Update ${i+1}</b><button class="btn b-line" style="padding:3px 10px" onclick="window._cupdates.splice(${i},1);renderCupdates()">Remove</button></div>
+  <label>Title</label><input value="${escAttr(u.title||'')}" onchange="window._cupdates[${i}].title=this.value">
+  <label>Date</label><input value="${escAttr(u.date||'')}" onchange="window._cupdates[${i}].date=this.value">
+  <label>Text</label><textarea onchange="window._cupdates[${i}].text=this.value">${esc(u.text||'')}</textarea></div>`).join('')||'<div class="sub">No updates.</div>';
 }
 async function saveContentTab(btn){
   btn.disabled=true;
   const content={};document.querySelectorAll('#adminBody [data-sec=content]').forEach(el=>content[el.dataset.key]=el.value);
-  try{const d=await api('/api/admin/settings',{method:'PUT',body:{patch:{content}}});toast('Content saved (v'+d.version+').');await loadSiteConfig();vAdmin();}
+  const patch={content};
+  patch.country_updates=(window._cupdates||[]).filter(u=>u.title||u.text);
+  try{const d=await api('/api/admin/settings',{method:'PUT',body:{patch}});toast('Content saved (v'+d.version+').');await loadSiteConfig();vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}
 }
 async function adminReviews(){
@@ -1051,6 +1343,30 @@ async function adminPayments(){
 async function confirmPay(id,btn){
   btn.disabled=true;
   try{await api('/api/payments/'+id+'/confirm',{method:'POST'});toast('Payment confirmed, credits added.');refreshCredits();vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function adminUniversities(){
+  let d;try{d=await api('/api/admin/universities')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const us=d.universities||[];
+  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Priority universities guide the discovery agent per country (lower number = higher priority). It searches these first but is never limited to them.</div>
+  <div class="card"><h3>Add university</h3>
+  <label>Country code (ISO2)</label><input id="u-cc" placeholder="DE" maxlength="2">
+  <label>University name</label><input id="u-name" placeholder="Technical University of Munich">
+  <label>Priority (1 = top)</label><input id="u-pri" type="number" value="100">
+  <div class="row" style="margin-top:10px"><button class="btn b-gold" onclick="saveUni(this)">Save university</button></div></div>
+  <div class="card"><h3>All universities (${us.length})</h3>
+  ${us.map(u=>`<div class="spread" style="padding:5px 0;border-bottom:1px solid var(--line)">
+  <div><b>${esc(u.name)}</b> <span class="sub">${esc(u.country_code)} · priority ${esc(u.priority)}</span></div>
+  <button class="btn ${u.enabled?'b-green':'b-line'}" style="padding:3px 12px" onclick="toggleUni('${u.id}',this)">${u.enabled?'Enabled':'Disabled'}</button></div>`).join('')||'<div class="sub">None yet. Add the top universities for your key destination countries.</div>'}</div>`;
+}
+async function saveUni(btn){
+  btn.disabled=true;
+  try{await api('/api/admin/universities',{method:'POST',body:{country_code:$('u-cc').value,name:$('u-name').value,priority:parseInt($('u-pri').value)||100}});toast('University saved.');vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function toggleUni(id,btn){
+  btn.disabled=true;
+  try{await api('/api/admin/universities/'+id+'/toggle',{method:'POST'});vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}
 }
 async function adminAudit(){
