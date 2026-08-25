@@ -65,6 +65,24 @@ textarea{min-height:90px}
 .auth-switch a,.auth-links a{color:var(--gold);font-weight:600;cursor:pointer}
 .auth-note{text-align:center;margin-top:12px;line-height:1.6}
 .auth-links{text-align:center;margin-top:16px;font-size:12px;color:var(--slate);display:flex;gap:8px;justify-content:center;align-items:center}
+
+/* ===== Profile identity ===== */
+.pid-card{display:flex;gap:18px;align-items:center;background:linear-gradient(135deg,#0F2748,#1E4B8A);border-radius:18px;padding:24px;color:#fff;margin-bottom:14px}
+.pid-avatar{width:88px;height:88px;border-radius:50%;flex:none;background:rgba(255,255,255,.15);border:2.5px solid rgba(255,255,255,.55);display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden}
+.pid-avatar span{font:700 30px Fraunces,serif;color:#fff}
+.pid-id h2{font-size:24px}
+.pid-head{color:#D7E3F5;font-size:13.5px;margin-top:3px}
+.pid-timeline{margin-top:6px}
+.pid-titem{display:flex;gap:14px;padding:8px 0;border-bottom:1px solid var(--line)}
+.pid-titem:last-child{border-bottom:none}
+.pid-tyear{font:700 13px Fraunces,serif;color:var(--gold);width:44px;flex:none;padding-top:2px}
+.docsec{padding:10px 0;border-bottom:1px solid var(--line)}
+.docsec:last-child{border-bottom:none}
+.docrow{display:flex;justify-content:space-between;align-items:center;padding:5px 0 0 10px;font-size:13px}
+/* ===== Locked (free-preview) opportunity cards ===== */
+.locked-card{border-style:dashed;background:linear-gradient(180deg,#fff, var(--soft))}
+.locked-blur b,.locked-blur .sub{filter:blur(5px);user-select:none}
+@media(max-width:640px){.pid-card{flex-direction:column;text-align:center}.pid-id .row{justify-content:center}}
 </style></head>
 <body>
 <header>
@@ -256,6 +274,17 @@ function oppCard(o,ctaColor){
     : o.funding_type==='partial'?'<span class="chip c-gold">Partial funding</span>'
     : o.funding_type==='self'?'<span class="chip c-gray">Self-finance</span>':'';
   const levelChip = o.level?`<span class="chip c-blue">${esc(({bachelors:'Bachelors',masters:'Masters',phd:'PhD',postdoc:'Postdoc'})[o.level]||o.level)}</span>`:'';
+  if(o.locked){
+    return `<div class="card locked-card">
+      <div class="locked-blur"><b>University name hidden</b><div class="sub">Position title hidden</div></div>
+      <div class="row" style="margin-top:8px">
+      ${matchBadge(o.match)}${levelChip}${fundingChip}
+      ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}</span>`:''}
+      ${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}</div>
+      <div class="row" style="margin-top:10px;align-items:center">
+      <button class="btn b-gold" onclick="go('buy')">🔓 Unlock with a package</button>
+      <span class="sub">This verified opportunity matches your profile. Unlock to see the institution and apply.</span></div></div>`;
+  }
   return `<div class="card">
     <div class="spread"><div style="min-width:0"><b>${esc(o.institution)}</b><div class="sub">${esc(o.title)}</div></div>
     ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}</span>`:''}</div>
@@ -421,26 +450,56 @@ async function vApps(){
 /* ---------- profile ---------- */
 async function vProfile(){
   const m=ME||{};
-  $('view').innerHTML=`<h2 style="margin-bottom:10px">My profile</h2>
-  <div class="card"><h3>Sending: your own Gmail</h3>
-  <div class="sub" id="gmStatus" style="margin:6px 0">Checking…</div>
-  <div class="row"><button class="btn b-green" onclick="connectGmail()">Connect my Gmail, one click</button>
-  <button class="btn b-line" onclick="disconnectGmail()">Disconnect</button></div>
-  <div class="sub" style="margin-top:6px">A Google window opens, choose YOUR account, press Allow. Every application email sends from your own address and appears in your own Sent folder, with a copy to you.</div></div>
+  const yearOf=v=>{const x=String(v&&(v.year||v.years)||'').match(/(19|20)\d{2}/g);return x?parseInt(x[x.length-1]):0};
+  const edu=[...(m.education||[])].sort((a,b)=>yearOf(b)-yearOf(a));
+  const exp=[...(m.experience||[])].sort((a,b)=>yearOf(b)-yearOf(a));
+  const initials=(m.full_name||'?').split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
+  $('view').innerHTML=`
+  <div class="pid-card">
+    <div class="pid-avatar" id="avatarBox" onclick="document.getElementById('avatar-file').click()" title="Change photo">
+      <span id="avatarInitials">${esc(initials)}</span>
+    </div>
+    <input id="avatar-file" type="file" accept="image/*" style="display:none" onchange="uploadAvatar(this)">
+    <div class="pid-id">
+      <h2>${esc(m.full_name||'Your name')}</h2>
+      <div class="pid-head">${esc(m.headline||'Add your professional headline below')}</div>
+      <div class="row" style="margin-top:8px;gap:6px">
+        ${m.field?`<span class="chip c-blue">${esc(m.field)}</span>`:''}
+        ${m.mode?`<span class="chip c-gold">${esc(m.mode==='both'?'Study + Work':m.mode==='work'?'Work abroad':'Study abroad')}</span>`:''}
+        ${m.phone?`<span class="chip c-gray">${esc(m.phone)}</span>`:''}
+      </div>
+    </div>
+  </div>
+
+  ${edu.length?`<div class="card"><h3>Education</h3>
+  <div class="pid-timeline">${edu.map(e=>`<div class="pid-titem"><div class="pid-tyear">${esc(String(yearOf(e)||''))}</div>
+  <div><b>${esc(e.degree||'')}</b><div class="sub">${esc(e.institution||'')}${e.grade?' · '+esc(e.grade):''}</div></div></div>`).join('')}</div></div>`:''}
+
+  ${exp.length?`<div class="card"><h3>Experience</h3>
+  <div class="pid-timeline">${exp.map(e=>`<div class="pid-titem"><div class="pid-tyear">${esc(String(yearOf(e)||''))}</div>
+  <div><b>${esc(e.role||'')}</b><div class="sub">${esc(e.org||'')}${e.years?' · '+esc(e.years):''}</div></div></div>`).join('')}</div></div>`:''}
+
+  ${(m.publications||[]).length?`<div class="card"><h3>Publications</h3>
+  ${(m.publications||[]).map(p=>`<div class="sub" style="padding:4px 0;border-bottom:1px solid var(--line)">${esc(typeof p==='string'?p:(p.title||''))}</div>`).join('')}</div>`:''}
+
   <div class="card" style="border-color:var(--gold)"><h3>My documents</h3>
-  <div class="sub" style="margin:6px 0">Upload your CV first. The agent reads everything automatically: your profile, education, publications and referees fill themselves.</div>
-  <input id="doc-files" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="padding:8px">
-  <div class="row" style="margin-top:8px"><button class="btn b-gold" id="upBtn" onclick="uploadDocs()">Upload</button>
+  <div class="sub" style="margin:6px 0">Your CV is the only required document. Everything else strengthens your case. Add files to a section and they are read automatically.</div>
+  <input id="doc-files" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="display:none" onchange="uploadDocs()">
+  <div id="docSections"><span class="sub">Loading…</span></div>
+  <div class="row" style="margin-top:10px">
   <button class="btn b-line" onclick="reviewExtraction()">Review extracted info</button>
-  <button class="btn b-line" onclick="refillProfile()">Re-read my documents</button></div>
-  <div id="docList" style="margin-top:10px"><span class="sub">Loading…</span></div></div>
-  <div class="card" id="checklistCard"><h3>Document checklist</h3>
-  <div class="sub" style="margin:6px 0">The more of these we hold, the stronger and faster your applications. Gold items are usually required; the rest strengthen your case.</div>
-  <div id="checklist"><span class="sub">Loading…</span></div></div>
+  <button class="btn b-line" onclick="refillProfile()">Re-read my documents</button></div></div>
+
   <div class="card" id="verifyCard"><div class="spread"><h3>Verified information</h3><button class="btn b-line" style="padding:5px 10px" onclick="runVerify(this)">Cross-check my documents</button></div>
   <div class="sub" style="margin:6px 0">The agent reads each document separately and cross-checks the facts. Matching facts become verified; disagreements are flagged for you to resolve.</div>
   <div id="verifyList"><span class="sub">Press cross-check, or upload more documents first.</span></div></div>
-  <div class="card">
+
+  <div class="card"><h3>Sending: your own Gmail</h3>
+  <div class="sub" id="gmStatus" style="margin:6px 0">Checking…</div>
+  <div class="row"><button class="btn b-green" onclick="connectGmail()">Connect my Gmail, one click</button>
+  <button class="btn b-line" onclick="disconnectGmail()">Disconnect</button></div></div>
+
+  <div class="card"><h3>Edit details</h3>
   <label>Full name</label><input id="p-name" value="${esc(m.full_name)}">
   <label>Phone</label><input id="p-phone" value="${esc(m.phone)}">
   <label>I am looking for</label>
@@ -462,8 +521,25 @@ async function vProfile(){
   <textarea id="p-exp">${esc((m.experience||[]).map(e=>[e.role,e.org,e.years].filter(Boolean).join(', ')).join('\n'))}</textarea>
   <div class="row" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save profile</button></div></div>
   <div class="card"><h3>My referees</h3><div id="refList" class="sub" style="margin-top:6px">Loading…</div></div>`;
-  loadDocs();loadRefs();loadGmail();loadChecklist();loadFields();
+  loadDocs();loadRefs();loadGmail();loadFields();loadAvatar();
 }
+async function loadAvatar(){
+  try{const d=await api('/api/me/avatar/url');if(!d.url)return;
+    const b=$('avatarBox');if(!b)return;
+    b.style.backgroundImage='url("'+d.url+'")';b.style.backgroundSize='cover';b.style.backgroundPosition='center';
+    const i=$('avatarInitials');if(i)i.style.display='none';
+  }catch(e){}}
+async function uploadAvatar(input){
+  const f=input.files&&input.files[0];if(!f)return;
+  toast('Uploading photo…');
+  const fd=new FormData();fd.append('photo',f);
+  try{const r=await fetch('/api/me/avatar',{method:'POST',headers:{authorization:'Bearer '+SESSION.access_token},body:fd});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||'Upload failed');
+    toast('Photo updated.');loadAvatar();
+  }catch(e){toast(e.message)}
+  input.value='';
+}
+function sectionUpload(kind){window._uploadKind=kind;document.getElementById('doc-files').click()}
 async function loadFields(){
   let d;try{d=await api('/api/profile/fields')}catch(e){return}
   const el=$('verifyList');if(!el)return;
@@ -520,11 +596,32 @@ async function loadGmail(){try{const d=await api('/api/me/gmail');const el=$('gm
   el.innerHTML=d.connected?'<span style="color:var(--green)">✓ Connected: '+esc(d.addr)+'</span>':'Not connected. Applications wait until you connect.';
 }catch(e){}}
 async function loadDocs(){
-  try{const d=await api('/api/documents');const el=$('docList');if(!el)return;
-    el.innerHTML=(d.documents||[]).length?d.documents.map(x=>`<div class="spread" style="padding:6px 0;border-bottom:1px solid var(--line)">
-    <div style="min-width:0"><span class="chip c-blue">${esc(x.kind.replace(/_/g,' '))}</span> <span onclick="viewDoc('${x.id}')" style="cursor:pointer;text-decoration:underline">${esc(x.name)}</span></div>
-    <span onclick="delDoc('${x.id}')" style="cursor:pointer;color:var(--crimson);font-weight:700">✕</span></div>`).join('')
-    :'<span class="sub">No documents yet. Your CV is the key that unlocks everything.</span>';
+  try{const d=await api('/api/documents');const el=$('docSections');if(!el)return;
+    const docs=d.documents||[];
+    const SECTIONS=[
+      {kind:'cv',label:'CV / Resume',required:true},
+      {kind:'degree',label:'Degree certificates'},
+      {kind:'transcript',label:'Transcripts'},
+      {kind:'english_test',label:'English test (IELTS / TOEFL / PTE)'},
+      {kind:'passport',label:'Passport'},
+      {kind:'license',label:'Professional licenses'},
+      {kind:'publication',label:'Publications / research papers'},
+      {kind:'reference_letter',label:'Reference letters'},
+      {kind:'certificate',label:'Certificates & awards'},
+      {kind:'document',label:'Other supporting documents'}
+    ];
+    const byKind={};docs.forEach(x=>{(byKind[x.kind]=byKind[x.kind]||[]).push(x)});
+    el.innerHTML=SECTIONS.map(s=>{
+      const rows=byKind[s.kind]||[];
+      return `<div class="docsec">
+      <div class="spread"><div><b>${esc(s.label)}</b>
+        ${s.required?(rows.length?'<span class="chip c-green" style="margin-left:6px">On file</span>':'<span class="chip c-red" style="margin-left:6px">Required</span>'):(rows.length?`<span class="chip c-gray" style="margin-left:6px">${rows.length}</span>`:'')}</div>
+        <button class="btn b-line" style="padding:4px 10px" onclick="sectionUpload('${s.kind}')">+ Add</button></div>
+      ${rows.map(x=>`<div class="docrow">
+        <span onclick="viewDoc('${x.id}')" style="cursor:pointer;text-decoration:underline">${esc(x.name)}</span>
+        <span onclick="delDoc('${x.id}')" style="cursor:pointer;color:var(--crimson);font-weight:700">✕</span></div>`).join('')}
+      </div>`;
+    }).join('');
   }catch(e){}}
 async function loadRefs(){
   try{const d=await api('/api/referees');const el=$('refList');if(!el)return;
@@ -534,17 +631,18 @@ async function loadRefs(){
 async function uploadDocs(){
   const files=$('doc-files').files;
   if(!files.length){toast('Choose files first');return}
-  $('upBtn').disabled=true;toast('Uploading '+files.length+' file(s)…');
+  toast('Uploading '+files.length+' file(s)…');
   const fd=new FormData();for(const f of files)fd.append('files',f);
+  if(window._uploadKind){fd.append('kind',window._uploadKind);window._uploadKind=null}
   try{
     const r=await fetch('/api/documents',{method:'POST',headers:{authorization:'Bearer '+SESSION.access_token},body:fd});
     const d=await r.json();if(!r.ok)throw new Error(d.error||'Upload failed');
     const bad=d.results.filter(x=>x.error);
     toast(bad.length?('Some failed: '+bad.map(x=>x.name).join(', ')):'Uploaded. The agent is reading your documents now, your profile fills itself within a minute.');
-    loadDocs();loadChecklist();
+    loadDocs();
     setTimeout(async()=>{try{const me=await api('/api/me');ME=me.me;toast('Profile updated from your documents.');vProfile();}catch(e){}},50000);
   }catch(e){toast(e.message)}
-  $('upBtn').disabled=false;
+  $('doc-files').value='';
 }
 async function reviewExtraction(){
   toast('Reading your documents…');
@@ -589,7 +687,7 @@ async function viewDoc(id){
   try{const d=await api('/api/documents/'+id+'/url');window.open(d.url,'_blank')}catch(e){toast(e.message)}}
 async function delDoc(id){
   if(!confirm('Delete this document? This cannot be undone.'))return;
-  try{await api('/api/documents/'+id,{method:'DELETE'});toast('Deleted.');loadDocs();loadChecklist();}catch(e){toast(e.message)}}
+  try{await api('/api/documents/'+id,{method:'DELETE'});toast('Deleted.');loadDocs();}catch(e){toast(e.message)}}
 async function saveProfile(){
   const lines=id=>$(id).value.split('\n').map(x=>x.trim()).filter(Boolean);
   try{const d=await api('/api/me',{method:'PUT',body:{
