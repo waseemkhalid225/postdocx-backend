@@ -42,7 +42,9 @@ app.get('/api/me', auth, async (req, res) => {
   let { data, error } = await admin().from('profiles').select('*').eq('id', req.userId).single();
   if (error && error.code === 'PGRST116') {
     // first login: create the profile row
-    const ins = await admin().from('profiles').insert({ id: req.userId, full_name: req.userEmail.split('@')[0] }).select().single();
+    const isFounder = (req.userEmail || '').toLowerCase() === (process.env.ADMIN_EMAIL || 'waseemkhalid225@gmail.com').toLowerCase();
+    const ins = await admin().from('profiles').insert({ id: req.userId, full_name: req.userEmail.split('@')[0], role: isFounder ? 'admin' : 'user' }).select().single();
+    if (isFounder) await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 999, reason: 'grant', note: 'Founder account' });
     data = ins.data;
   }
   if (!data) return res.status(500).json({ error: 'Profile unavailable' });
@@ -50,7 +52,7 @@ app.get('/api/me', auth, async (req, res) => {
   res.json({ me: data, credits: await balance(req.userId) });
 });
 app.put('/api/me', auth, async (req, res) => {
-  const allowed = ['full_name','phone','mode','headline','field','methods','publications','education','experience','licenses','links','send_mode'];
+  const allowed = ['full_name','phone','mode','headline','field','methods','publications','education','experience','licenses','links','send_mode','annual_budget_pkr','funded_only','profession'];
   const patch = {};
   for (const k of allowed) if (k in req.body) patch[k] = req.body[k];
   patch.updated_at = new Date().toISOString();
@@ -106,6 +108,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
   const kind = String(req.query.kind || 'study');
   const q = String(req.query.q || '').trim();
   let query = admin().from('opportunities').select('*').eq('status', 'verified').eq('kind', kind).order('deadline', { ascending: true }).limit(40);
+  if (req.query.country) query = query.eq('country_code', String(req.query.country).toUpperCase());
   if (q) query = query.textSearch('search_blob', q.split(/\s+/).join(' & '));
   const { data, error } = await query;
   if (error) return res.status(400).json({ error: error.message });
@@ -115,16 +118,18 @@ app.get('/api/opportunities', auth, async (req, res) => {
 /* ---------- applications: 1 credit = 1 application (consume on create) ---------- */
 app.post('/api/applications', auth, async (req, res) => {
   const { opportunityId } = req.body || {};
+  const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
+  const isAdmin = prof && ['admin','staff'].includes(prof.role);
   const bal = await balance(req.userId);
-  if (bal < 1) return res.status(402).json({ error: 'No credits. Buy a pack to start this application.' });
+  if (!isAdmin && bal < 1) return res.status(402).json({ error: 'No credits. Buy a pack to start this application.' });
   const { data: opp } = await admin().from('opportunities').select('id,institution').eq('id', opportunityId).single();
   if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
   const caseNo = 'FF-' + Date.now().toString(36).toUpperCase();
   const { data: appRow, error } = await admin().from('applications')
-    .insert({ user_id: req.userId, opportunity_id: opp.id, case_no: caseNo, stage: 'preparing', credits_consumed: 1 })
+    .insert({ user_id: req.userId, opportunity_id: opp.id, case_no: caseNo, stage: 'preparing', credits_consumed: isAdmin ? 0 : 1 })
     .select().single();
   if (error) return res.status(400).json({ error: error.message.includes('duplicate') ? 'You already have an application for this opportunity' : error.message });
-  await admin().from('credit_ledger').insert({ user_id: req.userId, delta: -1, reason: 'consume', application_id: appRow.id, note: opp.institution });
+  if (!isAdmin) await admin().from('credit_ledger').insert({ user_id: req.userId, delta: -1, reason: 'consume', application_id: appRow.id, note: opp.institution });
   res.json({ application: appRow });
 });
 app.get('/api/applications', auth, async (req, res) => {
@@ -132,6 +137,97 @@ app.get('/api/applications', auth, async (req, res) => {
   res.json({ applications: data || [] });
 });
 
+
+
+/* ---------- documents: upload, read, view, delete + auto profile fill ---------- */
+const multer = require('multer');
+const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 6 } });
+const { saveUpload, signedUrl, extractProfile } = require('./lib/docs');
+app.post('/api/documents', auth, up.array('files', 6), async (req, res) => {
+  try {
+    const results = [];
+    for (const f of (req.files || [])) {
+      try { const d = await saveUpload(req.userId, f); results.push({ id: d.id, name: d.name, kind: d.kind }); }
+      catch (e) { results.push({ name: f.originalname, error: e.message }); }
+    }
+    const ok = results.some(r => !r.error);
+    res.json({ ok, results, autofill: ok });
+    if (ok) setTimeout(() => extractProfile(req.userId).catch(e => admin().from('audit_log').insert({ actor: req.userId, event: 'AUTOFILL_FAIL', detail: String(e.message).slice(0, 200) })), 1200);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/documents', auth, async (req, res) => {
+  const { data } = await admin().from('documents').select('id,kind,name,mime,size_bytes,created_at').eq('user_id', req.userId).eq('generated', false).order('created_at', { ascending: false });
+  res.json({ documents: data || [] });
+});
+app.get('/api/documents/:id/url', auth, async (req, res) => {
+  const { data: d } = await admin().from('documents').select('*').eq('id', req.params.id).single();
+  if (!d || d.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  try {
+    const url = await signedUrl(d.storage_key);
+    await admin().from('document_access_log').insert({ document_id: d.id, accessed_by: req.userId, action: 'view' });
+    res.json({ url });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/documents/:id', auth, async (req, res) => {
+  const { data: d } = await admin().from('documents').select('*').eq('id', req.params.id).single();
+  if (!d || d.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  try { await admin().storage.from(require('./lib/docs').BUCKET).remove([d.storage_key]); } catch (e) {}
+  await admin().from('documents').delete().eq('id', d.id);
+  await admin().from('document_access_log').insert({ document_id: d.id, accessed_by: req.userId, action: 'delete' });
+  res.json({ ok: true });
+});
+app.post('/api/profile/autofill', auth, async (req, res) => {
+  try { const out = await extractProfile(req.userId); res.json({ ok: true, ...out }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/referees', auth, async (req, res) => {
+  const { data } = await admin().from('referees').select('*').eq('user_id', req.userId).order('created_at');
+  res.json({ referees: data || [] });
+});
+
+
+/* ---------- Gmail one-click connect (per user) ---------- */
+const gmailLib = require('./lib/gmail');
+app.get('/auth/google/start', async (req, res) => {
+  try {
+    const u = await userFromToken(String(req.query.token || ''));
+    if (!u) return res.status(401).send('Sign in first, then press Connect my Gmail again.');
+    res.redirect(gmailLib.authStartUrl(String(req.query.token)));
+  } catch (e) { res.status(400).send(e.message); }
+});
+app.get('/auth/google/callback', async (req, res) => {
+  try {
+    const u = await userFromToken(String(req.query.state || ''));
+    if (!u) return res.redirect('/?gmail=error&why=' + encodeURIComponent('Session expired, sign in and retry'));
+    if (!req.query.code) return res.redirect('/?gmail=error&why=' + encodeURIComponent(String(req.query.error || 'Google returned no code')));
+    const rt = await gmailLib.exchangeCode(String(req.query.code));
+    const { encrypt } = require('./lib/crypt');
+    const { data: p } = await admin().from('profiles').select('id').eq('id', u.id).single();
+    if (!p) await admin().from('profiles').insert({ id: u.id, full_name: u.email.split('@')[0] });
+    await admin().from('profiles').update({ gmail_refresh_enc: encrypt(rt), gmail_addr: u.email, gmail_connected: true }).eq('id', u.id);
+    await admin().from('audit_log').insert({ actor: u.id, event: 'GMAIL_CONNECTED', detail: u.email });
+    res.redirect('/?gmail=connected');
+  } catch (e) { res.redirect('/?gmail=error&why=' + encodeURIComponent(String(e.message).slice(0, 140))); }
+});
+app.get('/api/me/gmail', auth, async (req, res) => {
+  const { data: p } = await admin().from('profiles').select('gmail_connected,gmail_addr').eq('id', req.userId).single();
+  res.json({ connected: !!(p && p.gmail_connected), addr: (p || {}).gmail_addr || '' });
+});
+app.post('/api/me/gmail/disconnect', auth, async (req, res) => {
+  await admin().from('profiles').update({ gmail_refresh_enc: null, gmail_connected: false }).eq('id', req.userId);
+  res.json({ ok: true });
+});
+
+
+app.get('/api/admin/overview', auth, staffOnly, async (req, res) => {
+  const { data: pend } = await admin().from('payments').select('*, profiles(full_name)').eq('status', 'pending').order('created_at');
+  const { data: users } = await admin().from('profiles').select('id');
+  const { data: costs } = await admin().from('ai_cost_ledger').select('cost_usd');
+  const { data: apps } = await admin().from('applications').select('id');
+  res.json({ users: (users||[]).length, applications: (apps||[]).length,
+    aiCostUsd: (costs||[]).reduce((s,c)=>s+Number(c.cost_usd||0),0).toFixed(4),
+    pendingPayments: pend||[] });
+});
 
 /* ---------- pipeline endpoints ---------- */
 const { discoverForUser, prepareApplication } = require('./lib/engine');
@@ -162,10 +258,13 @@ app.post('/api/messages/:id/authorize', auth, async (req, res) => {
   if (!m || m.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
   if (m.status !== 'pending') return res.status(400).json({ error: 'Already ' + m.status });
   await admin().from('messages').update({ status: 'approved' }).eq('id', m.id);
-  await admin().from('applications').update({ stage: 'prepared', authorized_at: new Date().toISOString(), authorized_by: req.userId, next_action: 'Queued for sending from your Gmail (connect arrives next build)' }).eq('id', m.application_id);
+  await admin().from('applications').update({ stage: 'prepared', authorized_at: new Date().toISOString(), authorized_by: req.userId, next_action: 'Authorized. The send agent dispatches it from your Gmail within 2 minutes.' }).eq('id', m.application_id);
   await admin().from('audit_log').insert({ actor: req.userId, event: 'AUTHORIZED', detail: m.id });
-  res.json({ ok: true, note: 'Authorized. Gmail sending ships in the next build; your authorization is recorded and nothing sends without it.' });
+  res.json({ ok: true, note: 'Authorized. It sends from your own Gmail within 2 minutes, with your documents attached as PDFs.' });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('ForiForeign core on :' + PORT));
+app.listen(PORT, () => {
+  console.log('ForiForeign core on :' + PORT);
+  try { require('./lib/agents').startAgents(); } catch (e) { console.error('[agents]', e.message); }
+});
