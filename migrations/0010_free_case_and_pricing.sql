@@ -1,5 +1,6 @@
 -- ForiForeign v0.7 — 0010: free first case + duplicate-CV flagging + new pricing.
 -- Additive and idempotent. Run once in the Supabase SQL editor after 0007-0009.
+-- v2: pricing.version is TEXT in your schema, so the version bump casts safely.
 
 -- 1) One free unlocked opportunity per account
 alter table if exists public.profiles
@@ -14,21 +15,21 @@ create index if not exists idx_documents_hash on public.documents (content_hash)
 -- Admin review queue for suspected duplicate free-trial use
 create table if not exists public.abuse_flags (
   id          uuid primary key default gen_random_uuid(),
-  user_id     uuid not null,                -- the NEW account that raised the flag
-  matched_user_id uuid,                     -- the earlier account with the same CV hash
+  user_id     uuid not null,
+  matched_user_id uuid,
   reason      text not null default 'duplicate_cv',
   detail      text,
-  status      text not null default 'open', -- open | reviewed | dismissed
+  status      text not null default 'open',
   created_at  timestamptz not null default now()
 );
 create index if not exists idx_abuse_flags_status on public.abuse_flags (status);
 
 -- 3) New pricing packs: 1 = PKR 2,000 · 5 = PKR 8,500 · 10 = PKR 17,500
---    Deactivate old pricing rows, insert the new active version.
+--    version column is text: take the highest numeric-looking version, +1, store as text.
 update public.pricing set active = false where active = true;
 insert into public.pricing (version, active, packs, refund_policy)
 select
-  coalesce((select max(version) from public.pricing), 0) + 1,
+  (coalesce((select max(version::int) from public.pricing where version ~ '^[0-9]+$'), 0) + 1)::text,
   true,
   '[{"credits":1,"pkr":2000},{"credits":5,"pkr":8500},{"credits":10,"pkr":17500}]'::jsonb,
   'Credits are consumed one per prepared application case. Unused credits do not expire.'
