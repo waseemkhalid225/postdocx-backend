@@ -152,6 +152,25 @@ body.world-on .card{background:rgba(255,255,255,.97)}
 body.world-on .dash-sec>h3,body.world-on .dash-sec .spread h3{color:#fff}
 body.world-on .dash-head{background:rgba(255,255,255,.92)}
 body.world-on .empty,body.world-on .sub.dash-white{color:#dbe8ff}
+/* ===== marketing landing (Yocket-style, world theme) ===== */
+.mkt{position:relative;z-index:2;max-width:1060px;margin:0 auto;padding:30px 16px 60px}
+.mkt-stats{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin:8px 0 34px}
+.mkt-stats>div{flex:1;min-width:170px;text-align:center;background:rgba(8,22,48,.72);border:1px solid rgba(120,160,255,.25);border-radius:16px;padding:18px 12px;backdrop-filter:blur(6px)}
+.mkt-stats b{display:block;font:700 30px Fraunces,serif;color:#fff}
+.mkt-stats span{color:#9db8e8;font:500 12.5px Inter}
+.mkt-h{color:#fff;font:700 26px Fraunces,serif;text-align:center;margin:34px 0 16px}
+.mkt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.mkt-card{background:rgba(8,22,48,.72);border:1px solid rgba(120,160,255,.22);border-radius:16px;padding:18px;backdrop-filter:blur(6px);transition:transform .25s,border-color .25s}
+.mkt-card:hover{transform:translateY(-4px);border-color:rgba(127,176,255,.55)}
+.mkt-card h3{color:#fff;margin:8px 0 6px;font:700 16px Inter}
+.mkt-card p{color:#c5d6f5;font:500 13px Inter;line-height:1.65;margin:0}
+.mkt-ic{font-size:22px}
+.mkt-cta{text-align:center;margin-top:44px;background:linear-gradient(135deg,rgba(37,99,235,.25),rgba(139,92,246,.2));border:1px solid rgba(127,176,255,.35);border-radius:22px;padding:34px 20px}
+.mkt-cta h2{color:#fff;font:700 26px Fraunces,serif;margin:0 0 16px;line-height:1.35}
+/* readability over the world on every tab */
+body.world-on #view>h2,body.world-on #view>.spread>h2,body.world-on #view>div>h2{color:#fff}
+body.world-on #view>h2+.sub,body.world-on #view>.sub{color:#cfe1ff}
+body.world-on #view>.empty{background:rgba(255,255,255,.95);border-radius:14px;padding:22px;color:var(--ink)}
 @media(max-width:640px){.pid-card{flex-direction:column;text-align:center}.pid-id .row{justify-content:center}}
 </style></head>
 <body>
@@ -226,7 +245,7 @@ function showAnnouncement(){
 async function signOut(){await SB.auth.signOut();location.reload()}
 function go(t){TAB=t;if(typeof worldInteractive==='function')worldInteractive(t==='home');document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));if(WORLD&&WORLD.resetView&&t!=='home')try{WORLD.resetView()}catch(e){}render()}
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b){if(b.dataset.t==='browse')window._lane='';go(b.dataset.t)}});
-function render(){({home:vHome,browse:vBrowse,apps:vApps,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)()}
+function render(){({home:vHome,browse:vBrowse,apps:vApps,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
 
 /* ---------- auth view ---------- */
 function renderAuth(mode){
@@ -254,8 +273,45 @@ function renderAuth(mode){
         <a onclick="landingInfo('privacy')">Privacy</a><span>·</span><a onclick="landingInfo('help')">Help</a>
       </div>
     </div>
-  </div>`;
+  </div>
+  <section class="mkt">
+    <div class="mkt-stats" id="mktStats">
+      <div><b id="msCountries">21+</b><span>destination countries</span></div>
+      <div><b id="msOpps">—</b><span>verified opportunities</span></div>
+      <div><b>100%</b><span>human-authorized sends</span></div>
+      <div><b>0</b><span>fake listings — everything verified</span></div>
+    </div>
+    <h2 class="mkt-h">How ForiForeign works</h2>
+    <div class="mkt-grid">
+      <div class="mkt-card"><div class="mkt-ic">1️⃣</div><h3>Build your real profile</h3><p>Education, experience, publications, documents — once. Our agent works only from your real facts, never inventions.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">2️⃣</div><h3>The agent searches &amp; verifies</h3><p>Study, scholarship and work opportunities from official sources — deadlines, funding and eligibility checked against your profile.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">3️⃣</div><h3>Apply with authority</h3><p>Tailored CV, cover letter and email prepared for each case. Nothing sends until you authorize it — from your own Gmail.</p></div>
+    </div>
+    <h2 class="mkt-h">Why students &amp; professionals choose us</h2>
+    <div class="mkt-grid">
+      <div class="mkt-card"><div class="mkt-ic">🎓</div><h3>Study lane</h3><p>Bachelors to Postdoc with scholarship &amp; funding filters, no-IELTS options, stipend flags.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">💼</div><h3>Work lane</h3><p>Verified jobs with the licensing route named — DHA, SCFHS, NCLEX, PEBC — so you know the real path.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">🧠</div><h3>Complete intelligence</h3><p>Every opportunity gets a full report: why you match, what's missing, costs in USD &amp; PKR, verified contacts.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">📁</div><h3>Case management</h3><p>Each application is a case — editable documents, statuses, notes, and follow-ups in one place.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">🔒</div><h3>Your data, protected</h3><p>Documents are private, used only for your applications. Emails send from your own Gmail, only after you approve.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">🇵🇰</div><h3>Built for Pakistan</h3><p>PKR pricing, JazzCash/Easypaisa/bank transfer, and guidance written for Pakistani applicants.</p></div>
+    </div>
+    <div id="mktReviews"></div>
+    <div class="mkt-cta">
+      <h2>Your journey starts in Pakistan.<br>Where it goes is up to you.</h2>
+      <button class="btn b-gold" style="font-size:15px;padding:12px 26px" onclick="renderAuth('signup');window.scrollTo({top:0,behavior:'smooth'})">Create your free account →</button>
+      <div class="sub" style="color:#9db8e8;margin-top:8px">First case free · no card required</div>
+    </div>
+  </section>`;
+  renderMktExtras();
   bootGlobe();
+}
+function renderMktExtras(){
+  // live total from real counts (never fake): sum of WORLD_COUNTS once loaded
+  const setOpps=()=>{const el=$('msOpps');if(!el||!WORLD_COUNTS)return;const t=Object.values(WORLD_COUNTS).reduce((s,c)=>s+((c&&c.total)||0),0);el.textContent=t>0?String(t):'—'};
+  if(WORLD_COUNTS)setOpps();else setTimeout(setOpps,1500);
+  const rv=(SITE&&SITE.reviews)||[];
+  if(rv.length){$('mktReviews').innerHTML=`<h2 class="mkt-h">What clients say</h2><div class="mkt-grid">${rv.slice(0,3).map(r=>`<div class="mkt-card"><div style="color:var(--gold)">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</div><p>${esc(r.text||'')}</p><div class="sub" style="color:#9db8e8">${esc(r.name||'')}</div></div>`).join('')}</div>`}
 }
 async function bootGlobe(){
   window._worldSelectHandler=authGlobeSelect;

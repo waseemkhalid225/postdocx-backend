@@ -69,12 +69,17 @@
     const world = new THREE.Group(); scene.add(world);
     if (bg) world.position.x = W / H > 1.1 ? 0.6 : 0;
 
-    // --- stars (two depth layers + twinkle) ---
+    // --- stars (two depth layers + twinkle) --- (r128-safe random direction)
+    function randDir() {
+      const u = Math.random(), v = Math.random();
+      const th = 2 * Math.PI * u, ph = Math.acos(2 * v - 1);
+      return new THREE.Vector3(Math.sin(ph) * Math.cos(th), Math.cos(ph), Math.sin(ph) * Math.sin(th));
+    }
     let starMat, starMat2;
     (function () {
       const mk = (n, dist, size, color) => {
         const pos = new Float32Array(n * 3);
-        for (let i = 0; i < n; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(dist + Math.random() * dist * 0.5); pos.set([v.x, v.y, v.z], i * 3); }
+        for (let i = 0; i < n; i++) { const v = randDir().multiplyScalar(dist + Math.random() * dist * 0.5); pos.set([v.x, v.y, v.z], i * 3); }
         const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
         const mat = new THREE.PointsMaterial({ color, size, transparent: true, opacity: 0.85 });
         scene.add(new THREE.Points(g, mat)); return mat;
@@ -83,9 +88,9 @@
       starMat2 = mk(700, 34, 0.09, 0xdbe8ff);   // far, brighter
     })();
 
-    // --- globe body: dark sphere + dot-grid surface + graticule ---
+    // --- globe body: ocean sphere with sun-lit day/night shading + sea glint ---
     world.add(new THREE.Mesh(new THREE.SphereGeometry(R * 0.985, 48, 48),
-      new THREE.MeshPhongMaterial({ color: 0x0b1f3f, emissive: 0x081327, shininess: 12, transparent: true, opacity: 0.96 })));
+      new THREE.MeshPhongMaterial({ color: 0x0b2148, emissive: 0x050e20, specular: 0x6ea8ff, shininess: 42, transparent: true, opacity: 0.97 })));
     (function () { // fibonacci dot field
       const n = 1400, pos = new Float32Array(n * 3), ga = Math.PI * (3 - Math.sqrt(5));
       for (let i = 0; i < n; i++) {
@@ -109,8 +114,19 @@
     // atmosphere glow (procedural sprite behind globe)
     const atmo = glowSprite(0x3b82f6, 3.4); atmo.position.set(0, 0, -0.2); scene.add(atmo);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-    const sun = new THREE.DirectionalLight(0xbfd7ff, 0.9); sun.position.set(5, 3, 4); scene.add(sun);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const sun = new THREE.DirectionalLight(0xfff2d8, 1.25); sun.position.set(6, 2.4, 4); scene.add(sun);
+    // Visible sun with warm glow — slowly orbits, creating a day/night cycle and "sunrise" over the globe.
+    const sunGlow = glowSprite(0xffd9a0, 1.6); scene.add(sunGlow);
+    const sunCore = glowSprite(0xffffff, 0.55); scene.add(sunCore);
+    let sunAng = -0.6; // starts low: rising-sun feel
+    function placeSun() {
+      const sx = Math.cos(sunAng) * 7, sy = 1.4 + Math.sin(sunAng * 0.7) * 1.6, sz = Math.sin(sunAng) * 7;
+      sun.position.set(sx, sy, sz);
+      sunGlow.position.set(sx * 0.92, sy * 0.92, sz * 0.92);
+      sunCore.position.copy(sunGlow.position);
+    }
+    placeSun();
 
     // Fresnel rim atmosphere (original shader — technique studied from webgl-globe/three-globe,
     // written fresh here): brightens at the sphere's silhouette for a glowing edge.
@@ -183,7 +199,12 @@
       const tgeo = new THREE.BufferGeometry(); tgeo.setAttribute('position', new THREE.BufferAttribute(tpos, 3));
       const trail = new THREE.Line(tgeo, new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.5 }));
       world.add(trail);
-      flights.push({ curve, particle, plane, line, trail, TN, t: Math.random(), speed: 0.0016 + Math.random() * 0.0012, dash: 0 });
+      // comet-tail particles flowing along the arc (guaranteed-visible motion in r128)
+      const CN = 6, cpos = new Float32Array(CN * 3);
+      const cgeo = new THREE.BufferGeometry(); cgeo.setAttribute('position', new THREE.BufferAttribute(cpos, 3));
+      const comets = new THREE.Points(cgeo, new THREE.PointsMaterial({ color: col, size: 0.02, transparent: true, opacity: 0.9 }));
+      world.add(comets);
+      flights.push({ curve, particle, plane, line, trail, comets, CN, TN, t: Math.random(), speed: 0.0016 + Math.random() * 0.0012, dash: 0 });
     });
 
     // --- interaction: drag rotate, hover, click ---
@@ -242,6 +263,12 @@
       });
       if (starMat) starMat.opacity = 0.7 + Math.sin(Date.now() * 0.0012) * 0.18;
       if (starMat2) starMat2.opacity = 0.7 + Math.sin(Date.now() * 0.0012 + 2) * 0.22;
+      // slow sunrise/day-night cycle (~4 min per orbit) + gentle cinematic camera drift
+      sunAng += 0.0006; placeSun();
+      if (!dragging && !zoomed) {
+        camera.position.x += (Math.sin(Date.now() * 0.00012) * 0.06 - camera.position.x * 0.0) * 0.002;
+        camera.position.y += ((0.35 + Math.sin(Date.now() * 0.00009) * 0.05) - camera.position.y) * 0.01;
+      }
       flights.forEach(f => {
         f.t = (f.t + f.speed) % 1;
         f.particle.position.copy(f.curve.getPoint((f.t + 0.5) % 1));
@@ -254,6 +281,14 @@
         for (let k = f.TN - 1; k > 0; k--) { arr[k * 3] = arr[(k - 1) * 3]; arr[k * 3 + 1] = arr[(k - 1) * 3 + 1]; arr[k * 3 + 2] = arr[(k - 1) * 3 + 2]; }
         arr[0] = p.x; arr[1] = p.y; arr[2] = p.z;
         f.trail.geometry.attributes.position.needsUpdate = true;
+        // comet particles trailing behind aircraft along the curve
+        const cp = f.comets.geometry.attributes.position.array;
+        for (let k = 0; k < f.CN; k++) {
+          const ct = (f.t - (k + 1) * 0.022 + 1) % 1;
+          const q = f.curve.getPoint(ct);
+          cp[k * 3] = q.x; cp[k * 3 + 1] = q.y; cp[k * 3 + 2] = q.z;
+        }
+        f.comets.geometry.attributes.position.needsUpdate = true;
       });
       camera.lookAt(0, 0, 0);
       renderer.render(scene, camera);
