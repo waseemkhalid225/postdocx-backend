@@ -20,14 +20,285 @@ async function auth(req, res, next) {
 }
 async function staffOnly(req, res, next) {
   const { data } = await admin().from('profiles').select('role').eq('id', req.userId).single();
-  if (!data || !['staff', 'admin'].includes(data.role)) return res.status(403).json({ error: 'Staff only' });
+  const { isAdminRole } = require('./lib/rbac');
+  if (!data || !isAdminRole(data.role)) return res.status(403).json({ error: 'Staff only' });
+  req.userRole = data.role;
   next();
 }
+// Permission-scoped middleware (RBAC). Falls back to staffOnly behavior for legacy roles.
+const { requirePermission } = require('./lib/rbac');
+const perm = (p) => requirePermission(p, admin);
 
+
+/* ---------- future-client compatibility (Android app, browser agent) ---------- */
+// CORS: same-origin web needs nothing; native Android / external agents do.
+// Set ALLOWED_ORIGINS in Railway (comma-separated) when those clients exist;
+// capacitor://localhost and http://localhost are common for Android wrappers.
+app.use((req, res, next) => {
+  const allowed = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+  const origin = req.headers.origin;
+  if (origin && allowed.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+// Version handshake for any client (web, Android, agent). A future Android app calls
+// this first; if its version < min_supported_android, it shows an update screen.
+app.get('/api/app-info', (req, res) => {
+  res.json({
+    api_version: 1,
+    server_version: 'v0.7',
+    min_supported_android: '0',   // raise when a breaking change ships
+    min_supported_web: '0',
+    endpoints: { config: '/api/config', site_config: '/api/site-config', health: '/health' }
+  });
+});
+
+/* ---------- public policy pages (required for Google OAuth verification) ---------- */
+async function policyPage(res, title, text) {
+  const escH = s => String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escH(title)} — ForiForeign</title>
+<style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;padding:0 20px;color:#1F2937;line-height:1.8}
+h1{color:#2563EB}a{color:#2563EB}</style></head>
+<body><h1>${escH(title)}</h1><div style="white-space:pre-wrap">${escH(text)}</div>
+<p style="margin-top:40px;color:#6B7280;font-size:14px">ForiForeign · <a href="/">Home</a></p></body></html>`);
+}
+app.get('/privacy', async (req, res) => {
+  const cfg = await siteSettings.getConfig().catch(() => siteSettings.DEFAULTS);
+  policyPage(res, 'Privacy Policy', (cfg.content && cfg.content.privacy) || 'Privacy policy is being prepared.');
+});
+app.get('/terms', async (req, res) => {
+  const cfg = await siteSettings.getConfig().catch(() => siteSettings.DEFAULTS);
+  policyPage(res, 'Terms of Service', (cfg.content && cfg.content.terms) || 'Terms are being prepared.');
+});
 
 /* ---------- public config for the frontend ---------- */
 app.get('/api/config', (req, res) => {
   res.json({ supabaseUrl: process.env.SUPABASE_URL || '', supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '' });
+});
+
+/* ---------- Phase 1: central site configuration ---------- */
+const siteSettings = require('./lib/settings');
+app.get('/api/site-config', async (req, res) => {
+  try { res.json({ config: siteSettings.publicView(await siteSettings.getConfig()) }); }
+  catch (e) { res.json({ config: siteSettings.publicView(siteSettings.DEFAULTS) }); }
+});
+app.get('/api/admin/settings', auth, perm('settings.read'), async (req, res) => {
+  try {
+    const cfg = await siteSettings.getConfig(true);
+    const { data: row } = await admin().from('app_settings').select('value').eq('key', 'site_config').single().then(r => r, () => ({ data: null }));
+    res.json({ config: cfg, version: (row && row.value && row.value.version) || 0, history: ((row && row.value && row.value.history) || []).map(h => ({ version: h.version, at: h.at })) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.put('/api/admin/settings', auth, perm('settings.write'), async (req, res) => {
+  try { res.json(await siteSettings.saveConfig(req.body && req.body.patch, req.userId)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/admin/settings/rollback', auth, perm('settings.write'), async (req, res) => {
+  try { res.json(await siteSettings.rollback(req.body && req.body.version, req.userId)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/admin/audit', auth, perm('audit.read'), async (req, res) => {
+  const page = Math.max(0, parseInt(req.query.page || '0'));
+  const { data } = await admin().from('audit_log').select('*').order('created_at', { ascending: false }).range(page * 50, page * 50 + 49);
+  res.json({ entries: data || [], page });
+});
+
+/* ---------- RBAC: my permissions + user role management ---------- */
+app.get('/api/admin/applications', auth, perm('overview.read'), async (req, res) => {
+  const status = String(req.query.status || '');
+  let q = admin().from('applications').select('id,user_id,status,created_at,submission_status,opportunity_id,opportunities(title,org,country_code,kind)').order('created_at', { ascending: false }).limit(100);
+  if (status) q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) { // relation join may differ; fall back to plain select
+    const { data: plain } = await admin().from('applications').select('*').order('created_at', { ascending: false }).limit(100);
+    return res.json({ applications: plain || [] });
+  }
+  // attach user names in one query
+  const ids = [...new Set((data || []).map(a => a.user_id))];
+  const { data: profs } = ids.length ? await admin().from('profiles').select('id,full_name').in('id', ids) : { data: [] };
+  const nameOf = Object.fromEntries((profs || []).map(p => [p.id, p.full_name]));
+  res.json({ applications: (data || []).map(a => ({ ...a, user_name: nameOf[a.user_id] || '' })) });
+});
+app.get('/api/admin/payments', auth, perm('payments.read'), async (req, res) => {
+  const status = String(req.query.status || '');
+  let q = admin().from('payments').select('*').order('created_at', { ascending: false }).limit(100);
+  if (status) q = q.eq('status', status);
+  const { data } = await q;
+  const ids = [...new Set((data || []).map(p => p.user_id))];
+  const { data: profs } = ids.length ? await admin().from('profiles').select('id,full_name').in('id', ids) : { data: [] };
+  const nameOf = Object.fromEntries((profs || []).map(p => [p.id, p.full_name]));
+  res.json({ payments: (data || []).map(p => ({ ...p, user_name: nameOf[p.user_id] || '' })) });
+});
+app.get('/api/admin/me', auth, staffOnly, async (req, res) => {
+  const { permissionsFor, ROLE_PERMISSIONS } = require('./lib/rbac');
+  res.json({ role: req.userRole, permissions: [...permissionsFor(req.userRole)], roles: Object.keys(ROLE_PERMISSIONS) });
+});
+app.get('/api/admin/users', auth, perm('users.read'), async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  let query = admin().from('profiles').select('id,full_name,role,created_at').order('created_at', { ascending: false }).limit(100);
+  if (q) query = query.ilike('full_name', '%' + q + '%');
+  const { data } = await query;
+  res.json({ users: data || [] });
+});
+app.post('/api/admin/users/:id/role', auth, perm('users.write'), async (req, res) => {
+  const { ROLE_PERMISSIONS } = require('./lib/rbac');
+  const role = String(req.body && req.body.role || '');
+  if (!(role in ROLE_PERMISSIONS)) return res.status(400).json({ error: 'Unknown role' });
+  // Only a super_admin (or legacy admin) may grant admin-level roles.
+  const grantorFull = ['super_admin', 'admin'].includes(req.userRole);
+  const grantingAdmin = require('./lib/rbac').isAdminRole(role) && role !== 'user';
+  if (grantingAdmin && !grantorFull) return res.status(403).json({ error: 'Only a super admin can assign admin roles' });
+  if (req.params.id === req.userId && role === 'user') return res.status(400).json({ error: 'You cannot remove your own admin access' });
+  const { error } = await admin().from('profiles').update({ role }).eq('id', req.params.id);
+  if (error) return res.status(400).json({ error: error.message });
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'ROLE_CHANGED', detail: req.params.id + ' -> ' + role }).then(() => {}, () => {});
+  res.json({ ok: true });
+});
+app.post('/api/support', auth, async (req, res) => {
+  const subject = String((req.body && req.body.subject) || '').slice(0, 160);
+  const message = String((req.body && req.body.message) || '').slice(0, 4000);
+  if (!subject || !message) return res.status(400).json({ error: 'Subject and message are required' });
+  const { data, error } = await admin().from('support_tickets').insert({
+    user_id: req.userId, email: req.userEmail, subject, message, status: 'new'
+  }).select().single();
+  if (error) return res.status(400).json({ error: /support_tickets|relation/.test(error.message) ? 'Support is not set up yet (run migration 0013)' : error.message });
+  res.json({ ok: true, ticket: { id: data.id } });
+});
+app.get('/api/support/mine', auth, async (req, res) => {
+  const { data } = await admin().from('support_tickets').select('*').eq('user_id', req.userId).order('created_at', { ascending: false }).then(r => r, () => ({ data: [] }));
+  res.json({ tickets: data || [] });
+});
+app.get('/api/admin/support', auth, perm('support.read'), async (req, res) => {
+  const status = String(req.query.status || '');
+  let q = admin().from('support_tickets').select('*').order('created_at', { ascending: false }).limit(100);
+  if (['new', 'open', 'waiting', 'resolved', 'closed'].includes(status)) q = q.eq('status', status);
+  const { data } = await q.then(r => r, () => ({ data: [] }));
+  res.json({ tickets: data || [] });
+});
+app.post('/api/admin/support/:id', auth, perm('support.write'), async (req, res) => {
+  const patch = {};
+  if (req.body && typeof req.body.reply === 'string') patch.reply = req.body.reply.slice(0, 4000);
+  if (req.body && ['new', 'open', 'waiting', 'resolved', 'closed'].includes(req.body.status)) patch.status = req.body.status;
+  if (req.body && typeof req.body.internal_note === 'string') patch.internal_note = req.body.internal_note.slice(0, 2000);
+  if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update' });
+  patch.updated_at = new Date().toISOString();
+  const { error } = await admin().from('support_tickets').update(patch).eq('id', req.params.id);
+  if (error) return res.status(400).json({ error: error.message });
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'SUPPORT_UPDATE', detail: req.params.id + ' ' + JSON.stringify(patch).slice(0, 200) }).then(() => {}, () => {});
+  res.json({ ok: true });
+});
+app.get('/api/admin/ai-costs', auth, perm('aicost.read'), async (req, res) => {
+  try {
+    const cfg = await siteSettings.getConfig();
+    const rate = Number(cfg.ai && cfg.ai.usd_to_pkr) || 278;
+    const { data: rows } = await admin().from('ai_cost_ledger').select('cost_usd,provider,model,purpose,created_at,application_id').order('created_at', { ascending: false }).limit(5000);
+    const all = rows || [];
+    const sum = arr => arr.reduce((s, r) => s + Number(r.cost_usd || 0), 0);
+    const totalUsd = sum(all);
+    const today = new Date().toISOString().slice(0, 10);
+    const monthPrefix = today.slice(0, 7);
+    const todayUsd = sum(all.filter(r => (r.created_at || '').slice(0, 10) === today));
+    const monthUsd = sum(all.filter(r => (r.created_at || '').slice(0, 7) === monthPrefix));
+    // by provider/model
+    const byModel = {};
+    all.forEach(r => { const k = (r.provider || '?') + '/' + (r.model || '?'); byModel[k] = (byModel[k] || 0) + Number(r.cost_usd || 0); });
+    // per-case: distinct application_ids that incurred cost
+    const caseIds = new Set(all.filter(r => r.application_id).map(r => r.application_id));
+    const perCaseUsd = caseIds.size ? sum(all.filter(r => r.application_id)) / caseIds.size : 0;
+    const toPkr = u => Math.round(u * rate);
+    const override = Number(cfg.ai && cfg.ai.pkr_override_per_case);
+    res.json({
+      rate,
+      usd: { total: totalUsd.toFixed(4), today: todayUsd.toFixed(4), month: monthUsd.toFixed(4), perCase: perCaseUsd.toFixed(4) },
+      pkr: {
+        total: toPkr(totalUsd), today: toPkr(todayUsd), month: toPkr(monthUsd),
+        perCase: (isFinite(override) && override > 0) ? override : toPkr(perCaseUsd),
+        perCaseIsOverride: (isFinite(override) && override > 0)
+      },
+      byModelPkr: Object.fromEntries(Object.entries(byModel).map(([k, u]) => [k, toPkr(u)])),
+      cases: caseIds.size,
+      note: 'PKR is computed from provider USD estimates at the admin-set exchange rate. Treat as an estimate, not an exact bill.'
+    });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+// Historical purchases are never rewritten: payments store their own amount_pkr at
+// purchase time, so editing packs here only affects future purchases.
+app.get('/api/admin/packages', auth, perm('packages.read'), async (req, res) => {
+  const { data } = await admin().from('pricing').select('*').eq('active', true).single().then(r => r, () => ({ data: null }));
+  res.json({ packs: (data && data.packs) || [], version: (data && data.version) || null });
+});
+app.put('/api/admin/packages', auth, perm('packages.write'), async (req, res) => {
+  const packs = Array.isArray(req.body && req.body.packs) ? req.body.packs : null;
+  if (!packs) return res.status(400).json({ error: 'packs array required' });
+  // validate + normalize each pack; reject malformed entries rather than store junk
+  const clean = [];
+  for (const p of packs) {
+    const credits = parseInt(p.credits), pkr = parseInt(p.pkr);
+    if (!isFinite(credits) || credits < 1 || !isFinite(pkr) || pkr < 0) continue;
+    clean.push({
+      credits, pkr,
+      name: String(p.name || (credits + ' case' + (credits === 1 ? '' : 's'))).slice(0, 60),
+      description: String(p.description || '').slice(0, 200),
+      featured: !!p.featured, visible: p.visible !== false,
+      promo_pkr: (isFinite(parseInt(p.promo_pkr)) && parseInt(p.promo_pkr) >= 0) ? parseInt(p.promo_pkr) : null
+    });
+  }
+  if (!clean.length) return res.status(400).json({ error: 'No valid packages' });
+  const { data: cur } = await admin().from('pricing').select('*').eq('active', true).single().then(r => r, () => ({ data: null }));
+  const oldPacks = (cur && cur.packs) || [];
+  const nextVer = (() => { const n = parseInt(cur && cur.version); return isFinite(n) ? String(n + 1) : String(Date.now()); })();
+  await admin().from('pricing').update({ active: false }).eq('active', true);
+  const { error } = await admin().from('pricing').insert({ version: nextVer, active: true, packs: clean, refund_policy: (cur && cur.refund_policy) || '' });
+  if (error) return res.status(400).json({ error: error.message });
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'PACKAGES_CHANGED', detail: ('v' + nextVer + ' old=' + JSON.stringify(oldPacks).slice(0, 200) + ' new=' + JSON.stringify(clean).slice(0, 200)).slice(0, 480) }).then(() => {}, () => {});
+  res.json({ ok: true, version: nextVer, packs: clean });
+});
+
+/* ---------- Phase 4: countries admin ---------- */
+app.get('/api/admin/countries', auth, perm('countries.read'), async (req, res) => {
+  const { data } = await admin().from('countries').select('*').order('name');
+  res.json({ countries: data || [] });
+});
+app.post('/api/admin/countries', auth, perm('countries.write'), async (req, res) => {
+  const b = req.body || {};
+  const code = String(b.code || '').toUpperCase().slice(0, 2);
+  const name = String(b.name || '').slice(0, 80);
+  if (!code || !name) return res.status(400).json({ error: 'code and name required' });
+  const row = { code, name, study_rating: ['green', 'yellow', 'red'].includes(b.study_rating) ? b.study_rating : 'green', enabled: b.enabled !== false, featured: !!b.featured };
+  const { error } = await admin().from('countries').upsert(row, { onConflict: 'code' });
+  if (error) return res.status(400).json({ error: error.message });
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'COUNTRY_UPSERT', detail: code + ' ' + name + ' enabled=' + row.enabled }).then(() => {}, () => {});
+  res.json({ ok: true });
+});
+app.post('/api/admin/countries/:code/toggle', auth, perm('countries.write'), async (req, res) => {
+  const code = String(req.params.code).toUpperCase();
+  const { data: c } = await admin().from('countries').select('enabled').eq('code', code).single();
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  const enabled = !c.enabled;
+  const { error } = await admin().from('countries').update({ enabled }).eq('code', code);
+  if (error) return res.status(400).json({ error: error.message });
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'COUNTRY_TOGGLE', detail: code + ' -> ' + (enabled ? 'enabled' : 'disabled') }).then(() => {}, () => {});
+  res.json({ ok: true, enabled });
+});
+// Maintenance gate: when enabled, non-staff API access pauses gracefully.
+app.use('/api', async (req, res, next) => {
+  // Always-allowed: public config, and provider webhooks (external callers).
+  if (['/config', '/site-config', '/pricing', '/countries', '/payment-gateways'].some(p => req.path === p)) return next();
+  if (req.path.startsWith('/payments/webhook/')) return next();
+  try {
+    const cfg = await siteSettings.getConfig();
+    if (!cfg.maintenance.enabled) return next();
+    const t = (req.headers.authorization || '').replace(/^Bearer /, '');
+    const u = await userFromToken(t);
+    if (u) { const { data: p } = await admin().from('profiles').select('role').eq('id', u.id).single(); if (p && require('./lib/rbac').isAdminRole(p.role)) return next(); }
+    return res.status(503).json({ error: cfg.maintenance.message, maintenance: true });
+  } catch (e) { return next(); }
 });
 
 /* ---------- health ---------- */
@@ -80,6 +351,7 @@ app.get('/api/pricing', async (req, res) => {
   res.json({ pricing: data });
 });
 app.post('/api/payments', auth, async (req, res) => {
+  try { const cfg = await siteSettings.getConfig(); if (cfg.features && cfg.features.payments === false) return res.status(503).json({ error: 'Payments are temporarily unavailable. Please try again shortly.' }); } catch (e) {}
   const { credits, reference } = req.body || {};
   const { data: pr } = await admin().from('pricing').select('*').eq('active', true).single();
   const pack = ((pr || {}).packs || []).find(p => p.credits === Number(credits));
@@ -91,7 +363,7 @@ app.post('/api/payments', auth, async (req, res) => {
   if (error) return res.status(400).json({ error: error.message });
   res.json({ payment: data, note: 'Pending. Credits appear after staff confirms your bank transfer.' });
 });
-app.post('/api/payments/:id/confirm', auth, staffOnly, async (req, res) => {
+app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, res) => {
   const { data: p } = await admin().from('payments').select('*').eq('id', req.params.id).single();
   if (!p) return res.status(404).json({ error: 'Not found' });
   if (p.status !== 'pending') return res.status(400).json({ error: 'Already ' + p.status });
@@ -101,9 +373,30 @@ app.post('/api/payments/:id/confirm', auth, staffOnly, async (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---------- Phase 5: payment gateways (SKELETON — inert until credentials set) ---------- */
+const paymentGateways = require('./lib/payments');
+app.get('/api/payment-gateways', (req, res) => {
+  // Public: which automated gateways are live. Empty until you configure a merchant.
+  res.json({ gateways: paymentGateways.listEnabled() });
+});
+// Provider webhook. No user auth (providers call this); security is signature verification
+// inside handleWebhook. Never credits without a valid signature + amount match.
+app.post('/api/payments/webhook/:gateway', express.json({ limit: '256kb' }), async (req, res) => {
+  try {
+    const out = await paymentGateways.handleWebhook(String(req.params.gateway), req.body || {});
+    res.json(out);
+  } catch (e) {
+    // Log for reconciliation but don't leak details to the caller.
+    admin().from('audit_log').insert({ event: 'WEBHOOK_REJECTED', detail: String(req.params.gateway) + ': ' + String(e.message).slice(0, 180) }).then(() => {}, () => {});
+    res.status(400).json({ ok: false });
+  }
+});
+
 /* ---------- public data ---------- */
 app.get('/api/countries', async (req, res) => {
-  const { data } = await admin().from('countries').select('*').order('name');
+  // Only show enabled countries publicly; if the column doesn't exist yet, show all.
+  let { data, error } = await admin().from('countries').select('*').eq('enabled', true).order('name');
+  if (error && /enabled|column/.test(error.message || '')) ({ data } = await admin().from('countries').select('*').order('name'));
   res.json({ countries: data || [] });
 });
 app.get('/api/opportunities', auth, async (req, res) => {
@@ -465,7 +758,7 @@ app.post('/api/me/gmail/disconnect', auth, async (req, res) => {
 });
 
 
-app.get('/api/admin/overview', auth, staffOnly, async (req, res) => {
+app.get('/api/admin/overview', auth, perm('overview.read'), async (req, res) => {
   const { data: pend } = await admin().from('payments').select('*, profiles(full_name)').eq('status', 'pending').order('created_at');
   const { data: users } = await admin().from('profiles').select('id');
   const { data: costs } = await admin().from('ai_cost_ledger').select('cost_usd');
