@@ -278,24 +278,48 @@ function authGlobeSelect(sel){
     <button class="btn b-gold" style="margin-top:8px" onclick="renderAuth('signup')">Start free →</button>`;
 }
 /* ---------- Persistent full-screen 3D world (login + app background) ---------- */
-function loadScript(src){return new Promise((res,rej)=>{if(document.querySelector('script[src="'+src+'"]'))return res();const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s)})}
-let WORLD=null,WORLD_COUNTS=null,WORLD_ON=false;
+function loadScriptMulti(srcs){
+  return new Promise((resolve,reject)=>{
+    let i=0;
+    (function next(){
+      if(i>=srcs.length)return reject(new Error('all CDNs failed'));
+      const src=srcs[i++];
+      if(document.querySelector('script[data-ff="'+src+'"]')){return resolve()}
+      const s=document.createElement('script');s.src=src;s.setAttribute('data-ff',src);
+      s.onload=()=>resolve();s.onerror=()=>next();
+      document.head.appendChild(s);
+    })();
+  });
+}
+let WORLD=null,WORLD_COUNTS=null,WORLD_ON=false,WORLD_TRIED=false;
 async function ensureWorld(){
   if(WORLD)return WORLD;
   const bg=$('worldBg');if(!bg)return null;
-  const lowPerf=window.innerWidth<700||(navigator.deviceMemory&&navigator.deviceMemory<=2);
   document.body.classList.add('world-on');bg.classList.add('on');$('worldOverlay').classList.add('on');WORLD_ON=true;
   if(!WORLD_COUNTS){try{WORLD_COUNTS=(await (await fetch('/api/public/opportunity-counts')).json()).counts||{}}catch(e){WORLD_COUNTS={}}}
-  if(lowPerf){world2D(bg,WORLD_COUNTS);return null}
+  // Only fall back to 2D on genuinely tiny screens; do NOT gate on deviceMemory (too aggressive).
+  const tiny=window.innerWidth<560;
+  if(tiny){world2D(bg,WORLD_COUNTS);return null}
   try{
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js');
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js');
-    await loadScript('/globe.js');
+    await loadScriptMulti([
+      'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+      'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js',
+      'https://unpkg.com/three@0.128.0/build/three.min.js'
+    ]);
+    await loadScriptMulti([
+      'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js',
+      'https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js'
+    ]);
+    await loadScriptMulti(['/globe.js']);
     if(window.FFGlobe&&FFGlobe.supported()){
+      bg.innerHTML='';
       WORLD=FFGlobe.init(bg,WORLD_COUNTS,onWorldSelect,{background:true});
-      return WORLD;
+      if(WORLD)return WORLD;
     }
-  }catch(e){}
+  }catch(e){ if(window.console)console.warn('[globe]',e&&e.message); window._globeErr=(e&&e.message)||'load failed'; }
+  if(!window.THREE)window._globeErr='THREE not loaded (CDN blocked?)';
+  else if(!window.FFGlobe)window._globeErr='globe.js not loaded';
+  else if(!FFGlobe.supported())window._globeErr='WebGL not supported by browser';
   world2D(bg,WORLD_COUNTS);return null;
 }
 function worldInteractive(on){const bg=$('worldBg');if(bg)bg.classList.toggle('interactive',!!on)}
@@ -312,6 +336,7 @@ function world2D(bg,counts){
   <div style="color:#fff;font:700 16px Inter;margin-bottom:10px">🇵🇰 Pakistan → the world</div>
   ${regions.map(([label,codes,col])=>`<div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span style="height:2px;flex:0 0 40px;border-radius:2px;background:linear-gradient(90deg,#fff,${col})"></span>
   <span style="flex:1;display:flex;justify-content:space-between;background:rgba(255,255,255,.05);border:1px solid ${col};border-radius:10px;padding:6px 11px;color:#e6efff;font:600 12.5px Inter">${label}<b style="color:${col}">${sum(codes)||'—'}</b></span></div>`).join('')}
+  ${window._globeErr?`<div style="color:#fca5a5;font:600 10.5px Inter;margin-top:8px">3D unavailable: ${esc(window._globeErr)}</div>`:''}
   </div></div>`;
 }
 function landingInfo(which){

@@ -69,12 +69,18 @@
     const world = new THREE.Group(); scene.add(world);
     if (bg) world.position.x = W / H > 1.1 ? 0.6 : 0;
 
-    // --- stars ---
+    // --- stars (two depth layers + twinkle) ---
+    let starMat, starMat2;
     (function () {
-      const n = 900, pos = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(20 + Math.random() * 25); pos.set([v.x, v.y, v.z], i * 3); }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0x9db8e8, size: 0.05, transparent: true, opacity: 0.8 })));
+      const mk = (n, dist, size, color) => {
+        const pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(dist + Math.random() * dist * 0.5); pos.set([v.x, v.y, v.z], i * 3); }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const mat = new THREE.PointsMaterial({ color, size, transparent: true, opacity: 0.85 });
+        scene.add(new THREE.Points(g, mat)); return mat;
+      };
+      starMat = mk(1400, 20, 0.05, 0x9db8e8);   // near, blue-white
+      starMat2 = mk(700, 34, 0.09, 0xdbe8ff);   // far, brighter
     })();
 
     // --- globe body: dark sphere + dot-grid surface + graticule ---
@@ -106,19 +112,32 @@
     scene.add(new THREE.AmbientLight(0xffffff, 0.75));
     const sun = new THREE.DirectionalLight(0xbfd7ff, 0.9); sun.position.set(5, 3, 4); scene.add(sun);
 
+    // Fresnel rim atmosphere (original shader — technique studied from webgl-globe/three-globe,
+    // written fresh here): brightens at the sphere's silhouette for a glowing edge.
+    (function () {
+      const mat = new THREE.ShaderMaterial({
+        transparent: true, blending: THREE.AdditiveBlending, side: THREE.BackSide, depthWrite: false,
+        uniforms: { c: { value: 0.55 }, p: { value: 3.2 }, glowColor: { value: new THREE.Color(0x3b82f6) } },
+        vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+        fragmentShader: 'uniform vec3 glowColor; uniform float c; uniform float p; varying vec3 vN; void main(){ float i = pow( c - dot(vN, vec3(0.0,0.0,1.0)), p ); gl_FragColor = vec4(glowColor, clamp(i,0.0,1.0)); }'
+      });
+      const shell = new THREE.Mesh(new THREE.SphereGeometry(R * 1.18, 48, 48), mat);
+      world.add(shell);
+    })();
+
     // --- country nodes (with pulse rings) ---
     const pk = COUNTRIES[0];
     const nodes = [], pulses = [];
     COUNTRIES.forEach(c => {
       const col = REGIONS[c.region].color;
       const grp = new THREE.Group();
-      const dot = new THREE.Mesh(new THREE.SphereGeometry(c.region === 'pk' ? 0.028 : 0.02, 12, 12),
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(c.region === 'pk' ? 0.03 : 0.021, 14, 14),
         new THREE.MeshBasicMaterial({ color: col }));
-      const halo = glowSprite(col, c.region === 'pk' ? 0.22 : 0.14);
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.028, 0.036, 24),
+      const halo = glowSprite(col, c.region === 'pk' ? 0.26 : 0.17);
+      const halo2 = glowSprite(0xffffff, c.region === 'pk' ? 0.12 : 0.07); // hot white core
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.03, 0.038, 28),
         new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
-      ring.lookAt(grp.position.clone().add(ll2v(c.lat, c.lng, 2)));
-      grp.add(dot); grp.add(halo); grp.add(ring);
+      grp.add(dot); grp.add(halo); grp.add(halo2); grp.add(ring);
       grp.position.copy(ll2v(c.lat, c.lng, R * 1.005));
       ring.lookAt(new THREE.Vector3(0, 0, 0).sub(grp.position).multiplyScalar(-2));
       grp.userData = c;
@@ -139,22 +158,32 @@
     const flights = [];
     COUNTRIES.slice(1).forEach((c, i) => {
       const end = ll2v(c.lat, c.lng, R * 1.005);
-      const mid = start.clone().add(end).multiplyScalar(0.5).normalize().multiplyScalar(R * (1.25 + start.distanceTo(end) * 0.28));
+      // Altitude proportional to great-circle distance (technique from three-globe, own code).
+      const gc = start.distanceTo(end);
+      const mid = start.clone().add(end).multiplyScalar(0.5).normalize().multiplyScalar(R * (1.15 + gc * 0.42));
       const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
       const col = REGIONS[c.region].color;
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(60)),
-        new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.4 }));
+      // Flowing dashed arc: LineDashedMaterial with animated dashOffset for travel motion.
+      const pts = curve.getPoints(80);
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      const line = new THREE.Line(geo, new THREE.LineDashedMaterial({ color: col, transparent: true, opacity: 0.55, dashSize: 0.06, gapSize: 0.04, linewidth: 1 }));
+      line.computeLineDistances();
       world.add(line);
-      const particle = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 8), new THREE.MeshBasicMaterial({ color: col }));
+      const particle = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), new THREE.MeshBasicMaterial({ color: col }));
       world.add(particle);
-      // tiny procedural aircraft: fuselage cone + wing plane
+      // procedural aircraft
       const plane = new THREE.Group();
       const body = new THREE.Mesh(new THREE.ConeGeometry(0.011, 0.045, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
       body.rotation.x = Math.PI / 2;
       const wing = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.002, 0.012), new THREE.MeshBasicMaterial({ color: 0xdbeafe }));
       plane.add(body); plane.add(wing);
       world.add(plane);
-      flights.push({ curve, particle, plane, t: Math.random(), speed: 0.0016 + Math.random() * 0.0012 });
+      // motion trail behind the aircraft (technique from AirTrails3D, own implementation)
+      const TN = 14, tpos = new Float32Array(TN * 3);
+      const tgeo = new THREE.BufferGeometry(); tgeo.setAttribute('position', new THREE.BufferAttribute(tpos, 3));
+      const trail = new THREE.Line(tgeo, new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.5 }));
+      world.add(trail);
+      flights.push({ curve, particle, plane, line, trail, TN, t: Math.random(), speed: 0.0016 + Math.random() * 0.0012, dash: 0 });
     });
 
     // --- interaction: drag rotate, hover, click ---
@@ -211,11 +240,20 @@
         p.ring.scale.setScalar(s);
         p.ring.material.opacity = 0.9 * (1 - p.t);
       });
+      if (starMat) starMat.opacity = 0.7 + Math.sin(Date.now() * 0.0012) * 0.18;
+      if (starMat2) starMat2.opacity = 0.7 + Math.sin(Date.now() * 0.0012 + 2) * 0.22;
       flights.forEach(f => {
         f.t = (f.t + f.speed) % 1;
         f.particle.position.copy(f.curve.getPoint((f.t + 0.5) % 1));
         const p = f.curve.getPoint(f.t); f.plane.position.copy(p);
         const tan = f.curve.getTangent(f.t); f.plane.lookAt(p.clone().add(tan));
+        // flowing dash motion along the arc
+        f.dash -= 0.01; f.line.material.dashOffset = f.dash;
+        // update trail: shift history, write current head
+        const arr = f.trail.geometry.attributes.position.array;
+        for (let k = f.TN - 1; k > 0; k--) { arr[k * 3] = arr[(k - 1) * 3]; arr[k * 3 + 1] = arr[(k - 1) * 3 + 1]; arr[k * 3 + 2] = arr[(k - 1) * 3 + 2]; }
+        arr[0] = p.x; arr[1] = p.y; arr[2] = p.z;
+        f.trail.geometry.attributes.position.needsUpdate = true;
       });
       camera.lookAt(0, 0, 0);
       renderer.render(scene, camera);
