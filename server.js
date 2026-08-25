@@ -147,6 +147,22 @@ app.get('/api/opportunities', auth, async (req, res) => {
       opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct } : null }));
     } catch (e) { /* matching is best-effort; never blocks the list */ }
   }
+  // Free-preview model: after the free case is used and credits are exhausted, the list
+  // still shows match strength / funding / deadline, but identity is locked until purchase.
+  try {
+    const { data: prof } = await admin().from('profiles').select('role,free_case_used').eq('id', req.userId).single();
+    const isStaff = prof && ['admin', 'staff'].includes(prof.role);
+    if (!isStaff && prof && prof.free_case_used === true) {
+      const bal = await balance(req.userId);
+      if (bal < 1) {
+        opportunities = opportunities.map(o => ({
+          id: o.id, kind: o.kind, country_code: o.country_code, deadline: o.deadline,
+          funding: o.funding, funding_type: o.funding_type, level: o.level,
+          match: o.match || null, locked: true
+        }));
+      }
+    }
+  } catch (e) { /* on any error, fall through unlocked rather than break browsing */ }
   res.json({ opportunities });
 });
 
@@ -199,15 +215,44 @@ const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 10
 const { saveUpload, signedUrl, extractProfile } = require('./lib/docs');
 app.post('/api/documents', auth, up.array('files', 6), async (req, res) => {
   try {
+    // Optional section override: when the user adds files from a specific profile
+    // section, that section's kind wins over filename-based classification.
+    const VALID_KINDS = ['cv','transcript','degree','certificate','english_test','passport','license','publication','reference_letter','document'];
+    const kindOverride = VALID_KINDS.includes(String(req.body && req.body.kind || '')) ? String(req.body.kind) : null;
     const results = [];
     for (const f of (req.files || [])) {
-      try { const d = await saveUpload(req.userId, f); results.push({ id: d.id, name: d.name, kind: d.kind }); }
+      try { const d = await saveUpload(req.userId, f, kindOverride); results.push({ id: d.id, name: d.name, kind: d.kind }); }
       catch (e) { results.push({ name: f.originalname, error: e.message }); }
     }
     const ok = results.some(r => !r.error);
     res.json({ ok, results, autofill: ok });
     if (ok) setTimeout(() => extractProfile(req.userId).catch(e => admin().from('audit_log').insert({ actor: req.userId, event: 'AUTOFILL_FAIL', detail: String(e.message).slice(0, 200) })), 1200);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+/* ---------- profile avatar (private bucket, signed URL) ---------- */
+app.post('/api/me/avatar', auth, up.single('photo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Choose a photo first' });
+    if (!/^image\//.test(req.file.mimetype)) return res.status(400).json({ error: 'Please upload an image (JPG or PNG)' });
+    if (req.file.size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Photo must be under 5 MB' });
+    const { BUCKET } = require('./lib/docs');
+    const key = req.userId + '/avatar_' + Date.now() + '.' + (req.file.mimetype.split('/')[1] || 'jpg');
+    const { error } = await admin().storage.from(BUCKET).upload(key, req.file.buffer, { contentType: req.file.mimetype, upsert: false });
+    if (error) return res.status(400).json({ error: error.message });
+    const { data: old } = await admin().from('profiles').select('avatar_key').eq('id', req.userId).single();
+    let upd = await admin().from('profiles').update({ avatar_key: key }).eq('id', req.userId);
+    if (upd.error && /avatar_key|column/.test(upd.error.message || '')) return res.status(400).json({ error: 'Run migration 0011 first (avatar_key column missing)' });
+    if (old && old.avatar_key) { try { await admin().storage.from(BUCKET).remove([old.avatar_key]); } catch (e) {} }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/me/avatar/url', auth, async (req, res) => {
+  try {
+    const { data: p } = await admin().from('profiles').select('avatar_key').eq('id', req.userId).single();
+    if (!p || !p.avatar_key) return res.json({ url: null });
+    const { signedUrl } = require('./lib/docs');
+    res.json({ url: await signedUrl(p.avatar_key, 3600) });
+  } catch (e) { res.json({ url: null }); }
 });
 app.get('/api/documents', auth, async (req, res) => {
   const { data } = await admin().from('documents').select('id,kind,name,mime,size_bytes,created_at').eq('user_id', req.userId).eq('generated', false).order('created_at', { ascending: false });
@@ -375,6 +420,20 @@ app.get('/api/opportunities/:id/match', auth, async (req, res) => {
 
 /* ---------- Gmail one-click connect (per user) ---------- */
 const gmailLib = require('./lib/gmail');
+// Owner diagnostic: shows the EXACT redirect URI to paste into Google Cloud Console.
+app.get('/auth/google/diagnose', async (req, res) => {
+  const base = (process.env.BASE_URL || '').replace(/\/$/, '');
+  const uri = base ? base + '/auth/google/callback' : null;
+  res.json({
+    BASE_URL_set: !!process.env.BASE_URL,
+    GOOGLE_OAUTH_CLIENT_ID_set: !!process.env.GOOGLE_OAUTH_CLIENT_ID,
+    GOOGLE_OAUTH_CLIENT_SECRET_set: !!process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    redirect_uri_the_server_sends: uri,
+    instructions: uri
+      ? 'Open Google Cloud Console -> APIs & Services -> Credentials -> your OAuth 2.0 Client ID -> Authorized redirect URIs. Add EXACTLY the URI above (same scheme, same domain, no trailing slash, no www unless shown). Save, wait 1-2 minutes, retry.'
+      : 'Set BASE_URL in Railway variables to your public app URL, e.g. https://yourapp.up.railway.app (no trailing slash), then reload this page.'
+  });
+});
 app.get('/auth/google/start', async (req, res) => {
   try {
     const u = await userFromToken(String(req.query.token || ''));
