@@ -43,7 +43,9 @@ app.get('/api/me', auth, async (req, res) => {
   if (error && error.code === 'PGRST116') {
     // first login: create the profile row
     const isFounder = (req.userEmail || '').toLowerCase() === (process.env.ADMIN_EMAIL || 'waseemkhalid225@gmail.com').toLowerCase();
-    const ins = await admin().from('profiles').insert({ id: req.userId, full_name: req.userEmail.split('@')[0], role: isFounder ? 'admin' : 'user' }).select().single();
+    let signupName = '';
+    try { const { data: ud } = await admin().auth.getUser((req.headers.authorization || '').replace(/^Bearer /, '')); signupName = ((ud && ud.user && ud.user.user_metadata) || {}).full_name || ''; } catch (e) {}
+    const ins = await admin().from('profiles').insert({ id: req.userId, full_name: signupName || req.userEmail.split('@')[0], role: isFounder ? 'admin' : 'user' }).select().single();
     if (isFounder) await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 999, reason: 'grant', note: 'Founder account' });
     data = ins.data;
   }
@@ -151,19 +153,38 @@ app.get('/api/opportunities', auth, async (req, res) => {
 /* ---------- applications: 1 credit = 1 application (consume on create) ---------- */
 app.post('/api/applications', auth, async (req, res) => {
   const { opportunityId } = req.body || {};
-  const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
-  const isAdmin = prof && ['admin','staff'].includes(prof.role);
+  const { data: prof } = await admin().from('profiles').select('role,free_case_used').eq('id', req.userId).single();
+  const isAdmin = prof && ['admin', 'staff'].includes(prof.role);
+  // CV is the one required document before any application can be prepared.
+  const { data: cvDocs } = await admin().from('documents').select('id').eq('user_id', req.userId).eq('kind', 'cv').eq('generated', false).limit(1);
+  if (!isAdmin && (!cvDocs || !cvDocs.length)) {
+    return res.status(400).json({ error: 'Please upload your CV first. It is the only required document, and every application is prepared from it.' });
+  }
   const bal = await balance(req.userId);
-  if (!isAdmin && bal < 1) return res.status(402).json({ error: 'No credits. Buy a pack to start this application.' });
+  const freeAvailable = prof && prof.free_case_used === false;
+  const freeUsed = prof && prof.free_case_used === true;
+  if (!isAdmin && bal < 1 && !freeAvailable) {
+    return res.status(402).json({
+      error: freeUsed
+        ? 'You have already used your one free opportunity with this account. To continue, please choose a credit package. Every case is prepared completely, end to end.'
+        : 'No credits. Buy a pack to start this application.'
+    });
+  }
   const { data: opp } = await admin().from('opportunities').select('id,institution').eq('id', opportunityId).single();
   if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
+  const usingFree = !isAdmin && bal < 1 && freeAvailable;
   const caseNo = 'FF-' + Date.now().toString(36).toUpperCase();
   const { data: appRow, error } = await admin().from('applications')
-    .insert({ user_id: req.userId, opportunity_id: opp.id, case_no: caseNo, stage: 'preparing', credits_consumed: isAdmin ? 0 : 1 })
+    .insert({ user_id: req.userId, opportunity_id: opp.id, case_no: caseNo, stage: 'preparing', credits_consumed: (isAdmin || usingFree) ? 0 : 1 })
     .select().single();
   if (error) return res.status(400).json({ error: error.message.includes('duplicate') ? 'You already have an application for this opportunity' : error.message });
-  if (!isAdmin) await admin().from('credit_ledger').insert({ user_id: req.userId, delta: -1, reason: 'consume', application_id: appRow.id, note: opp.institution });
-  res.json({ application: appRow });
+  if (usingFree) {
+    try { await admin().from('profiles').update({ free_case_used: true, free_case_used_at: new Date().toISOString() }).eq('id', req.userId); } catch (e) {}
+    await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 0, reason: 'free_case', application_id: appRow.id, note: opp.institution + ' (free first case)' });
+  } else if (!isAdmin) {
+    await admin().from('credit_ledger').insert({ user_id: req.userId, delta: -1, reason: 'consume', application_id: appRow.id, note: opp.institution });
+  }
+  res.json({ application: appRow, freeCase: usingFree });
 });
 app.get('/api/applications', auth, async (req, res) => {
   const { data } = await admin().from('applications').select('*, opportunities(title,institution,country_code,deadline,url)').eq('user_id', req.userId).order('updated_at', { ascending: false });
@@ -390,9 +411,11 @@ app.get('/api/admin/overview', auth, staffOnly, async (req, res) => {
   const { data: users } = await admin().from('profiles').select('id');
   const { data: costs } = await admin().from('ai_cost_ledger').select('cost_usd');
   const { data: apps } = await admin().from('applications').select('id');
+  let flags = [];
+  try { const r = await admin().from('abuse_flags').select('*').eq('status', 'open').order('created_at', { ascending: false }).limit(20); flags = r.data || []; } catch (e) {}
   res.json({ users: (users||[]).length, applications: (apps||[]).length,
     aiCostUsd: (costs||[]).reduce((s,c)=>s+Number(c.cost_usd||0),0).toFixed(4),
-    pendingPayments: pend||[] });
+    pendingPayments: pend||[], abuseFlags: flags });
 });
 
 /* ---------- pipeline endpoints ---------- */
