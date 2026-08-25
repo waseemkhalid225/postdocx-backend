@@ -1,4 +1,28 @@
-# ForiForeign server core v0.1
+# ForiForeign server core v0.7
+
+## v0.7 commercial redesign — what changed
+- **Opportunities page** is now a two-lane commercial entry: **Study Abroad** and **Work Abroad**.
+  - Study Abroad covers every level (Bachelors, Masters, PhD, Postdoc) with scholarships folded in,
+    plus a **funding filter**: Fully funded / Partial / Self-finance, and country + subject search.
+  - Work Abroad is a distinct green lane that names the licensing route per destination.
+- **Instant search**: reads the verified `opportunities` table directly and renders immediately;
+  the agent fleet keeps refreshing it in the background (unchanged cron schedule).
+- **Profile document checklist**: CV, transcripts, degrees, English test, passport, licenses,
+  reference letters, publications, and a catch-all — with progress bar and per-item upload.
+- **Gmail one-click**: unchanged flow, verified end-to-end in code (14/14 checkpoints).
+- Bug fixes: credit-pill pluralization; apostrophe-safe onclick args (escAttr); Opportunities
+  nav tab resets to the lane chooser; checklist refreshes on upload/delete.
+
+## IMPORTANT — run the migration once
+Before or right after deploying v0.7, open **Supabase → SQL editor** and run
+`migrations/0007_commercial_redesign.sql`. It is additive and idempotent (safe to re-run).
+It adds `opportunities.funding_type` and `opportunities.level` and backfills them.
+The app degrades gracefully if you forget — filters simply fall back to showing everything —
+but the funding/level filters only truly work once the migration is applied.
+
+---
+
+# ForiForeign server core (original v0.1 notes below)
 
 ## Deploy (NEW Railway service — keep PostDocX untouched)
 1. Create a NEW GitHub repo: foriforeign-backend. Upload these files (extracted, not the zip).

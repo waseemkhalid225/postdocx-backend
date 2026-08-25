@@ -34,7 +34,7 @@ app.get('/api/config', (req, res) => {
 app.get('/health', async (req, res) => {
   let db = false;
   try { const { error } = await admin().from('app_settings').select('key').limit(1); db = !error; } catch (e) {}
-  res.json({ ok: true, v: '0.1', db });
+  res.json({ ok: true, v: '0.7', db });
 });
 
 /* ---------- profile ---------- */
@@ -107,10 +107,33 @@ app.get('/api/countries', async (req, res) => {
 app.get('/api/opportunities', auth, async (req, res) => {
   const kind = String(req.query.kind || 'study');
   const q = String(req.query.q || '').trim();
-  let query = admin().from('opportunities').select('*').eq('status', 'verified').eq('kind', kind).order('deadline', { ascending: true }).limit(40);
+  // 'study' is the umbrella for browsing academic routes; when the caller asks for
+  // study we include scholarship + postdoc so the Study Abroad page shows every level.
+  const studyKinds = ['study', 'scholarship', 'postdoc'];
+  let query = admin().from('opportunities').select('*').eq('status', 'verified')
+    .order('deadline', { ascending: true }).limit(60);
+  if (kind === 'study') query = query.in('kind', studyKinds);
+  else query = query.eq('kind', kind);
   if (req.query.country) query = query.eq('country_code', String(req.query.country).toUpperCase());
+  // funding filter: fully | partial | self. Unknown (null) rows are shown unless a
+  // strict filter is requested, so instant browsing is never empty by accident.
+  const ft = String(req.query.funding_type || '').trim();
+  if (['fully', 'partial', 'self'].includes(ft)) query = query.eq('funding_type', ft);
+  // level filter for the BS -> Postdoc control
+  const lvl = String(req.query.level || '').trim();
+  if (['bachelors', 'masters', 'phd', 'postdoc'].includes(lvl)) query = query.eq('level', lvl);
   if (q) query = query.textSearch('search_blob', q.split(/\s+/).join(' & '));
-  const { data, error } = await query;
+  let { data, error } = await query;
+  // Graceful fallback: if funding_type / level columns don't exist yet (migration not
+  // run), Postgres returns 42703. Retry without those filters so search still works.
+  if (error && /funding_type|level|column/.test(error.message || '') && (ft || lvl)) {
+    let q2 = admin().from('opportunities').select('*').eq('status', 'verified')
+      .order('deadline', { ascending: true }).limit(60);
+    if (kind === 'study') q2 = q2.in('kind', studyKinds); else q2 = q2.eq('kind', kind);
+    if (req.query.country) q2 = q2.eq('country_code', String(req.query.country).toUpperCase());
+    if (q) q2 = q2.textSearch('search_blob', q.split(/\s+/).join(' & '));
+    ({ data, error } = await q2);
+  }
   if (error) return res.status(400).json({ error: error.message });
   res.json({ opportunities: data || [] });
 });
@@ -158,6 +181,38 @@ app.post('/api/documents', auth, up.array('files', 6), async (req, res) => {
 app.get('/api/documents', auth, async (req, res) => {
   const { data } = await admin().from('documents').select('id,kind,name,mime,size_bytes,created_at').eq('user_id', req.userId).eq('generated', false).order('created_at', { ascending: false });
   res.json({ documents: data || [] });
+});
+// Canonical document checklist — what strengthens a client's study/work case.
+// Maps uploaded documents (by their classified `kind`) onto a fixed list so the
+// Profile page can show a clear "have / still needed" checklist.
+const DOC_CHECKLIST = [
+  { key: 'cv',            label: 'CV / Resume',                 required: true,  match: ['cv'] },
+  { key: 'transcript',   label: 'Academic transcripts',        required: true,  match: ['transcript'] },
+  { key: 'degree',       label: 'Degree certificates',         required: true,  match: ['degree'] },
+  { key: 'english_test', label: 'English test (IELTS/TOEFL/PTE)', required: true, match: ['english_test'] },
+  { key: 'passport',     label: 'Passport (photo page)',       required: true,  match: ['passport'] },
+  { key: 'license',      label: 'Professional license/registration (work)', required: false, match: ['license'] },
+  { key: 'reference_letter', label: 'Reference / recommendation letters', required: false, match: ['reference_letter'] },
+  { key: 'publication',  label: 'Publications / research papers', required: false, match: ['publication'] },
+  { key: 'certificate',  label: 'Other certificates / awards',  required: false, match: ['certificate'] },
+  { key: 'document',     label: 'Anything else that helps your case', required: false, match: ['document'] }
+];
+app.get('/api/documents/checklist', auth, async (req, res) => {
+  const { data } = await admin().from('documents').select('kind').eq('user_id', req.userId).eq('generated', false);
+  const have = new Set((data || []).map(d => String(d.kind || '').toLowerCase()));
+  const items = DOC_CHECKLIST.map(it => ({
+    key: it.key, label: it.label, required: it.required,
+    have: it.match.some(m => have.has(m))
+  }));
+  const requiredItems = items.filter(i => i.required);
+  const requiredDone = requiredItems.filter(i => i.have).length;
+  res.json({
+    items,
+    requiredTotal: requiredItems.length,
+    requiredDone,
+    complete: requiredDone === requiredItems.length,
+    uploadedKinds: [...have]
+  });
 });
 app.get('/api/documents/:id/url', auth, async (req, res) => {
   const { data: d } = await admin().from('documents').select('*').eq('id', req.params.id).single();
