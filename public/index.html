@@ -46,6 +46,7 @@ textarea{min-height:90px}
     <button data-t="browse">Opportunities</button>
     <button data-t="apps">My applications</button>
     <button data-t="profile">Profile</button>
+    <button data-t="adminx" id="adminTab" style="display:none">Admin</button>
   </nav>
   <span id="creditPill" class="credit-pill" style="display:none" onclick="go('buy')">… credits</span>
   <button id="outBtn" class="btn b-line" style="display:none;padding:6px 12px" onclick="signOut()">Sign out</button>
@@ -70,17 +71,20 @@ async function api(p,o={}){o.headers=Object.assign({'content-type':'application/
   SB=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey);
   const {data}=await SB.auth.getSession();SESSION=data.session;
   SB.auth.onAuthStateChange((_e,s)=>{SESSION=s;if(s)afterLogin();});
+  const q=new URLSearchParams(location.search);
+  if(q.get('gmail')==='connected'){history.replaceState({},'','/');setTimeout(()=>toast('✓ Gmail connected! Your applications send from your own address.'),600)}
+  else if(q.get('gmail')==='error'){history.replaceState({},'','/');setTimeout(()=>toast('Gmail connect failed: '+(q.get('why')||'')),600)}
   if(SESSION)afterLogin();else renderAuth();
 })();
 async function afterLogin(){
   $('nav').style.display='flex';$('outBtn').style.display='inline-block';
-  try{const d=await api('/api/me');ME=d.me;CREDITS=d.credits;$('creditPill').style.display='inline-block';$('creditPill').textContent=CREDITS+' credit'+(CREDITS===1?'':'s');}catch(e){toast(e.message)}
+  try{const d=await api('/api/me');ME=d.me;CREDITS=d.credits;if(['admin','staff'].includes(ME.role))$('adminTab').style.display='inline-block';$('creditPill').style.display='inline-block';$('creditPill').textContent=CREDITS+' credit'+(CREDITS===1?'':'s');}catch(e){toast(e.message)}
   go('home');
 }
 async function signOut(){await SB.auth.signOut();location.reload()}
 function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render()}
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b)go(b.dataset.t)});
-function render(){({home:vHome,browse:vBrowse,apps:vApps,profile:vProfile,buy:vBuy}[TAB]||vHome)()}
+function render(){({home:vHome,browse:vBrowse,apps:vApps,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)()}
 
 /* ---------- auth view ---------- */
 function renderAuth(mode){
@@ -115,6 +119,7 @@ async function doAuth(mode){
 async function vHome(){
   $('view').innerHTML=`<div class="hero"><h1>Assalam o alaikum, ${esc((ME&&ME.full_name)||'')}</h1>
   <p>Mode: <b style="color:#fff">${esc(ME.mode)}</b> · Credits: <b style="color:#fff">${CREDITS}</b> · 1 credit = 1 complete application, prepared end to end.</p></div>
+  ${!(ME.headline||'').trim()?`<div class="card" style="border-color:var(--gold);background:var(--gold-soft)"><b>Start here:</b> upload your CV in Profile. The agent reads it, fills everything, and searches against YOUR real background.<div class="row" style="margin-top:8px"><button class="btn b-gold" onclick="go('profile')">Upload my CV</button></div></div>`:''}
   <div class="card spread" style="cursor:pointer" onclick="runSearch()"><div><h3>Find opportunities for me now</h3><div class="sub">Profile-driven search of official sources</div></div><span style="font-size:22px">→</span></div>
   <div class="card spread" style="cursor:pointer" onclick="go('browse')"><div><h3>Browse verified opportunities</h3><div class="sub">Programs, scholarships and positions checked against official sources</div></div><span style="font-size:22px">→</span></div>
   <div class="card spread" style="cursor:pointer" onclick="go('apps')"><div><h3>My applications</h3><div class="sub">Every case and where it stands</div></div><span style="font-size:22px">→</span></div>
@@ -125,12 +130,16 @@ async function vHome(){
 /* ---------- browse ---------- */
 async function vBrowse(){
   $('view').innerHTML='<div class="empty">Loading verified opportunities…</div>';
-  const kind=window._kind||'study';
-  let d;try{d=await api('/api/opportunities?kind='+kind)}catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const kind=window._kind||'study';const ctry=window._ctry||'';const subj=window._subj||'';
+  let d;try{d=await api('/api/opportunities?kind='+kind+(ctry?'&country='+ctry:'')+(subj?'&q='+encodeURIComponent(subj):''))}catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  if(!window._countries){try{window._countries=(await api('/api/countries')).countries||[]}catch(e){window._countries=[]}}
   const opps=d.opportunities||[];
   $('view').innerHTML=`<h2 style="margin-bottom:4px">Verified opportunities</h2>
   <div class="sub" style="margin-bottom:10px">Only positions checked against their official pages appear here.</div>
-  <div class="row" style="margin-bottom:12px">${['study','scholarship','postdoc','work'].map(k=>`<button class="btn ${kind===k?'b-ink':'b-line'}" onclick="window._kind='${k}';vBrowse()">${k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
+  <div class="row" style="margin-bottom:8px">${['study','scholarship','postdoc','work'].map(k=>`<button class="btn ${kind===k?'b-ink':'b-line'}" onclick="window._kind='${k}';vBrowse()">${k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
+  <div class="row" style="margin-bottom:12px">
+  <select style="width:auto" onchange="window._ctry=this.value;vBrowse()"><option value="">All countries</option>${(window._countries||[]).map(c=>`<option value="${c.code}" ${ctry===c.code?'selected':''}>${esc(c.name)} ${c.study_rating==='green'?'🟢':c.study_rating==='yellow'?'🟡':'🔴'}</option>`).join('')}</select>
+  <input style="width:auto;flex:1;min-width:140px" placeholder="Subject, e.g. pharmacology" value="${esc(subj)}" onchange="window._subj=this.value;vBrowse()"></div>
   ${opps.length?opps.map(o=>`<div class="card">
     <div class="spread"><div style="min-width:0"><b>${esc(o.institution)}</b><div class="sub">${esc(o.title)}</div></div>
     ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}</span>`:''}</div>
@@ -160,6 +169,11 @@ async function openApp(id){
   <div class="sub">${esc(opp.title||'')} · ${esc(a.case_no)} · <span class="chip c-gold">${esc(a.stage.replace(/_/g,' '))}</span></div>
   ${a.next_action?`<div class="card" style="margin-top:10px;background:var(--gold-soft);border-color:var(--gold)"><b>Next:</b> ${esc(a.next_action)}</div>`:''}
   ${(a.stage==='matched'||a.stage==='preparing')&&!(d.documents||[]).length?`<div class="row" style="margin:10px 0"><button class="btn b-gold" onclick="prepApp('${a.id}',this)">Prepare documents and email now</button></div>`:''}
+  ${(()=>{const rq=(a.prep_status||{}).reqs;if(!rq)return'';return`<div class="card"><h3>Documents this application needs</h3>
+  ${(rq.missing_urgent||[]).length?`<div class="card" style="background:var(--crimson-soft);border-color:var(--crimson);margin-top:8px"><b>Urgent, required to submit:</b> ${rq.missing_urgent.map(esc).join(', ')} <div class="sub">Upload these in Profile, then re-prepare.</div></div>`:''}
+  <div class="sub" style="margin-top:6px"><b>Required now:</b> ${(rq.required_now||[]).map(esc).join(', ')||'none'}</div>
+  <div class="sub"><b>Required later (after acceptance/visa):</b> ${(rq.required_later||[]).map(esc).join(', ')||'none'}</div>
+  <div class="sub"><b>Optional but strengthens:</b> ${(rq.optional||[]).map(esc).join(', ')||'none'}</div></div>`})()}
   ${(d.documents||[]).map(x=>`<div class="card"><div class="spread"><b>${esc(x.title)}</b><span class="chip c-green">ready</span></div>
   <pre style="white-space:pre-wrap;font:12.5px Inter;color:#333;margin-top:8px;max-height:220px;overflow:auto">${esc(x.content)}</pre></div>`).join('')}
   ${msg?`<div class="card" style="border-color:var(--ink)"><h3>Application email</h3>
@@ -208,6 +222,17 @@ async function vApps(){
 async function vProfile(){
   const m=ME||{};
   $('view').innerHTML=`<h2 style="margin-bottom:10px">My profile</h2>
+  <div class="card"><h3>Sending: your own Gmail</h3>
+  <div class="sub" id="gmStatus" style="margin:6px 0">Checking…</div>
+  <div class="row"><button class="btn b-green" onclick="connectGmail()">Connect my Gmail, one click</button>
+  <button class="btn b-line" onclick="disconnectGmail()">Disconnect</button></div>
+  <div class="sub" style="margin-top:6px">A Google window opens, choose YOUR account, press Allow. Every application email sends from your own address and appears in your own Sent folder, with a copy to you.</div></div>
+  <div class="card" style="border-color:var(--gold)"><h3>My documents</h3>
+  <div class="sub" style="margin:6px 0">Upload your CV first. The agent reads everything automatically: your profile, education, publications and referees fill themselves.</div>
+  <input id="doc-files" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="padding:8px">
+  <div class="row" style="margin-top:8px"><button class="btn b-gold" id="upBtn" onclick="uploadDocs()">Upload</button>
+  <button class="btn b-line" onclick="refillProfile()">Re-read my documents</button></div>
+  <div id="docList" style="margin-top:10px"><span class="sub">Loading…</span></div></div>
   <div class="card">
   <label>Full name</label><input id="p-name" value="${esc(m.full_name)}">
   <label>Phone</label><input id="p-phone" value="${esc(m.phone)}">
@@ -215,18 +240,93 @@ async function vProfile(){
   <select id="p-mode"><option value="study" ${m.mode==='study'?'selected':''}>Study abroad (BS to Postdoc, scholarships)</option>
   <option value="work" ${m.mode==='work'?'selected':''}>Work abroad (medical professions)</option>
   <option value="both" ${m.mode==='both'?'selected':''}>Both</option></select>
-  <label>Headline (e.g. "PhD Pharmacology" or "Registered Nurse, 5 years ICU")</label><input id="p-head" value="${esc(m.headline)}">
+  <label>Headline</label><input id="p-head" value="${esc(m.headline)}" placeholder="e.g. PhD Pharmacology or Registered Nurse, 5 years ICU">
   <label>Field</label><input id="p-field" value="${esc(m.field)}">
-  <label>Methods / core skills</label><textarea id="p-methods">${esc(m.methods)}</textarea>
-  <div class="row" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save</button></div>
-  </div>
-  <div class="card"><h3>Documents</h3><div class="sub" style="margin-top:6px">Document upload with automatic profile reading arrives in the next build. Your saved profile above already powers matching.</div></div>`;
+  <label>Skills and methods</label><textarea id="p-methods">${esc(m.methods)}</textarea>
+  <label>Annual budget (PKR, 0 if seeking funded only)</label><input id="p-budget" type="number" value="${esc(m.annual_budget_pkr||0)}">
+  <div class="row" style="margin-top:6px"><label style="margin:0"><input type="checkbox" id="p-funded" ${m.funded_only?'checked':''} style="width:auto"> Fully funded only</label></div>
+  <label>Profession (Work mode)</label>
+  <select id="p-prof"><option value="">Not applicable</option>${['doctor','pharmacist','physiotherapist','nurse','lab_professional'].map(x=>`<option value="${x}" ${m.profession===x?'selected':''}>${x.replace('_',' ')}</option>`).join('')}</select>
+  <label>Education (one per line: Degree, Institution, Year)</label>
+  <textarea id="p-edu">${esc((m.education||[]).map(e=>[e.degree,e.institution,e.year].filter(Boolean).join(', ')).join('\n'))}</textarea>
+  <label>Publications (one per line)</label>
+  <textarea id="p-pubs">${esc((m.publications||[]).map(x=>typeof x==='string'?x:(x.title||'')).join('\n'))}</textarea>
+  <label>Experience (one per line: Role, Organisation, Years)</label>
+  <textarea id="p-exp">${esc((m.experience||[]).map(e=>[e.role,e.org,e.years].filter(Boolean).join(', ')).join('\n'))}</textarea>
+  <div class="row" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save profile</button></div></div>
+  <div class="card"><h3>My referees</h3><div id="refList" class="sub" style="margin-top:6px">Loading…</div></div>`;
+  loadDocs();loadRefs();loadGmail();
 }
+function connectGmail(){window.location='/auth/google/start?token='+encodeURIComponent(SESSION.access_token)}
+async function disconnectGmail(){try{await api('/api/me/gmail/disconnect',{method:'POST'});toast('Disconnected.');loadGmail();}catch(e){toast(e.message)}}
+async function loadGmail(){try{const d=await api('/api/me/gmail');const el=$('gmStatus');if(!el)return;
+  el.innerHTML=d.connected?'<span style="color:var(--green)">✓ Connected: '+esc(d.addr)+'</span>':'Not connected. Applications wait until you connect.';
+}catch(e){}}
+async function loadDocs(){
+  try{const d=await api('/api/documents');const el=$('docList');if(!el)return;
+    el.innerHTML=(d.documents||[]).length?d.documents.map(x=>`<div class="spread" style="padding:6px 0;border-bottom:1px solid var(--line)">
+    <div style="min-width:0"><span class="chip c-blue">${esc(x.kind.replace(/_/g,' '))}</span> <span onclick="viewDoc('${x.id}')" style="cursor:pointer;text-decoration:underline">${esc(x.name)}</span></div>
+    <span onclick="delDoc('${x.id}')" style="cursor:pointer;color:var(--crimson);font-weight:700">✕</span></div>`).join('')
+    :'<span class="sub">No documents yet. Your CV is the key that unlocks everything.</span>';
+  }catch(e){}}
+async function loadRefs(){
+  try{const d=await api('/api/referees');const el=$('refList');if(!el)return;
+    el.innerHTML=(d.referees||[]).length?d.referees.map(r=>`<div style="padding:4px 0"><b style="color:var(--ink)">${esc(r.name)}</b> · ${esc(r.title||'')} ${esc(r.institution||'')} ${r.email?'· '+esc(r.email):''}</div>`).join('')
+    :'Referees appear here automatically when the agent reads them in your CV.';
+  }catch(e){}}
+async function uploadDocs(){
+  const files=$('doc-files').files;
+  if(!files.length){toast('Choose files first');return}
+  $('upBtn').disabled=true;toast('Uploading '+files.length+' file(s)…');
+  const fd=new FormData();for(const f of files)fd.append('files',f);
+  try{
+    const r=await fetch('/api/documents',{method:'POST',headers:{authorization:'Bearer '+SESSION.access_token},body:fd});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||'Upload failed');
+    const bad=d.results.filter(x=>x.error);
+    toast(bad.length?('Some failed: '+bad.map(x=>x.name).join(', ')):'Uploaded. The agent is reading your documents now, your profile fills itself within a minute.');
+    loadDocs();
+    setTimeout(async()=>{try{const me=await api('/api/me');ME=me.me;toast('Profile updated from your documents.');vProfile();}catch(e){}},50000);
+  }catch(e){toast(e.message)}
+  $('upBtn').disabled=false;
+}
+async function refillProfile(){
+  toast('Re-reading your documents…');
+  try{const d=await api('/api/profile/autofill',{method:'POST'});
+    toast('Done. Filled: '+((d.filled||[]).join(', ')||'nothing new')+(d.refsAdded?(' and '+d.refsAdded+' referees'):''));
+    const me=await api('/api/me');ME=me.me;vProfile();
+  }catch(e){toast(e.message)}}
+async function viewDoc(id){
+  try{const d=await api('/api/documents/'+id+'/url');window.open(d.url,'_blank')}catch(e){toast(e.message)}}
+async function delDoc(id){
+  if(!confirm('Delete this document? This cannot be undone.'))return;
+  try{await api('/api/documents/'+id,{method:'DELETE'});toast('Deleted.');loadDocs();}catch(e){toast(e.message)}}
 async function saveProfile(){
-  try{const d=await api('/api/me',{method:'PUT',body:{full_name:$('p-name').value,phone:$('p-phone').value,mode:$('p-mode').value,headline:$('p-head').value,field:$('p-field').value,methods:$('p-methods').value}});
-  ME=d.me;toast('Profile saved.');}catch(e){toast(e.message)}
+  const lines=id=>$(id).value.split('\n').map(x=>x.trim()).filter(Boolean);
+  try{const d=await api('/api/me',{method:'PUT',body:{
+    full_name:$('p-name').value,phone:$('p-phone').value,mode:$('p-mode').value,
+    headline:$('p-head').value,field:$('p-field').value,methods:$('p-methods').value,annual_budget_pkr:Number($('p-budget').value||0),funded_only:$('p-funded').checked,profession:$('p-prof').value||null,
+    education:lines('p-edu').map(l=>{const p=l.split(',').map(x=>x.trim());return{degree:p[0]||'',institution:p[1]||'',year:p[2]||''}}),
+    publications:lines('p-pubs'),
+    experience:lines('p-exp').map(l=>{const p=l.split(',').map(x=>x.trim());return{role:p[0]||'',org:p[1]||'',years:p[2]||''}})
+  }});ME=d.me;toast('Profile saved.');}catch(e){toast(e.message)}
 }
-
+async function vAdmin(){
+  $('view').innerHTML='<div class="empty">Loading…</div>';
+  let d;try{d=await api('/api/admin/overview')}catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  $('view').innerHTML=`<h2 style="margin-bottom:10px">Admin</h2>
+  <div class="row" style="margin-bottom:12px">
+  <div class="card" style="flex:1;text-align:center"><b style="font-size:22px;font-family:Fraunces">${d.users}</b><div class="sub">Users</div></div>
+  <div class="card" style="flex:1;text-align:center"><b style="font-size:22px;font-family:Fraunces">${d.applications}</b><div class="sub">Applications</div></div>
+  <div class="card" style="flex:1;text-align:center"><b style="font-size:22px;font-family:Fraunces">$${d.aiCostUsd}</b><div class="sub">AI cost</div></div></div>
+  <div class="card"><h3>Pending payments</h3>
+  ${(d.pendingPayments||[]).length?d.pendingPayments.map(p=>`<div class="spread" style="padding:8px 0;border-bottom:1px solid var(--line)">
+  <div><b>${esc((p.profiles||{}).full_name||'')}</b> · ${p.credits} credits · PKR ${Number(p.amount_pkr).toLocaleString()}<div class="sub">Ref: ${esc(p.reference||'none')} · ${esc((p.created_at||'').slice(0,16).replace('T',' '))}</div></div>
+  <button class="btn b-green" onclick="confirmPay('${p.id}',this)">Confirm</button></div>`).join('')
+  :'<div class="sub">No pending payments.</div>'}</div>`;
+}
+async function confirmPay(id,btn){btn.disabled=true;
+  try{await api('/api/payments/'+id+'/confirm',{method:'POST'});toast('Confirmed, credits granted.');vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}}
 /* ---------- buy credits ---------- */
 async function vBuy(){
   $('view').innerHTML='<div class="empty">Loading credit packs…</div>';
