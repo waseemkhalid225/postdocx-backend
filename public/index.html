@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#2563EB">
+<link rel="icon" href="/icon-192.png"><link rel="apple-touch-icon" href="/icon-192.png">
 <title>ForiForeign — Study & Work Abroad, Done For You</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -91,6 +93,11 @@ textarea{min-height:90px}
 .hstep{flex:1;min-width:200px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;border-top:3px solid var(--gold)}
 .hstep .sub{margin-top:4px;line-height:1.55}
 @media(max-width:640px){.ready-strip{flex-direction:column;align-items:stretch}.hstep{min-width:100%}}
+.search-ring{position:relative;width:120px;height:120px;margin:0 auto}
+.search-ring svg{width:120px;height:120px;transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:var(--soft);stroke-width:9}
+.ring-fg{fill:none;stroke:var(--gold);stroke-width:9;stroke-linecap:round;transition:stroke-dashoffset .5s ease}
+.ring-pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:700 24px Fraunces,serif;color:var(--ink)}
 @media(max-width:640px){.pid-card{flex-direction:column;text-align:center}.pid-id .row{justify-content:center}}
 </style></head>
 <body>
@@ -112,6 +119,12 @@ textarea{min-height:90px}
 let SB=null, SESSION=null, ME=null, TAB='home', CREDITS=0;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Recognize any admin-tier role (mirrors lib/rbac.js). 'user' is the only non-admin role.
+const ADMIN_ROLES=['super_admin','admin','content_admin','support_admin','finance_admin','operations_admin','opportunity_admin','ai_admin','security_admin','staff'];
+const isAdminRole=r=>ADMIN_ROLES.includes(r);
+async function refreshCredits(){
+  try{const d=await api('/api/credits');CREDITS=d.credits;const p=$('creditPill');if(p)p.textContent=CREDITS+' credit'+(CREDITS===1?'':'s')}catch(e){}
+}
 // escAttr: safe for values placed inside single-quoted JS string args in onclick=""
 const escAttr=s=>String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/[<>]/g,c=>({'<':'&lt;','>':'&gt;'}[c])).replace(/\r?\n/g,' ');
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),4200)}
@@ -125,9 +138,10 @@ async function api(p,o={}){o.headers=Object.assign({'content-type':'application/
 (async function(){
   const cfg=await (await fetch('/api/config')).json();
   if(!cfg.supabaseUrl){$('view').innerHTML='<div class="empty">Server not configured yet: SUPABASE_URL missing in Railway.</div>';return}
+  await loadSiteConfig();
   SB=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey);
   const {data}=await SB.auth.getSession();SESSION=data.session;
-  SB.auth.onAuthStateChange((_e,s)=>{SESSION=s;if(s)afterLogin();});
+  SB.auth.onAuthStateChange((_e,s)=>{SESSION=s;if(_e==='PASSWORD_RECOVERY'){promptNewPassword();return}if(s)afterLogin();});
   const q=new URLSearchParams(location.search);
   if(q.get('gmail')==='connected'){history.replaceState({},'','/');setTimeout(()=>toast('✓ Gmail connected! Your applications send from your own address.'),600)}
   else if(q.get('gmail')==='error'){history.replaceState({},'','/');setTimeout(()=>toast('Gmail connect failed: '+(q.get('why')||'')),600)}
@@ -136,9 +150,22 @@ async function api(p,o={}){o.headers=Object.assign({'content-type':'application/
 async function afterLogin(){
   document.querySelector('header').style.display='flex';
   $('nav').style.display='flex';$('outBtn').style.display='inline-block';
-  try{const d=await api('/api/me');ME=d.me;CREDITS=d.credits;if(['admin','staff'].includes(ME.role))$('adminTab').style.display='inline-block';$('creditPill').style.display='inline-block';$('creditPill').textContent=CREDITS+' credit'+(CREDITS===1?'':'s');}catch(e){toast(e.message)}
-  // First-time users go straight to Profile to add their CV; returning users see the dashboard.
+  try{const d=await api('/api/me');ME=d.me;CREDITS=d.credits;if(isAdminRole(ME.role))$('adminTab').style.display='inline-block';$('creditPill').style.display='inline-block';$('creditPill').textContent=CREDITS+' credit'+(CREDITS===1?'':'s');}catch(e){toast(e.message)}
+  showAnnouncement();
+  // Admin goes straight to the control center; first-time users to Profile; others to Home.
+  if(ME&&isAdminRole(ME.role)){go('adminx');return}
   go((ME && (ME.headline||'').trim()) ? 'home' : 'profile');
+}
+let SITE=null;
+async function loadSiteConfig(){
+  try{SITE=(await (await fetch('/api/site-config')).json()).config||null}catch(e){SITE=null}
+}
+function showAnnouncement(){
+  if(!SITE||!SITE.announcement||!SITE.announcement.enabled||!SITE.announcement.text)return;
+  const b=document.createElement('div');
+  b.style.cssText='background:var(--gold-soft);color:var(--ink);border-bottom:1px solid var(--line);padding:9px 16px;text-align:center;font:600 13px Inter';
+  b.textContent=SITE.announcement.text;
+  document.body.insertBefore(b,document.body.firstChild);
 }
 async function signOut(){await SB.auth.signOut();location.reload()}
 function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render()}
@@ -152,11 +179,12 @@ function renderAuth(mode){
   <div class="auth-screen">
     <div class="auth-card">
       <div class="auth-brand">Fori<b>Foreign</b></div>
-      <div class="auth-tag">Your path to studying and working abroad.</div>
+      <div class="auth-tag">${esc((SITE&&SITE.brand&&SITE.brand.tagline)||'Your path to studying and working abroad.')}</div>
       ${mode==='signup'?`<label>Full name</label><input id="a-name" type="text" placeholder="Your name">`:''}
       <label>Email</label><input id="a-email" type="email" placeholder="you@gmail.com">
       <label>Password</label><input id="a-pass" type="password" placeholder="minimum 8 characters">
       <button class="btn b-gold auth-primary" onclick="doAuth('${mode}')">${mode==='signin'?'Sign in':'Create account'}</button>
+      ${mode==='signin'?`<div class="auth-switch" style="margin-top:6px"><a onclick="forgotPassword()">Forgot your password?</a></div>`:''}
       <div class="auth-switch">${mode==='signin'?'New here?':'Already have an account?'}
         <a onclick="renderAuth('${mode==='signin'?'signup':'signin'}')">${mode==='signin'?'Create an account':'Sign in'}</a></div>
       ${mode==='signup'?`<div class="sub auth-note">A quick verification email confirms your address. That is all we need to get you started.</div>`:''}
@@ -167,21 +195,15 @@ function renderAuth(mode){
   </div>`;
 }
 function landingInfo(which){
+  const c=(SITE&&SITE.content)||{};
+  const body=which==='privacy'
+    ?`<h2>Your privacy</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.privacy||'Your documents are private and used only for your applications.')}</div>`
+    :`<h2>How it works</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.help||'Build your profile, find matches, apply with confidence.')}</div>`;
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
-  const privacy=`<h2>Your privacy</h2>
-  <div class="sub" style="line-height:1.8;margin-top:8px">
-  Your documents are private and stored securely. They are used only to build your profile and prepare your own applications.<br><br>
-  You control your information and your applications. Nothing is submitted on your behalf without your approval where approval is required.<br><br>
-  Your profile is not publicly visible. We provide the platform and intelligent assistance; the decisions remain yours.</div>`;
-  const help=`<h2>How it works</h2>
-  <div class="sub" style="line-height:1.8;margin-top:8px">
-  <b>1. Build your profile.</b> Upload your CV, degrees and transcripts. The system reads them and fills your profile for you.<br><br>
-  <b>2. Find your matches.</b> Search opportunities; results are ranked to your real background with a match score.<br><br>
-  <b>3. Apply with confidence.</b> Open an application case, review the prepared material, and approve it. You stay in control at every step.</div>`;
   wrap.innerHTML=`<div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;padding:20px">
   <div class="spread"><span></span><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
-  ${which==='privacy'?privacy:help}</div>`;
+  ${body}</div>`;
   document.body.appendChild(wrap);
 }
 async function doAuth(mode){
@@ -199,14 +221,61 @@ async function doAuth(mode){
     }
   }catch(e){toast(e.message)}
 }
+async function forgotPassword(){
+  const email=($('a-email')&&$('a-email').value.trim())||prompt('Enter your account email:')||'';
+  if(!email){return}
+  try{
+    const {error}=await SB.auth.resetPasswordForEmail(email,{redirectTo:location.origin});
+    if(error)throw error;
+    toast('Password reset link sent to '+email+'. Check your inbox (and spam).');
+  }catch(e){toast(e.message)}
+}
+// When the user arrives from the reset email, Supabase fires PASSWORD_RECOVERY.
+function promptNewPassword(){
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.6);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML=`<div style="max-width:400px;width:100%;background:#fff;border-radius:16px;padding:22px">
+  <h2>Set a new password</h2>
+  <label>New password</label><input id="np-1" type="password" placeholder="minimum 8 characters">
+  <label>Repeat new password</label><input id="np-2" type="password">
+  <div class="row" style="margin-top:12px"><button class="btn b-gold" onclick="saveNewPassword(this)">Save password</button></div></div>`;
+  document.body.appendChild(wrap);
+}
+async function saveNewPassword(btn){
+  const a=($('np-1')||{}).value||'',b=($('np-2')||{}).value||'';
+  if(a.length<8){toast('Password must be at least 8 characters');return}
+  if(a!==b){toast('Passwords do not match');return}
+  btn.disabled=true;
+  try{const {error}=await SB.auth.updateUser({password:a});if(error)throw error;
+    toast('Password updated. You are signed in.');document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());
+  }catch(e){toast(e.message);btn.disabled=false}
+}
 
 /* ---------- home ---------- */
+function openSupport(){
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
+  wrap.innerHTML=`<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;padding:20px">
+  <div class="spread"><h2>Contact support</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <label>Subject</label><input id="sup-subj" placeholder="How can we help?">
+  <label>Message</label><textarea id="sup-msg" style="min-height:120px"></textarea>
+  <div class="row" style="margin-top:12px"><button class="btn b-gold" onclick="sendSupport(this)">Send</button></div></div>`;
+  document.body.appendChild(wrap);
+}
+async function sendSupport(btn){
+  btn.disabled=true;
+  const subject=($('sup-subj')||{}).value||'';const message=($('sup-msg')||{}).value||'';
+  if(!subject||!message){toast('Please add a subject and message');btn.disabled=false;return}
+  try{await api('/api/support',{method:'POST',body:{subject,message}});
+    toast('Sent. Our team will reply soon.');document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());
+  }catch(e){toast(e.message);btn.disabled=false}
+}
 async function vHome(){
   const first=(ME&&ME.full_name||'').split(' ')[0];
   $('view').innerHTML=`
   <div class="home-hero">
-    <h1>Welcome${first?', '+esc(first):''} 👋</h1>
-    <p>Your intelligent path to studying and working abroad. Upload your documents once — we understand your background, find verified opportunities that truly match you, and prepare every application for your approval.</p>
+    <h1>${SITE&&SITE.brand&&SITE.brand.hero_heading?esc(SITE.brand.hero_heading):'Welcome'+(first?', '+esc(first):'')+' 👋'}</h1>
+    <p>${esc((SITE&&SITE.brand&&SITE.brand.hero_subtitle)||'Your intelligent path to studying and working abroad. Upload your documents once — we understand your background, find verified opportunities that truly match you, and prepare every application for your approval.')}</p>
     <div id="readyStrip"></div>
   </div>
   <div class="row" style="gap:12px;margin:14px 0">
@@ -220,7 +289,8 @@ async function vHome(){
   </div>
   <div class="card spread" style="cursor:pointer" onclick="runSearch()"><div><h3>Find opportunities for me now</h3><div class="sub">Profile-driven search of official sources</div></div><span style="font-size:22px">→</span></div>
   <div class="card spread" style="cursor:pointer" onclick="go('apps')"><div><h3>My applications</h3><div class="sub">Every case and where it stands</div></div><span style="font-size:22px">→</span></div>
-  <div class="card spread" style="cursor:pointer;border-color:var(--gold)" onclick="go('buy')"><div><h3>Credit packages</h3><div class="sub">Your first case is free. Each case after is prepared completely, end to end.</div></div><span style="font-size:22px">→</span></div>`;
+  <div class="card spread" style="cursor:pointer;border-color:var(--gold)" onclick="go('buy')"><div><h3>Credit packages</h3><div class="sub">Your first case is free. Each case after is prepared completely, end to end.</div></div><span style="font-size:22px">→</span></div>
+  <div class="card spread" style="cursor:pointer" onclick="openSupport()"><div><h3>Need help?</h3><div class="sub">Contact our support team</div></div><span style="font-size:22px">→</span></div>`;
   loadReadiness();
 }
 async function loadReadiness(){
@@ -386,11 +456,35 @@ async function renderWorkLane(){
       <span class="sub" style="margin-top:8px;display:inline-block">Set your profession in Profile first so licensing is matched correctly.</span></div>`;
 }
 async function runSearch(kind){
-  toast('Searching official sources against your profile…');
-  try{const d=await api('/api/run',{method:'POST',body:{kind:kind||undefined}});
-    toast(d.message);
-    if(d.ran)setTimeout(()=>{if(TAB==='browse')vBrowse();},150000);
-  }catch(e){toast(e.message)}
+  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined}})}catch(e){toast(e.message);return}
+  if(!d.ran){toast(d.message);return}
+  // Staged progress ring. Stages reflect the real backend pipeline; the timer paces
+  // to the ~2-3 min discovery window. It is honest pacing, not a fake 0-100 loop:
+  // it holds at 90% until results actually arrive, then completes.
+  const stages=['Understanding your profile','Checking eligibility','Searching official sources','Verifying sources','Checking deadlines','Calculating match scores','Selecting best matches'];
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML=`<div style="background:#fff;border-radius:20px;padding:30px;text-align:center;max-width:340px;width:100%">
+    <div class="search-ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52"/></svg><div class="ring-pct" id="ringPct">0%</div></div>
+    <h3 style="margin-top:16px">Searching opportunities</h3>
+    <div class="sub" id="ringStage" style="margin-top:6px">${stages[0]}</div></div>`;
+  document.body.appendChild(wrap);
+  const circ=2*Math.PI*52;const fg=$('ringFg');if(fg){fg.style.strokeDasharray=circ;fg.style.strokeDashoffset=circ}
+  let pct=0,si=0;const total=150000;const start=Date.now();
+  const tick=setInterval(()=>{
+    const elapsed=Date.now()-start;
+    pct=Math.min(90,Math.round(90*elapsed/total));
+    si=Math.min(stages.length-1,Math.floor(elapsed/(total/stages.length)));
+    const p=$('ringPct'),st=$('ringStage'),f=$('ringFg');
+    if(p)p.textContent=pct+'%';if(st)st.textContent=stages[si];
+    if(f)f.style.strokeDashoffset=circ*(1-pct/100);
+  },500);
+  setTimeout(async ()=>{
+    clearInterval(tick);
+    const p=$('ringPct'),f=$('ringFg'),st=$('ringStage');
+    if(p)p.textContent='100%';if(f)f.style.strokeDashoffset=0;if(st)st.textContent='Done';
+    setTimeout(()=>{wrap.remove();if(TAB==='browse')vBrowse();else{toast('New opportunities are ready.');}},700);
+  },total);
 }
 async function openApp(id){
   let d;try{d=await api('/api/applications/'+id)}catch(e){toast(e.message);return}
@@ -431,8 +525,8 @@ async function startApp(id,inst){
   if(!confirm('Start the application for '+inst+'? Your first case is free; afterwards each case uses 1 credit.'))return;
   try{const d=await api('/api/applications',{method:'POST',body:{opportunityId:id}});
     if(d.freeCase){toast('🎉 Your free first case: '+d.application.case_no+'. The agent is preparing it now.')}
-    else{CREDITS=Math.max(0,CREDITS-1);$('creditPill').textContent=CREDITS+' credit'+(CREDITS===1?'':'s');
-      toast('Application '+d.application.case_no+' started. The agent is preparing it.')}
+    else{toast('Application '+d.application.case_no+' started. The agent is preparing it.')}
+    refreshCredits();
     go('apps');
   }catch(e){
     toast(e.message);
@@ -453,7 +547,7 @@ async function vApps(){
   <div class="sub" style="font-size:11px;margin-top:2px">${esc(a.case_no)} · started ${esc((a.created_at||'').slice(0,10))}</div></div>
   <span class="chip ${stageChip(a.stage)}">${esc(a.stage.replace(/_/g,' '))}</span></div>
   ${a.next_action?`<div class="sub" style="margin-top:8px">Next: ${esc(a.next_action)}</div>`:''}</div>`).join('')
-  :'<div class="empty">No applications yet. Browse opportunities and start your first one, 1 credit each.</div>'}`;
+  :`<div class="empty">No applications yet.<br><span class="sub">Your first case is free — browse opportunities and open your first application.</span><br><br><button class="btn b-gold" onclick="go('browse')">Browse opportunities →</button></div>`}`;
 }
 
 /* ---------- profile ---------- */
@@ -463,7 +557,10 @@ async function vProfile(){
   const edu=[...(m.education||[])].sort((a,b)=>yearOf(b)-yearOf(a));
   const exp=[...(m.experience||[])].sort((a,b)=>yearOf(b)-yearOf(a));
   const initials=(m.full_name||'?').split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
+  const isNew=!(m.headline||'').trim()&&!(m.education||[]).length;
   $('view').innerHTML=`
+  ${isNew?`<div class="card" style="border-color:var(--gold);background:var(--gold-soft);margin-bottom:12px"><b>Welcome! Here's how to start:</b>
+  <div class="sub" style="margin-top:6px;line-height:1.7">1. Upload your <b>CV</b> below — the agent reads it and fills your profile automatically.<br>2. Add degrees and transcripts when you have them; every document makes your applications stronger.<br>3. Then go to <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="go('browse')">Opportunities</a> — your first case is free.</div></div>`:''}`+`
   <div class="pid-card">
     <div class="pid-avatar" id="avatarBox" onclick="document.getElementById('avatar-file').click()" title="Change photo">
       <span id="avatarInitials">${esc(initials)}</span>
@@ -708,9 +805,31 @@ async function saveProfile(){
   }});ME=d.me;toast('Profile saved.');}catch(e){toast(e.message)}
 }
 async function vAdmin(){
-  $('view').innerHTML='<div class="empty">Loading…</div>';
-  let d;try{d=await api('/api/admin/overview')}catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
-  $('view').innerHTML=`<h2 style="margin-bottom:10px">Admin</h2>
+  if(!window._adminPerms){try{const d=await api('/api/admin/me');window._adminPerms=new Set(d.permissions||[]);window._adminRoles=d.roles||[]}catch(e){window._adminPerms=new Set()}}
+  const P=window._adminPerms;const can=p=>P.has(p);
+  const t=window._adminTab||'overview';
+  const allTabs=[['overview','Overview','overview.read'],['cases','Cases','overview.read'],['payments','Payments','payments.read'],['packages','Packages','packages.read'],['countries','Countries','countries.read'],['content','Content','content.read'],['reviews','Reviews','reviews.read'],['support','Support','support.read'],['users','Users','users.read'],['aicost','AI Costs','aicost.read'],['settings','Settings','settings.read'],['audit','Audit log','audit.read']];
+  const tabs=allTabs.filter(([k,l,p])=>can(p));
+  const cur=tabs.find(([k])=>k===t)?t:(tabs[0]&&tabs[0][0])||'overview';
+  $('view').innerHTML=`<h2 style="margin-bottom:8px">Admin Control Center</h2>
+  <div class="row" style="margin-bottom:12px;overflow-x:auto">${tabs.map(([k,l])=>`<button class="segbtn ${cur===k?'on':''}" onclick="window._adminTab='${k}';vAdmin()">${l}</button>`).join('')}</div>
+  <div id="adminBody"><div class="empty">Loading…</div></div>`;
+  if(cur==='settings')return adminSettings();
+  if(cur==='audit')return adminAudit();
+  if(cur==='packages')return adminPackages();
+  if(cur==='countries')return adminCountries();
+  if(cur==='aicost')return adminAiCost();
+  if(cur==='content')return adminContent();
+  if(cur==='reviews')return adminReviews();
+  if(cur==='support')return adminSupport();
+  if(cur==='users')return adminUsers();
+  if(cur==='cases')return adminCases();
+  if(cur==='payments')return adminPayments();
+  return adminOverview();
+}
+async function adminOverview(){
+  let d;try{d=await api('/api/admin/overview')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  $('adminBody').innerHTML=`
   <div class="row" style="margin-bottom:12px">
   <div class="card" style="flex:1;text-align:center"><b style="font-size:22px;font-family:Fraunces">${d.users}</b><div class="sub">Users</div></div>
   <div class="card" style="flex:1;text-align:center"><b style="font-size:22px;font-family:Fraunces">${d.applications}</b><div class="sub">Applications</div></div>
@@ -727,6 +846,220 @@ async function vAdmin(){
   <div class="sub">${esc(f.detail||'')}</div></div>`).join('')
   :'<div class="sub">No open flags.</div>'}</div>`;
 }
+async function adminSettings(){
+  let d;try{d=await api('/api/admin/settings')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const c=d.config;window._cfg=c;
+  const F=(sec,key,label,ph)=>`<label>${label}</label><input data-sec="${sec}" data-key="${key}" value="${esc((c[sec]||{})[key]||'')}" placeholder="${ph||''}">`;
+  const T=(sec,key,label)=>`<div class="row" style="margin-top:8px"><label style="margin:0"><input type="checkbox" data-sec="${sec}" data-key="${key}" ${(c[sec]||{})[key]?'checked':''} style="width:auto"> ${label}</label></div>`;
+  $('adminBody').innerHTML=`
+  <div class="sub" style="margin-bottom:10px">Config version <b>v${d.version}</b>. Every save is versioned and audit-logged; you can roll back below.</div>
+  <div class="card"><h3>Brand & homepage</h3>
+  ${F('brand','name','Brand name')}${F('brand','tagline','Tagline (sign-in page)')}
+  ${F('brand','hero_heading','Home heading')}${F('brand','hero_subtitle','Home subtitle')}</div>
+  <div class="card"><h3>Contact</h3>
+  ${F('contact','email','Email')}${F('contact','phone','Phone')}${F('contact','whatsapp','WhatsApp')}${F('contact','address','Address')}${F('contact','hours','Working hours')}</div>
+  <div class="card" style="border-color:var(--gold)"><h3>Payment / bank details (shown to users at checkout)</h3>
+  ${F('payment','bank_name','Bank name')}${F('payment','account_title','Account title')}${F('payment','account_number','Account number')}${F('payment','iban','IBAN')}${F('payment','jazzcash_number','JazzCash number')}${F('payment','easypaisa_number','Easypaisa number')}${F('payment','instructions','Payment instructions')}</div>
+  <div class="card"><h3>Social links</h3>
+  ${F('social','facebook','Facebook')}${F('social','instagram','Instagram')}${F('social','linkedin','LinkedIn')}${F('social','youtube','YouTube')}${F('social','google_business','Google Business')}${F('social','website','Website')}</div>
+  <div class="card"><h3>Features</h3>
+  ${T('features','free_first_case','Free first case for new users')}
+  ${T('features','payments','Payments enabled')}
+  ${T('features','opportunity_search','Opportunity search enabled')}
+  ${T('features','gmail_sending','Gmail sending enabled')}</div>
+  <div class="card"><h3>Announcement banner</h3>
+  ${T('announcement','enabled','Show announcement to all users')}
+  ${F('announcement','text','Announcement text')}</div>
+  <div class="card" style="border-color:var(--crimson)"><h3>Maintenance mode</h3>
+  ${T('maintenance','enabled','Maintenance mode ON (users paused, admin keeps access)')}
+  ${F('maintenance','message','Maintenance message')}</div>
+  <div class="card"><h3>Public statistics (admin-entered)</h3>
+  <div class="sub" style="margin-bottom:6px">Only enter figures you can stand behind. Blank = hidden.</div>
+  ${F('stats','users_helped','Users helped')}${F('stats','applications_prepared','Applications prepared')}</div>
+  <div class="card"><h3>AI cost settings</h3>
+  ${F('ai','usd_to_pkr','USD → PKR exchange rate')}
+  ${F('ai','pkr_override_per_case','Fixed PKR cost per case (blank = auto-calculate)')}</div>
+  <div class="row" style="margin:12px 0"><button class="btn b-gold" onclick="saveAdminSettings(this)">Save settings</button></div>
+  ${(d.history||[]).length?`<div class="card"><h3>Version history</h3>${d.history.map(h=>`<div class="spread" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="sub">v${h.version} · ${esc((h.at||'').slice(0,16).replace('T',' '))}</span><button class="btn b-line" style="padding:3px 10px" onclick="if(confirm('Roll back to v${h.version}? Current settings will be preserved in history.'))rollbackSettings(${h.version},this)">Roll back</button></div>`).join('')}</div>`:''}`;
+}
+async function saveAdminSettings(btn){
+  btn.disabled=true;
+  const patch={};
+  document.querySelectorAll('#adminBody [data-sec]').forEach(el=>{
+    const s=el.dataset.sec,k=el.dataset.key;
+    patch[s]=patch[s]||{};
+    patch[s][k]=el.type==='checkbox'?el.checked:el.value;
+  });
+  try{const d=await api('/api/admin/settings',{method:'PUT',body:{patch}});
+    toast('Saved as v'+d.version+'. Live everywhere within 30 seconds.');await loadSiteConfig();vAdmin();
+  }catch(e){toast(e.message);btn.disabled=false}
+}
+async function rollbackSettings(v,btn){
+  btn.disabled=true;
+  try{const d=await api('/api/admin/settings/rollback',{method:'POST',body:{version:v}});
+    toast('Rolled back. Now v'+d.version+'.');await loadSiteConfig();vAdmin();
+  }catch(e){toast(e.message);btn.disabled=false}
+}
+async function adminPackages(){
+  let d;try{d=await api('/api/admin/packages')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  window._packs=d.packs||[];
+  renderPacks();
+}
+function renderPacks(){
+  const packs=window._packs||[];
+  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Edit packages without code. Saving affects only future purchases — past payments keep their original price.</div>
+  ${packs.map((p,i)=>`<div class="card"><div class="spread"><b>Package ${i+1}</b><button class="btn b-line" style="padding:3px 10px" onclick="window._packs.splice(${i},1);renderPacks()">Remove</button></div>
+  <label>Name</label><input value="${esc(p.name||'')}" onchange="window._packs[${i}].name=this.value">
+  <label>Cases (credits)</label><input type="number" value="${esc(p.credits)}" onchange="window._packs[${i}].credits=parseInt(this.value)">
+  <label>Price PKR</label><input type="number" value="${esc(p.pkr)}" onchange="window._packs[${i}].pkr=parseInt(this.value)">
+  <label>Promo price PKR (blank = none)</label><input type="number" value="${esc(p.promo_pkr||'')}" onchange="window._packs[${i}].promo_pkr=this.value?parseInt(this.value):null">
+  <label>Description</label><input value="${esc(p.description||'')}" onchange="window._packs[${i}].description=this.value">
+  <div class="row" style="margin-top:8px"><label style="margin:0"><input type="checkbox" ${p.featured?'checked':''} style="width:auto" onchange="window._packs[${i}].featured=this.checked"> Featured</label>
+  <label style="margin:0"><input type="checkbox" ${p.visible!==false?'checked':''} style="width:auto" onchange="window._packs[${i}].visible=this.checked"> Visible to users</label></div></div>`).join('')}
+  <div class="row"><button class="btn b-line" onclick="window._packs.push({credits:1,pkr:2000,name:'New package',visible:true});renderPacks()">+ Add package</button>
+  <button class="btn b-gold" onclick="savePacks(this)">Save packages</button></div>`;
+}
+async function savePacks(btn){
+  btn.disabled=true;
+  try{const d=await api('/api/admin/packages',{method:'PUT',body:{packs:window._packs}});
+    toast('Packages saved (v'+d.version+'). Live for new purchases.');vAdmin();
+  }catch(e){toast(e.message);btn.disabled=false}
+}
+async function adminCountries(){
+  let d;try{d=await api('/api/admin/countries')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const cs=d.countries||[];
+  $('adminBody').innerHTML=`<div class="card"><h3>Add or update country</h3>
+  <label>Code (ISO2, e.g. AU)</label><input id="c-code" placeholder="AU" maxlength="2">
+  <label>Name</label><input id="c-name" placeholder="Australia">
+  <label>Study rating</label><select id="c-rating"><option value="green">🟢 Green</option><option value="yellow">🟡 Yellow</option><option value="red">🔴 Red</option></select>
+  <div class="row" style="margin-top:8px"><label style="margin:0"><input type="checkbox" id="c-featured" style="width:auto"> Featured</label></div>
+  <div class="row" style="margin-top:10px"><button class="btn b-gold" onclick="saveCountry(this)">Save country</button></div></div>
+  <div class="card"><h3>All countries (${cs.length})</h3>
+  ${cs.map(c=>`<div class="spread" style="padding:6px 0;border-bottom:1px solid var(--line)">
+  <div><b>${esc(c.name)}</b> <span class="sub">${esc(c.code)} ${c.study_rating==='green'?'🟢':c.study_rating==='yellow'?'🟡':'🔴'}${c.featured?' ⭐':''}</span></div>
+  <button class="btn ${c.enabled===false?'b-line':'b-green'}" style="padding:3px 12px" onclick="toggleCountry('${esc(c.code)}',this)">${c.enabled===false?'Disabled':'Enabled'}</button></div>`).join('')||'<div class="sub">No countries yet.</div>'}</div>`;
+}
+async function saveCountry(btn){
+  btn.disabled=true;
+  const body={code:$('c-code').value,name:$('c-name').value,study_rating:$('c-rating').value,featured:$('c-featured').checked};
+  try{await api('/api/admin/countries',{method:'POST',body});toast('Country saved.');vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function toggleCountry(code,btn){
+  btn.disabled=true;
+  try{const d=await api('/api/admin/countries/'+code+'/toggle',{method:'POST'});toast(code+' '+(d.enabled?'enabled':'disabled')+'.');vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function adminAiCost(){
+  let d;try{d=await api('/api/admin/ai-costs')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const box=(label,val)=>`<div class="card" style="flex:1;text-align:center;min-width:130px"><b style="font-size:20px;font-family:Fraunces">PKR ${Number(val).toLocaleString()}</b><div class="sub">${label}</div></div>`;
+  $('adminBody').innerHTML=`
+  <div class="row" style="margin-bottom:12px">${box('Total',d.pkr.total)}${box('This month',d.pkr.month)}${box('Today',d.pkr.today)}${box('Per case'+(d.pkr.perCaseIsOverride?' (override)':''),d.pkr.perCase)}</div>
+  <div class="card"><h3>By model / provider</h3>
+  ${Object.entries(d.byModelPkr||{}).map(([k,v])=>`<div class="spread" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="sub">${esc(k)}</span><b>PKR ${Number(v).toLocaleString()}</b></div>`).join('')||'<div class="sub">No usage yet.</div>'}
+  <div class="sub" style="margin-top:8px">Exchange rate: 1 USD = PKR ${d.rate} · ${d.cases} cases tracked. Change rate in Settings (ai.usd_to_pkr).</div>
+  <div class="sub" style="margin-top:4px">${esc(d.note)}</div></div>`;
+}
+async function adminContent(){
+  let d;try{d=await api('/api/admin/settings')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const c=d.config.content||{};window._cfg=d.config;
+  const TA=(key,label)=>`<label>${label}</label><textarea data-sec="content" data-key="${key}" style="min-height:120px">${esc(c[key]||'')}</textarea>`;
+  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Edit the text users see. Saved with version history; live within 30 seconds.</div>
+  <div class="card">${TA('privacy','Privacy content')}${TA('help','Help / how it works')}${TA('terms','Terms')}${TA('faq','FAQ')}</div>
+  <div class="row" style="margin:12px 0"><button class="btn b-gold" onclick="saveContentTab(this)">Save content</button></div>`;
+}
+async function saveContentTab(btn){
+  btn.disabled=true;
+  const content={};document.querySelectorAll('#adminBody [data-sec=content]').forEach(el=>content[el.dataset.key]=el.value);
+  try{const d=await api('/api/admin/settings',{method:'PUT',body:{patch:{content}}});toast('Content saved (v'+d.version+').');await loadSiteConfig();vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function adminReviews(){
+  let d;try{d=await api('/api/admin/settings')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  window._reviews=(d.config.reviews||[]).slice();renderReviews();
+}
+function renderReviews(){
+  const rv=window._reviews||[];
+  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Only add genuine reviews. These appear on the homepage. Hidden ones are stored but not shown.</div>
+  ${rv.map((r,i)=>`<div class="card"><div class="spread"><b>Review ${i+1}</b><button class="btn b-line" style="padding:3px 10px" onclick="window._reviews.splice(${i},1);renderReviews()">Remove</button></div>
+  <label>Name</label><input value="${esc(r.name||'')}" onchange="window._reviews[${i}].name=this.value">
+  <label>Country</label><input value="${esc(r.country||'')}" onchange="window._reviews[${i}].country=this.value">
+  <label>Rating (1-5)</label><input type="number" min="1" max="5" value="${esc(r.rating||5)}" onchange="window._reviews[${i}].rating=parseInt(this.value)">
+  <label>Review text</label><textarea onchange="window._reviews[${i}].text=this.value">${esc(r.text||'')}</textarea>
+  <div class="row" style="margin-top:8px"><label style="margin:0"><input type="checkbox" ${r.visible!==false?'checked':''} style="width:auto" onchange="window._reviews[${i}].visible=this.checked"> Visible</label></div></div>`).join('')}
+  <div class="row"><button class="btn b-line" onclick="window._reviews.push({name:'',country:'',rating:5,text:'',visible:true});renderReviews()">+ Add review</button>
+  <button class="btn b-gold" onclick="saveReviews(this)">Save reviews</button></div>`;
+}
+async function saveReviews(btn){
+  btn.disabled=true;
+  try{const d=await api('/api/admin/settings',{method:'PUT',body:{patch:{reviews:window._reviews}}});toast('Reviews saved (v'+d.version+').');await loadSiteConfig();vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function adminSupport(){
+  const st=window._supStatus||'';
+  let d;try{d=await api('/api/admin/support'+(st?'?status='+st:''))}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const chip=s=>({new:'c-red',open:'c-gold',waiting:'c-blue',resolved:'c-green',closed:'c-gray'}[s]||'c-gray');
+  $('adminBody').innerHTML=`<div class="row seg" style="margin-bottom:10px">${['','new','open','waiting','resolved','closed'].map(s=>`<button class="segbtn ${st===s?'on':''}" onclick="window._supStatus='${s}';vAdmin()">${s||'All'}</button>`).join('')}</div>
+  ${(d.tickets||[]).map(t=>`<div class="card"><div class="spread"><b>${esc(t.subject)}</b><span class="chip ${chip(t.status)}">${esc(t.status)}</span></div>
+  <div class="sub" style="margin:4px 0">${esc(t.email||'')} · ${esc((t.created_at||'').slice(0,16).replace('T',' '))}</div>
+  <div style="white-space:pre-wrap;font-size:13px;margin:6px 0">${esc(t.message)}</div>
+  ${t.reply?`<div class="card" style="background:var(--green-soft)"><b>Your reply:</b> <span style="white-space:pre-wrap">${esc(t.reply)}</span></div>`:''}
+  <label>Reply</label><textarea id="rep-${t.id}">${esc(t.reply||'')}</textarea>
+  <div class="row" style="margin-top:8px">
+  <select id="st-${t.id}">${['new','open','waiting','resolved','closed'].map(s=>`<option value="${s}" ${t.status===s?'selected':''}>${s}</option>`).join('')}</select>
+  <button class="btn b-gold" onclick="saveTicket('${t.id}',this)">Save</button></div></div>`).join('')||'<div class="empty">No tickets.</div>'}`;
+}
+async function saveTicket(id,btn){
+  btn.disabled=true;
+  const reply=($('rep-'+id)||{}).value||'';const status=($('st-'+id)||{}).value||'open';
+  try{await api('/api/admin/support/'+id,{method:'POST',body:{reply,status}});toast('Saved.');vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function adminUsers(){
+  let d;try{d=await api('/api/admin/users')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const roles=window._adminRoles||['user','staff','admin'];
+  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Assign roles. Only a super admin can grant admin-level roles.</div>
+  ${(d.users||[]).map(u=>`<div class="card"><div class="spread"><div><b>${esc(u.full_name||'(no name)')}</b><div class="sub">${esc((u.id||'').slice(0,8))}… · joined ${esc((u.created_at||'').slice(0,10))}</div></div>
+  <div class="row"><select id="role-${u.id}">${roles.map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${r}</option>`).join('')}</select>
+  <button class="btn b-gold" style="padding:5px 12px" onclick="saveRole('${u.id}',this)">Set</button></div></div></div>`).join('')||'<div class="empty">No users.</div>'}`;
+}
+async function saveRole(id,btn){
+  btn.disabled=true;
+  const role=($('role-'+id)||{}).value;
+  try{await api('/api/admin/users/'+id+'/role',{method:'POST',body:{role}});toast('Role updated.');vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function adminCases(){
+  const st=window._caseStatus||'';
+  let d;try{d=await api('/api/admin/applications'+(st?'?status='+st:''))}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const chip=s=>({draft:'c-gray',queued:'c-blue',sent:'c-green',failed:'c-red'}[s]||'c-gold');
+  $('adminBody').innerHTML=`<div class="row seg" style="margin-bottom:10px">${['','draft','queued','sent','failed'].map(s=>`<button class="segbtn ${st===s?'on':''}" onclick="window._caseStatus='${s}';vAdmin()">${s||'All'}</button>`).join('')}</div>
+  ${(d.applications||[]).map(a=>{const o=a.opportunities||{};return `<div class="card"><div class="spread"><div><b>${esc(o.title||'Case '+String(a.id).slice(0,8))}</b>
+  <div class="sub">${esc(a.user_name||String(a.user_id).slice(0,8))} · ${esc(o.org||'')} ${o.country_code?'· '+esc(o.country_code):''} · ${esc((a.created_at||'').slice(0,10))}</div></div>
+  <div><span class="chip ${chip(a.status)}">${esc(a.status||'')}</span>${a.submission_status?` <span class="chip c-blue">${esc(a.submission_status)}</span>`:''}</div></div></div>`}).join('')||'<div class="empty">No cases yet.</div>'}`;
+}
+async function adminPayments(){
+  const st=window._payStatus||'';
+  let d;try{d=await api('/api/admin/payments'+(st?'?status='+st:''))}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  const chip=s=>({pending:'c-gold',paid:'c-green',confirmed:'c-green',failed:'c-red'}[s]||'c-gray');
+  $('adminBody').innerHTML=`<div class="row seg" style="margin-bottom:10px">${['','pending','paid','failed'].map(s=>`<button class="segbtn ${st===s?'on':''}" onclick="window._payStatus='${s}';vAdmin()">${s||'All'}</button>`).join('')}</div>
+  ${(d.payments||[]).map(p=>`<div class="card"><div class="spread"><div><b>PKR ${Number(p.amount_pkr||0).toLocaleString()}</b> · ${esc(String(p.credits))} credit${p.credits===1?'':'s'}
+  <div class="sub">${esc(p.user_name||String(p.user_id).slice(0,8))} · ref: ${esc(p.reference||'—')} · ${esc((p.created_at||'').slice(0,16).replace('T',' '))}</div></div>
+  <div class="row"><span class="chip ${chip(p.status)}">${esc(p.status)}</span>
+  ${p.status==='pending'?`<button class="btn b-green" style="padding:4px 12px" onclick="confirmPay('${p.id}',this)">Confirm</button>`:''}</div></div></div>`).join('')||'<div class="empty">No payments.</div>'}`;
+}
+async function confirmPay(id,btn){
+  btn.disabled=true;
+  try{await api('/api/payments/'+id+'/confirm',{method:'POST'});toast('Payment confirmed, credits added.');refreshCredits();vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}
+}
+async function adminAudit(){
+  let d;try{d=await api('/api/admin/audit')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  $('adminBody').innerHTML=`<div class="card"><h3>Audit log</h3>
+  ${(d.entries||[]).map(a=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)">
+  <span class="chip c-blue">${esc(a.event||'')}</span> <span class="sub">${esc((a.created_at||'').slice(0,16).replace('T',' '))} · ${esc((a.actor||'system').slice(0,8))}…</span>
+  <div class="sub" style="margin-top:2px;word-break:break-all">${esc(a.detail||'')}</div></div>`).join('')||'<div class="sub">No entries.</div>'}</div>`;
+}
 async function confirmPay(id,btn){btn.disabled=true;
   try{await api('/api/payments/'+id+'/confirm',{method:'POST'});toast('Confirmed, credits granted.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}}
@@ -739,8 +1072,17 @@ async function vBuy(){
   <div class="sub" style="margin-bottom:12px">1 credit = 1 complete application prepared end to end. Pay by bank transfer, our team confirms, credits appear.</div>
   <div class="row">${packs.map(p=>`<div class="pack" onclick="buyPack(${p.credits})"><b>${p.credits}</b><div class="sub">credit${p.credits===1?'':'s'}</div>
   <div style="margin-top:6px;font-weight:700">${p.pkr>0?'PKR '+p.pkr.toLocaleString():'Pricing soon'}</div></div>`).join('')}</div>
-  <div class="card" style="margin-top:14px"><h3>How it works</h3>
-  <div class="sub" style="margin-top:6px;line-height:1.7">1. Choose a pack and note the reference code shown.<br>2. Transfer the amount to the bank account shown.<br>3. Enter your bank reference, submit.<br>4. Our team confirms, usually within a few hours, and your credits appear. ${esc((d.pricing||{}).refund_policy||'')}</div></div>`;
+  <div class="card" style="margin-top:14px"><h3>How to pay</h3>
+  <div class="sub" style="margin-top:6px;line-height:1.7">${esc((SITE&&SITE.payment&&SITE.payment.instructions)||'Transfer to the account below, then submit your reference.')}</div>
+  ${SITE&&SITE.payment&&(SITE.payment.account_number||SITE.payment.iban||SITE.payment.jazzcash_number||SITE.payment.easypaisa_number)?`<div class="card" style="background:var(--soft);margin-top:8px">
+    ${SITE.payment.bank_name?`<div><b>Bank:</b> ${esc(SITE.payment.bank_name)}</div>`:''}
+    ${SITE.payment.account_title?`<div><b>Title:</b> ${esc(SITE.payment.account_title)}</div>`:''}
+    ${SITE.payment.account_number?`<div><b>Account #:</b> ${esc(SITE.payment.account_number)}</div>`:''}
+    ${SITE.payment.iban?`<div><b>IBAN:</b> ${esc(SITE.payment.iban)}</div>`:''}
+    ${SITE.payment.jazzcash_number?`<div><b>JazzCash:</b> ${esc(SITE.payment.jazzcash_number)}</div>`:''}
+    ${SITE.payment.easypaisa_number?`<div><b>Easypaisa:</b> ${esc(SITE.payment.easypaisa_number)}</div>`:''}
+  </div>`:'<div class="sub" style="margin-top:8px;color:var(--crimson)">Payment account details are being set up. Please contact support to pay.</div>'}
+  <div class="sub" style="margin-top:8px">After transferring, choose a package above and submit your transaction reference. ${esc((d.pricing||{}).refund_policy||'')}</div></div>`;
 }
 async function buyPack(credits){
   const ref=prompt('After transferring, paste your bank transfer reference here (or type PENDING to submit now and add it later):');
