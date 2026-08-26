@@ -266,8 +266,6 @@ async function api(p,o={}){o.headers=Object.assign({'content-type':'application/
   const {data}=await SB.auth.getSession();SESSION=data.session;
   SB.auth.onAuthStateChange((_e,s)=>{SESSION=s;if(_e==='PASSWORD_RECOVERY'){promptNewPassword();return}if(s)afterLogin();});
   const q=new URLSearchParams(location.search);
-  if(q.get('gmail')==='connected'){history.replaceState({},'','/');setTimeout(()=>toast('✓ Gmail connected! Your applications send from your own address.'),600)}
-  else if(q.get('gmail')==='error'){history.replaceState({},'','/');setTimeout(()=>toast('Gmail connect failed: '+(q.get('why')||'')),600)}
   if(SESSION)afterLogin();else{document.querySelector('header').style.display='none';renderAuth();}
 })();
 async function afterLogin(){
@@ -333,7 +331,7 @@ function renderAuth(mode){
     <div class="mkt-grid">
       <div class="mkt-card"><div class="mkt-ic">1️⃣</div><h3>Build your real profile</h3><p>Education, experience, publications, documents — once. Our agent works only from your real facts, never inventions.</p></div>
       <div class="mkt-card"><div class="mkt-ic">2️⃣</div><h3>The agent searches &amp; verifies</h3><p>Study, scholarship and work opportunities from official sources — deadlines, funding and eligibility checked against your profile.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">3️⃣</div><h3>Apply with authority</h3><p>Tailored CV, cover letter and email prepared for each case. Nothing sends until you authorize it — from your own Gmail.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">3️⃣</div><h3>Apply with authority</h3><p>Tailored CV, cover letter and email prepared for each case. Nothing sends until you press Send yourself — from your own email.</p></div>
     </div>
     <h2 class="mkt-h">Why students &amp; professionals choose us</h2>
     <div class="mkt-grid">
@@ -880,7 +878,7 @@ async function openApp(id){
   <div class="sub" style="margin:6px 0">To: ${msg.to_emails&&msg.to_emails.length?esc(msg.to_emails.join(', ')):'<i>no official email published, portal application</i>'}</div>
   <div style="font-weight:600">${esc(msg.subject)}</div>
   <pre style="white-space:pre-wrap;font:12.5px Inter;color:#333;margin-top:6px">${esc(msg.body)}</pre>
-  ${msg.status==='pending'&&msg.to_emails&&msg.to_emails.length?`<button class="btn b-green" style="margin-top:10px" onclick="authorizeMsg('${msg.id}',this)">Authorize this email</button>`:msg.status==='approved'?'<span class="chip c-green">Authorized by you</span>':''}
+  ${msg.status==='pending'&&msg.to_emails&&msg.to_emails.length?`<button class="btn b-green" style="margin-top:10px" onclick="authorizeMsg('${msg.id}',this)">Authorize this email</button>`:['approved','ready'].includes(msg.status)?`<span class="chip c-green">Authorized by you</span> <button class="btn b-gold" style="margin-left:8px" onclick="applyNow('${a.id}',this)">🚀 APPLY</button>`:msg.status==='sent'?'<span class="chip c-blue">Applied</span>':''}
   </div>`:''}
   </div>`;
   document.body.appendChild(wrap);
@@ -914,6 +912,57 @@ async function prepApp(id,btn){btn.disabled=true;
   try{const d=await api('/api/applications/'+id+'/prepare',{method:'POST'});toast(d.message);
   setTimeout(()=>{document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());openApp(id)},60000);
   }catch(e){toast(e.message);btn.disabled=false}}
+/* ---------- ForiForeign Apply Assistant (client side) ---------- */
+let FF_ASSIST=false;
+window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.data.type==='FF_ASSIST_HELLO'){FF_ASSIST=true}});
+setTimeout(()=>{try{window.postMessage({type:'FF_ASSIST_PING'},location.origin)}catch(e){}},1200);
+async function applyNow(appId,btn){
+  if(SITE&&SITE.apply_assistant&&SITE.apply_assistant.enabled===false){toast('Online application assistance is temporarily unavailable.');return}
+  if(btn)btn.disabled=true;
+  let d;
+  try{d=await api('/api/applications/'+appId+'/package')}
+  catch(e){toast(e.message);if(btn)btn.disabled=false;return}
+  const p=d.package;
+  if(FF_ASSIST){
+    window.postMessage({type:'FF_APPLY',pkg:p,sig:d.sig},location.origin);
+    toast('Opening your email with everything prepared…');
+    if(btn)btn.disabled=false;
+    return;
+  }
+  applyFallback(p);
+  if(btn)btn.disabled=false;
+}
+function applyFallback(p){
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.7);z-index:60;overflow:auto;padding:30px 14px';
+  const mailto='mailto:'+encodeURIComponent(p.recipient)+'?subject='+encodeURIComponent(p.subject)+'&body='+encodeURIComponent(p.body.slice(0,1800));
+  const gmailUrl='https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(p.recipient)+'&su='+encodeURIComponent(p.subject)+'&body='+encodeURIComponent(p.body.slice(0,1800));
+  const outlookUrl='https://outlook.live.com/mail/0/deeplink/compose?to='+encodeURIComponent(p.recipient)+'&subject='+encodeURIComponent(p.subject)+'&body='+encodeURIComponent(p.body.slice(0,1800));
+  const yahooUrl='https://compose.mail.yahoo.com/?to='+encodeURIComponent(p.recipient)+'&subject='+encodeURIComponent(p.subject)+'&body='+encodeURIComponent(p.body.slice(0,1800));
+  const aa=(SITE&&SITE.apply_assistant)||{};const prov=aa.providers||{};
+  wrap.innerHTML=`<div style="max-width:620px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
+  <div class="spread"><h3 style="margin:0">Your application is ready 🚀</h3><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="sub" style="margin:8px 0">To: <b>${esc(p.recipientName||p.recipient)}</b> · ${esc(p.organization)}</div>
+  <div class="sub" style="margin:6px 0"><b>Step 1.</b> Download your prepared documents:</div>
+  <div class="row" style="flex-wrap:wrap;gap:6px">${(p.attachments||[]).map(a2=>`<a class="btn b-line" style="text-decoration:none" href="${escAttr(a2.url)}" download>📎 ${esc(a2.filename)}</a>`).join('')||'<span class="sub">No documents in this case.</span>'}</div>
+  <div class="sub" style="margin:10px 0 6px"><b>Step 2.</b> Open your email — recipient, subject and your tailored message are pre-filled. Attach the downloaded documents, review, and press <b>Send</b>:</div>
+  <div class="row" style="flex-wrap:wrap;gap:6px">
+  ${prov.gmail!==false?`<a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(gmailUrl)}">Open in Gmail</a>`:''}
+  ${prov.outlook!==false?`<a class="btn b-line" style="text-decoration:none" target="_blank" href="${escAttr(outlookUrl)}">Open in Outlook</a>`:''}
+  </div>
+  <div class="sub" style="margin-top:12px">ForiForeign never sends anything itself — you review and press Send in your own email.</div>
+  ${(()=>{const su=((SITE&&SITE.apply_assistant&&SITE.apply_assistant.store_urls)||{});const link=su.chrome||su.edge||su.firefox;
+  return link?`<div class="card" style="margin-top:10px;border-color:#F1C40F"><b>💡 Make this one-click next time</b><div class="sub" style="margin:4px 0">Apply Assistant opens your email with the documents already attached — install once, use forever.</div><a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(link)}">Enable Apply Assistant</a></div>`
+  :`<div class="sub" style="margin-top:6px">💡 The <b>Apply Assistant</b> browser extension (auto-attaches your documents) is coming to the Chrome Web Store.</div>`})()}
+  <div class="row" style="margin-top:10px"><button class="btn b-green" onclick="markApplied('${p.applicationId}',this)">I pressed Send — mark as applied</button></div>
+  </div>`;
+  document.body.appendChild(wrap);
+}
+async function markApplied(appId,btn){btn.disabled=true;
+  try{await api('/api/applications/'+appId+'/notes',{method:'POST',body:{notes:'Applied via own email on '+new Date().toISOString().slice(0,10)}});}catch(e){}
+  toast('Marked as applied. Good luck! 🎉');
+  document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());
+}
 async function authorizeMsg(id,btn){btn.disabled=true;
   try{const d=await api('/api/messages/'+id+'/authorize',{method:'POST'});toast(d.note||'Authorized.');
   document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());vApps();
@@ -997,10 +1046,8 @@ async function vProfile(){
   <div class="sub" style="margin:6px 0">The agent reads each document separately and cross-checks the facts. Matching facts become verified; disagreements are flagged for you to resolve.</div>
   <div id="verifyList"><span class="sub">Press cross-check, or upload more documents first.</span></div></div>
 
-  <div class="card"><h3>Sending: your own Gmail</h3>
-  <div class="sub" id="gmStatus" style="margin:6px 0">Checking…</div>
-  <div class="row"><button class="btn b-green" onclick="connectGmail()">Connect my Gmail, one click</button>
-  <button class="btn b-line" onclick="disconnectGmail()">Disconnect</button></div></div>
+  <div class="card"><h3>Applying: from your own email</h3>
+  <div class="sub" style="margin:6px 0">ForiForeign prepares everything — recipient, tailored email, CV and documents. When you press APPLY on a case, it opens in your own email for you to review and press Send. ForiForeign never accesses your inbox and never sends anything itself.</div></div>
 
   <div class="card"><h3>Edit details</h3>
   <label>Full name</label><input id="p-name" value="${esc(m.full_name)}">
@@ -1024,7 +1071,7 @@ async function vProfile(){
   <textarea id="p-exp">${esc((m.experience||[]).map(e=>[e.role,e.org,e.years].filter(Boolean).join(', ')).join('\n'))}</textarea>
   <div class="row" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save profile</button></div></div>
   <div class="card"><h3>My referees</h3><div id="refList" class="sub" style="margin-top:6px">Loading…</div></div>`;
-  loadDocs();loadRefs();loadGmail();loadFields();loadAvatar();
+  loadDocs();loadRefs();loadFields();loadAvatar();
 }
 async function loadAvatar(){
   try{const d=await api('/api/me/avatar/url');if(!d.url)return;
@@ -1093,11 +1140,6 @@ async function loadChecklist(){
       </div>`).join('')}`;
   }catch(e){const el=$('checklist');if(el)el.innerHTML='<span class="sub">Checklist unavailable right now.</span>';}
 }
-function connectGmail(){window.location='/auth/google/start?token='+encodeURIComponent(SESSION.access_token)}
-async function disconnectGmail(){try{await api('/api/me/gmail/disconnect',{method:'POST'});toast('Disconnected.');loadGmail();}catch(e){toast(e.message)}}
-async function loadGmail(){try{const d=await api('/api/me/gmail');const el=$('gmStatus');if(!el)return;
-  el.innerHTML=d.connected?'<span style="color:var(--green)">✓ Connected: '+esc(d.addr)+'</span>':'Not connected. Applications wait until you connect.';
-}catch(e){}}
 async function loadDocs(){
   try{const d=await api('/api/documents');const el=$('docSections');if(!el)return;
     const docs=d.documents||[];
@@ -1264,7 +1306,8 @@ async function adminSettings(){
   ${T('features','free_first_case','Free first case for new users')}
   ${T('features','payments','Payments enabled')}
   ${T('features','opportunity_search','Opportunity search enabled')}
-  ${T('features','gmail_sending','Gmail sending enabled')}</div>
+  </div>
+  ${applyAssistCard()}
   <div class="card"><h3>Announcement banner</h3>
   ${T('announcement','enabled','Show announcement to all users')}
   ${F('announcement','text','Announcement text')}</div>
@@ -1283,6 +1326,22 @@ async function adminSettings(){
   <div class="row" style="margin:12px 0"><button class="btn b-gold" onclick="saveAdminSettings(this)">Save settings</button></div>
   ${(d.history||[]).length?`<div class="card"><h3>Version history</h3>${d.history.map(h=>`<div class="spread" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="sub">v${h.version} · ${esc((h.at||'').slice(0,16).replace('T',' '))}</span><button class="btn b-line" style="padding:3px 10px" onclick="if(confirm('Roll back to v${h.version}? Current settings will be preserved in history.'))rollbackSettings(${h.version},this)">Roll back</button></div>`).join('')}</div>`:''}`;
 }
+function applyAssistCard(){
+  const aa=(window._cfg&&window._cfg.apply_assistant)||{};
+  const isSuper=(ME&&ME.role)==='super_admin';
+  const prov=aa.providers||{};
+  return `<div class="card"><h3>ForiForeign Apply Assistant</h3>
+  <div class="sub" style="margin-bottom:6px">Applications open in the client's own email for review — ForiForeign never sends automatically and never accesses inboxes.</div>
+  <div class="row" style="margin-top:6px"><label style="margin:0"><input type="checkbox" data-aa="enabled" ${aa.enabled!==false?'checked':''} ${isSuper?'':'disabled'} style="width:auto"> Enabled ${isSuper?'':'<span class="sub">(super admin only)</span>'}</label></div>
+  <div class="row" style="margin-top:6px"><label style="margin:0"><input type="checkbox" data-aa="apply_button" ${aa.apply_button!==false?'checked':''} style="width:auto"> APPLY button visible to clients</label></div>
+  <div class="sub" style="margin-top:8px">Email providers offered:</div>
+  ${[['gmail','Gmail'],['outlook','Outlook / Microsoft 365 / Hotmail / Live']].map(([k,l])=>`<div class="row" style="margin-top:4px"><label style="margin:0"><input type="checkbox" data-aaprov="${k}" ${prov[k]!==false?'checked':''} style="width:auto"> ${l}</label></div>`).join('')}
+  <label style="margin-top:8px">Fallback when the browser assistant is not installed</label>
+  <select data-aa="fallback"><option value="download" ${aa.fallback!=='mailto'?'selected':''}>Open email + document download tray (recommended)</option>
+  <option value="mailto" ${aa.fallback==='mailto'?'selected':''}>Default mail app only</option></select>
+  <label style="margin-top:8px">Chrome Web Store URL (after publishing)</label><input data-aa="store_chrome" value="${escAttr((aa.store_urls||{}).chrome||'')}" placeholder="https://chromewebstore.google.com/...">
+  </div>`;
+}
 async function saveAdminSettings(btn){
   btn.disabled=true;
   const patch={};
@@ -1293,6 +1352,20 @@ async function saveAdminSettings(btn){
   });
   const planDocs=[...document.querySelectorAll('#adminBody [data-plandoc]')].filter(el=>el.checked).map(el=>el.dataset.plandoc);
   if(planDocs.length)patch.case_plan={docs:planDocs};
+  const aaEls=[...document.querySelectorAll('#adminBody [data-aa]')];
+  if(aaEls.length){
+    const cur=(window._cfg&&window._cfg.apply_assistant)||{};
+    const aa={enabled:cur.enabled!==false,apply_button:true,fallback:'download',providers:{},store_urls:{}};
+    aaEls.forEach(el=>{const k=el.dataset.aa;
+      if(k==='enabled'){if(!el.disabled)aa.enabled=el.checked}
+      else if(k==='apply_button')aa.apply_button=el.checked;
+      else if(k==='fallback')aa.fallback=el.value;
+      else if(k==='store_chrome')aa.store_urls.chrome=el.value.trim();
+      else if(k==='store_edge')aa.store_urls.edge=el.value.trim();
+      else if(k==='store_firefox')aa.store_urls.firefox=el.value.trim();});
+    document.querySelectorAll('#adminBody [data-aaprov]').forEach(el=>aa.providers[el.dataset.aaprov]=el.checked);
+    patch.apply_assistant=aa;
+  }
   try{const d=await api('/api/admin/settings',{method:'PUT',body:{patch}});
     toast('Saved as v'+d.version+'. Live everywhere within 30 seconds.');await loadSiteConfig();vAdmin();
   }catch(e){toast(e.message);btn.disabled=false}
