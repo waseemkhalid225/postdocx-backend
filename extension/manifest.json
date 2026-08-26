@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "ForiForeign Apply Assistant",
+  "version": "1.0.0",
+  "description": "Places your ForiForeign-prepared application into your Gmail or Outlook for review. You always press Send yourself. No inbox access.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://foriforeign.com/*",
+    "https://www.foriforeign.com/*",
+    "https://mail.google.com/*",
+    "https://outlook.live.com/*",
+    "https://outlook.office.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://foriforeign.com/*",
+        "https://www.foriforeign.com/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://mail.google.com/*"
+      ],
+      "js": [
+        "adapters/gmail.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://outlook.live.com/*",
+        "https://outlook.office.com/*"
+      ],
+      "js": [
+        "adapters/outlook.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ForiForeign Apply Assistant"
+  },
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
