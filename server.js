@@ -814,50 +814,41 @@ app.get('/api/opportunities/:id/match', auth, async (req, res) => {
 });
 
 
-/* ---------- Gmail one-click connect (per user) ---------- */
-const gmailLib = require('./lib/gmail');
-// Owner diagnostic: shows the EXACT redirect URI to paste into Google Cloud Console.
-app.get('/auth/google/diagnose', async (req, res) => {
-  const base = (process.env.BASE_URL || '').replace(/\/$/, '');
-  const uri = base ? base + '/auth/google/callback' : null;
-  res.json({
-    BASE_URL_set: !!process.env.BASE_URL,
-    GOOGLE_OAUTH_CLIENT_ID_set: !!process.env.GOOGLE_OAUTH_CLIENT_ID,
-    GOOGLE_OAUTH_CLIENT_SECRET_set: !!process.env.GOOGLE_OAUTH_CLIENT_SECRET,
-    redirect_uri_the_server_sends: uri,
-    instructions: uri
-      ? 'Open Google Cloud Console -> APIs & Services -> Credentials -> your OAuth 2.0 Client ID -> Authorized redirect URIs. Add EXACTLY the URI above (same scheme, same domain, no trailing slash, no www unless shown). Save, wait 1-2 minutes, retry.'
-      : 'Set BASE_URL in Railway variables to your public app URL, e.g. https://yourapp.up.railway.app (no trailing slash), then reload this page.'
+/* ---------- ForiForeign Apply Assistant: signed application packages ---------- */
+const applyLib = require('./lib/apply');
+// Signed, short-lived package for one application. No mailbox access, no credentials, never auto-sends.
+app.get('/api/applications/:id/package', auth, async (req, res) => {
+  const cfg = await siteSettings.getConfig().catch(() => siteSettings.DEFAULTS);
+  const aa = cfg.apply_assistant || {};
+  if (aa.enabled === false) return res.status(503).json({ error: 'Online application assistance is temporarily unavailable.' });
+  const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
+  if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  const { data: msg } = await admin().from('messages').select('*').eq('application_id', a.id).eq('direction', 'outbound').in('status', ['approved', 'ready', 'pending']).order('created_at', { ascending: false }).limit(1).single();
+  if (!msg) return res.status(400).json({ error: 'Prepare the application first.' });
+  const { data: docs } = await admin().from('application_documents').select('id,kind,title').eq('application_id', a.id);
+  const o = a.opportunities || {};
+  const pkg = applyLib.buildPackage({
+    applicationId: a.id, opportunityId: o.id || '',
+    recipient: (msg.to_emails || [])[0] || '', recipientName: o.contact_name || '',
+    organization: o.institution || '', subject: msg.subject || '', body: msg.body || '',
+    attachments: (docs || []).map(d => ({ id: d.id, filename: applyLib.niceName(d), url: '/api/apply/doc/' + d.id + '?' + applyLib.docQuery(d.id, req.userId) }))
   });
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'APPLY_PACKAGE', detail: a.id });
+  res.json(pkg);
 });
-app.get('/auth/google/start', async (req, res) => {
+// Short-lived signed PDF fetch for one prepared document (used by the assistant to attach files).
+app.get('/api/apply/doc/:docId', async (req, res) => {
   try {
-    const u = await userFromToken(String(req.query.token || ''));
-    if (!u) return res.status(401).send('Sign in first, then press Connect my Gmail again.');
-    res.redirect(gmailLib.authStartUrl(String(req.query.token)));
-  } catch (e) { res.status(400).send(e.message); }
-});
-app.get('/auth/google/callback', async (req, res) => {
-  try {
-    const u = await userFromToken(String(req.query.state || ''));
-    if (!u) return res.redirect('/?gmail=error&why=' + encodeURIComponent('Session expired, sign in and retry'));
-    if (!req.query.code) return res.redirect('/?gmail=error&why=' + encodeURIComponent(String(req.query.error || 'Google returned no code')));
-    const rt = await gmailLib.exchangeCode(String(req.query.code));
-    const { encrypt } = require('./lib/crypt');
-    const { data: p } = await admin().from('profiles').select('id').eq('id', u.id).single();
-    if (!p) await admin().from('profiles').insert({ id: u.id, full_name: u.email.split('@')[0] });
-    await admin().from('profiles').update({ gmail_refresh_enc: encrypt(rt), gmail_addr: u.email, gmail_connected: true }).eq('id', u.id);
-    await admin().from('audit_log').insert({ actor: u.id, event: 'GMAIL_CONNECTED', detail: u.email });
-    res.redirect('/?gmail=connected');
-  } catch (e) { res.redirect('/?gmail=error&why=' + encodeURIComponent(String(e.message).slice(0, 140))); }
-});
-app.get('/api/me/gmail', auth, async (req, res) => {
-  const { data: p } = await admin().from('profiles').select('gmail_connected,gmail_addr').eq('id', req.userId).single();
-  res.json({ connected: !!(p && p.gmail_connected), addr: (p || {}).gmail_addr || '' });
-});
-app.post('/api/me/gmail/disconnect', auth, async (req, res) => {
-  await admin().from('profiles').update({ gmail_refresh_enc: null, gmail_connected: false }).eq('id', req.userId);
-  res.json({ ok: true });
+    const v = applyLib.verifyDocQuery(req.params.docId, req.query);
+    if (!v.ok) return res.status(403).json({ error: 'Link expired. Press APPLY again.' });
+    const { data: d } = await admin().from('application_documents').select('*, applications!inner(user_id)').eq('id', req.params.docId).single();
+    if (!d || d.applications.user_id !== v.userId) return res.status(404).json({ error: 'Not found' });
+    const { textToPdf } = require('./lib/agents');
+    const pdf = await textToPdf(d.title, d.content);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + applyLib.niceName(d).replace(/"/g, '') + '"');
+    res.send(pdf);
+  } catch (e) { res.status(400).json({ error: 'Document unavailable' }); }
 });
 
 
@@ -922,9 +913,9 @@ app.post('/api/messages/:id/authorize', auth, async (req, res) => {
   if (!m || m.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
   if (m.status !== 'pending') return res.status(400).json({ error: 'Already ' + m.status });
   await admin().from('messages').update({ status: 'approved' }).eq('id', m.id);
-  await admin().from('applications').update({ stage: 'prepared', authorized_at: new Date().toISOString(), authorized_by: req.userId, next_action: 'Authorized. The send agent dispatches it from your Gmail within 2 minutes.' }).eq('id', m.application_id);
+  await admin().from('applications').update({ stage: 'prepared', authorized_at: new Date().toISOString(), authorized_by: req.userId, next_action: 'Authorized. Press APPLY to open it in your own email, review, and send.' }).eq('id', m.application_id);
   await admin().from('audit_log').insert({ actor: req.userId, event: 'AUTHORIZED', detail: m.id });
-  res.json({ ok: true, note: 'Authorized. It sends from your own Gmail within 2 minutes, with your documents attached as PDFs.' });
+  res.json({ ok: true, note: 'Authorized. Press APPLY to open it in your own email — you review and press Send.' });
 });
 
 const PORT = process.env.PORT || 3000;
