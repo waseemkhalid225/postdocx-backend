@@ -24,6 +24,12 @@ body.world-on #nav button.on{color:#fff}
 body.world-on main#view{position:relative;z-index:2}
 /* let the globe receive drags only where the page opts in */
 #worldBg.interactive{pointer-events:auto}
+/* the world is the page: dark base everywhere, content floats transparent above it */
+body.world-on{background:#040d1f;overflow-x:hidden}
+html:has(body.world-on){background:#040d1f}
+body.world-on main#view{background:transparent}
+body.world-on .brand b,body.world-on .auth-brand-lg b{color:#F1C40F}
+body.world-on .credit-pill{background:linear-gradient(135deg,#D9A521,#F1C40F);color:#14213D}
 h1,h2,h3,.brand{font-family:Fraunces,serif}
 .brand{font-size:22px;font-weight:700}.brand b{color:var(--gold)}
 header{background:var(--ink);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;box-shadow:0 1px 0 rgba(15,39,72,.06)}

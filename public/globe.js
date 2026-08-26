@@ -3,7 +3,7 @@
    particles and glow are all generated in code. Exposes window.FFGlobe. */
 (function () {
   const REGIONS = {
-    pk:     { color: 0xffffff },
+    pk:     { color: 0x2ecc71 },   // Pakistan green, matching brand identity
     europe: { color: 0x4f8ef7 },
     uk:     { color: 0x8b5cf6 },
     na:     { color: 0x22c55e },
@@ -87,44 +87,72 @@
       starMat = mk(1400, 20, 0.05, 0x9db8e8);   // near, blue-white
       starMat2 = mk(700, 34, 0.09, 0xdbe8ff);   // far, brighter
     })();
-
-    // --- globe body: ocean sphere with sun-lit day/night shading + sea glint ---
-    world.add(new THREE.Mesh(new THREE.SphereGeometry(R * 0.985, 48, 48),
-      new THREE.MeshPhongMaterial({ color: 0x0b2148, emissive: 0x050e20, specular: 0x6ea8ff, shininess: 42, transparent: true, opacity: 0.97 })));
-    (function () { // fibonacci dot field
-      const n = 1400, pos = new Float32Array(n * 3), ga = Math.PI * (3 - Math.sqrt(5));
-      for (let i = 0; i < n; i++) {
-        const y = 1 - (i / (n - 1)) * 2, rad = Math.sqrt(1 - y * y), th = ga * i;
-        pos.set([Math.cos(th) * rad * R, y * R, Math.sin(th) * rad * R], i * 3);
-      }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      world.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0x2f5ea8, size: 0.014, transparent: true, opacity: 0.85 })));
+    // shooting star (streak sprite, fires occasionally)
+    const shoot = { active: false, next: Date.now() + 4000, p: 0, x: 0, y: 0, z: -1, spr: null };
+    (function () {
+      const c = document.createElement('canvas'); c.width = 128; c.height = 16;
+      const g = c.getContext('2d'), grd = g.createLinearGradient(0, 0, 128, 0);
+      grd.addColorStop(0, 'rgba(255,255,255,0)'); grd.addColorStop(0.8, 'rgba(220,235,255,0.9)'); grd.addColorStop(1, 'rgba(255,255,255,1)');
+      g.fillStyle = grd; g.fillRect(0, 0, 128, 16);
+      shoot.spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+      shoot.spr.scale.set(0.7, 0.05, 1); scene.add(shoot.spr);
     })();
-    (function () { // graticule rings
-      const mat = new THREE.LineBasicMaterial({ color: 0x1d3f74, transparent: true, opacity: 0.5 });
-      for (let la = -60; la <= 60; la += 30) {
-        const pts = []; for (let lo = 0; lo <= 360; lo += 6) pts.push(ll2v(la, lo, R * 1.001));
-        world.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), mat));
-      }
-      for (let lo = 0; lo < 360; lo += 30) {
-        const pts = []; for (let la = -90; la <= 90; la += 6) pts.push(ll2v(la, lo, R * 1.001));
-        world.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
-      }
+
+    // --- globe body: realistic Earth (free MIT textures shipped inside the three.js package;
+    //     graceful procedural fallback if they fail to load) ---
+    const earthMat = new THREE.MeshPhongMaterial({ color: 0x0b2148, emissive: 0x050e20, specular: 0x88aaff, shininess: 26, transparent: true, opacity: 1 });
+    const earth = new THREE.Mesh(new THREE.SphereGeometry(R * 0.985, 64, 64), earthMat);
+    world.add(earth);
+    let clouds = null, mapFade = 0, mapLoaded = false;
+    (function () {
+      const TL = new THREE.TextureLoader(); TL.setCrossOrigin('anonymous');
+      const tryLoad = (urls, ok) => { let i = 0; (function next() { if (i >= urls.length) return; TL.load(urls[i++], t => ok(t), undefined, next); })(); };
+      const P = 'examples/textures/planets/';
+      const CDNS = ['https://unpkg.com/three@0.128.0/', 'https://cdn.jsdelivr.net/npm/three@0.128.0/'];
+      tryLoad(CDNS.map(c => c + P + 'earth_atmos_2048.jpg'), t => { earthMat.map = t; earthMat.needsUpdate = true; mapLoaded = true; /* fades in via mapFade in the loop */ });
+      tryLoad(CDNS.map(c => c + P + 'earth_specular_2048.jpg'), t => { earthMat.specularMap = t; earthMat.needsUpdate = true; });
+      tryLoad(CDNS.map(c => c + P + 'earth_clouds_1024.png'), t => {
+        clouds = new THREE.Mesh(new THREE.SphereGeometry(R * 1.012, 48, 48),
+          new THREE.MeshPhongMaterial({ map: t, transparent: true, opacity: 0.5, depthWrite: false }));
+        world.add(clouds);
+      });
     })();
     // atmosphere glow (procedural sprite behind globe)
     const atmo = glowSprite(0x3b82f6, 3.4); atmo.position.set(0, 0, -0.2); scene.add(atmo);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const amb = new THREE.AmbientLight(0xffffff, 0.5); scene.add(amb);
     const sun = new THREE.DirectionalLight(0xfff2d8, 1.25); sun.position.set(6, 2.4, 4); scene.add(sun);
-    // Visible sun with warm glow — slowly orbits, creating a day/night cycle and "sunrise" over the globe.
-    const sunGlow = glowSprite(0xffd9a0, 1.6); scene.add(sunGlow);
-    const sunCore = glowSprite(0xffffff, 0.55); scene.add(sunCore);
-    let sunAng = -0.6; // starts low: rising-sun feel
+    // Visible sun with warm glow, lens-flare ghosts and a light streak — cinematic corner light.
+    const sunGlow = glowSprite(0xffd9a0, 1.9); scene.add(sunGlow);
+    const sunCore = glowSprite(0xffffff, 0.6); scene.add(sunCore);
+    const ghosts = [glowSprite(0xffc27a, 0.34), glowSprite(0xff9d5c, 0.2), glowSprite(0xfff1c9, 0.12)];
+    ghosts.forEach(g => scene.add(g));
+    const streak = (function () {
+      const c = document.createElement('canvas'); c.width = 256; c.height = 32;
+      const g = c.getContext('2d'), grd = g.createLinearGradient(0, 0, 256, 0);
+      grd.addColorStop(0, 'rgba(255,220,160,0)'); grd.addColorStop(0.5, 'rgba(255,235,200,0.85)'); grd.addColorStop(1, 'rgba(255,220,160,0)');
+      g.fillStyle = grd; g.fillRect(0, 0, 256, 32);
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      s.scale.set(3.1, 0.22, 1); scene.add(s); return s;
+    })();
+    let sunAng = -0.6, dayFactor = 1; // starts low: rising-sun feel
     function placeSun() {
-      const sx = Math.cos(sunAng) * 7, sy = 1.4 + Math.sin(sunAng * 0.7) * 1.6, sz = Math.sin(sunAng) * 7;
+      const sx = Math.cos(sunAng) * 7, sy = 1.4 + Math.sin(sunAng * 0.7) * 2.1, sz = Math.sin(sunAng) * 7;
       sun.position.set(sx, sy, sz);
       sunGlow.position.set(sx * 0.92, sy * 0.92, sz * 0.92);
       sunCore.position.copy(sunGlow.position);
+      streak.position.copy(sunGlow.position);
+      // lens-flare ghosts fall on the sun->center axis
+      ghosts.forEach((g, i) => { const k = [0.55, 0.32, 0.14][i]; g.position.set(sunGlow.position.x * k, sunGlow.position.y * k, sunGlow.position.z * k); });
+      // day factor from sun elevation: 1 = noon, 0 = night. Drives colors + ambience.
+      dayFactor = Math.max(0, Math.min(1, (sy + 0.4) / 2.6));
+      const warm = new THREE.Color(0xff9d5c), noon = new THREE.Color(0xfff2d8);
+      sun.color.copy(warm).lerp(noon, dayFactor);
+      sun.intensity = 0.65 + 0.75 * dayFactor;
+      amb.intensity = 0.3 + 0.28 * dayFactor;
+      const glowScale = 1.5 + 0.8 * (1 - dayFactor); // sun looks bigger at horizon (sunset effect)
+      sunGlow.scale.set(glowScale, glowScale, 1);
+      streak.material.opacity = 0.25 + 0.55 * (1 - dayFactor);
     }
     placeSun();
 
@@ -169,9 +197,21 @@
       ring2.scale.setScalar(1.12); scene.add(ring2);
     })();
 
-    // --- flight arcs from Pakistan + particles + aircraft ---
+    // --- flight arcs from Pakistan + fleet + particles ---
     const start = ll2v(pk.lat, pk.lng, R * 1.005);
     const flights = [];
+    // Livery palette inspired by leading airlines serving Pakistan (colors only, no trademarks/logos)
+    const LIVERY = [0xd7263d, 0x0f9d58, 0xc9a227, 0xffffff, 0x1f6feb];
+    function makePlane(liveryColor) {
+      const plane = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.075, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      body.rotation.x = Math.PI / 2;
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.0025, 0.02), new THREE.MeshBasicMaterial({ color: 0xe8f0ff }));
+      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.018, 0.003), new THREE.MeshBasicMaterial({ color: liveryColor }));
+      tail.position.z = -0.032; tail.position.y = 0.012;
+      plane.add(body); plane.add(wing); plane.add(tail);
+      return plane;
+    }
     COUNTRIES.slice(1).forEach((c, i) => {
       const end = ll2v(c.lat, c.lng, R * 1.005);
       // Altitude proportional to great-circle distance (technique from three-globe, own code).
@@ -187,15 +227,13 @@
       world.add(line);
       const particle = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), new THREE.MeshBasicMaterial({ color: col }));
       world.add(particle);
-      // procedural aircraft
-      const plane = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.ConeGeometry(0.011, 0.045, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-      body.rotation.x = Math.PI / 2;
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.002, 0.012), new THREE.MeshBasicMaterial({ color: 0xdbeafe }));
-      plane.add(body); plane.add(wing);
+      // fleet: primary plane + a second on longer routes, livery-colored tails
+      const plane = makePlane(LIVERY[i % LIVERY.length]);
       world.add(plane);
+      let plane2 = null;
+      if (gc > 1.0) { plane2 = makePlane(LIVERY[(i + 2) % LIVERY.length]); world.add(plane2); }
       // motion trail behind the aircraft (technique from AirTrails3D, own implementation)
-      const TN = 14, tpos = new Float32Array(TN * 3);
+      const TN = 22, tpos = new Float32Array(TN * 3);
       const tgeo = new THREE.BufferGeometry(); tgeo.setAttribute('position', new THREE.BufferAttribute(tpos, 3));
       const trail = new THREE.Line(tgeo, new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.5 }));
       world.add(trail);
@@ -204,7 +242,7 @@
       const cgeo = new THREE.BufferGeometry(); cgeo.setAttribute('position', new THREE.BufferAttribute(cpos, 3));
       const comets = new THREE.Points(cgeo, new THREE.PointsMaterial({ color: col, size: 0.02, transparent: true, opacity: 0.9 }));
       world.add(comets);
-      flights.push({ curve, particle, plane, line, trail, comets, CN, TN, t: Math.random(), speed: 0.0016 + Math.random() * 0.0012, dash: 0 });
+      flights.push({ curve, particle, plane, plane2, line, trail, comets, CN, TN, t: Math.random(), speed: 0.0016 + Math.random() * 0.0012, dash: 0 });
     });
 
     // --- interaction: drag rotate, hover, click ---
@@ -261,10 +299,30 @@
         p.ring.scale.setScalar(s);
         p.ring.material.opacity = 0.9 * (1 - p.t);
       });
-      if (starMat) starMat.opacity = 0.7 + Math.sin(Date.now() * 0.0012) * 0.18;
-      if (starMat2) starMat2.opacity = 0.7 + Math.sin(Date.now() * 0.0012 + 2) * 0.22;
+      if (starMat) starMat.opacity = (0.7 + Math.sin(Date.now() * 0.0012) * 0.18) * (1.35 - 0.5 * dayFactor);
+      if (starMat2) starMat2.opacity = (0.7 + Math.sin(Date.now() * 0.0012 + 2) * 0.22) * (1.35 - 0.5 * dayFactor);
+      // smooth fade from stylized ocean to the real map once the texture arrives (no pop)
+      if (mapLoaded && mapFade < 1) {
+        mapFade = Math.min(1, mapFade + 0.02);
+        earthMat.color.setRGB(0.043 + (1 - 0.043) * mapFade, 0.129 + (1 - 0.129) * mapFade, 0.282 + (1 - 0.282) * mapFade);
+        earthMat.emissive.setRGB(0.02 + 0.019 * mapFade, 0.055 + 0.024 * mapFade, 0.125 + 0.016 * mapFade);
+      }
+      // occasional shooting star
+      if (!shoot.active && Date.now() > shoot.next) {
+        shoot.active = true; shoot.p = 0;
+        shoot.x = (Math.random() * 4 - 1.2); shoot.y = 1.6 + Math.random() * 0.9; shoot.z = -0.6 - Math.random();
+        shoot.spr.material.opacity = 0.9;
+      }
+      if (shoot.active) {
+        shoot.p += 0.03;
+        shoot.spr.position.set(shoot.x - shoot.p * 2.4, shoot.y - shoot.p * 1.3, shoot.z);
+        shoot.spr.material.opacity = 0.9 * (1 - shoot.p);
+        shoot.spr.material.rotation = -0.5;
+        if (shoot.p >= 1) { shoot.active = false; shoot.next = Date.now() + 6000 + Math.random() * 9000; shoot.spr.material.opacity = 0; }
+      }
       // slow sunrise/day-night cycle (~4 min per orbit) + gentle cinematic camera drift
       sunAng += 0.0006; placeSun();
+      if (clouds) clouds.rotation.y += 0.0004;
       if (!dragging && !zoomed) {
         camera.position.x += (Math.sin(Date.now() * 0.00012) * 0.06 - camera.position.x * 0.0) * 0.002;
         camera.position.y += ((0.35 + Math.sin(Date.now() * 0.00009) * 0.05) - camera.position.y) * 0.01;
@@ -274,6 +332,13 @@
         f.particle.position.copy(f.curve.getPoint((f.t + 0.5) % 1));
         const p = f.curve.getPoint(f.t); f.plane.position.copy(p);
         const tan = f.curve.getTangent(f.t); f.plane.lookAt(p.clone().add(tan));
+        f.plane.rotateZ(0.22 * Math.sin(f.t * 6.283)); // gentle banking roll
+        if (f.plane2) {
+          const t2 = (f.t + 0.45) % 1, p2 = f.curve.getPoint(t2);
+          f.plane2.position.copy(p2);
+          f.plane2.lookAt(p2.clone().add(f.curve.getTangent(t2)));
+          f.plane2.rotateZ(0.22 * Math.sin(t2 * 6.283));
+        }
         // flowing dash motion along the arc
         f.dash -= 0.01; f.line.material.dashOffset = f.dash;
         // update trail: shift history, write current head
