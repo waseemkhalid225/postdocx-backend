@@ -413,6 +413,9 @@ app.get('/api/me', auth, async (req, res) => {
   }
   if (!data) return res.status(500).json({ error: 'Profile unavailable' });
   delete data.gmail_refresh_enc;
+  let appCount = 0;
+  try { const { count } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', req.userId); appCount = count || 0; } catch (e) {}
+  data.used_free_case = appCount > 0;
   res.json({ me: data, credits: await balance(req.userId) });
 });
 app.put('/api/me', auth, async (req, res) => {
@@ -607,13 +610,13 @@ app.get('/api/applications', auth, async (req, res) => {
 
 /* ---------- documents: upload, read, view, delete + auto profile fill ---------- */
 const multer = require('multer');
-const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 6 } });
+const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 12 } });
 const { saveUpload, signedUrl, extractProfile } = require('./lib/docs');
-app.post('/api/documents', auth, up.array('files', 6), async (req, res) => {
+app.post('/api/documents', auth, up.array('files', 12), async (req, res) => {
   try {
     // Optional section override: when the user adds files from a specific profile
     // section, that section's kind wins over filename-based classification.
-    const VALID_KINDS = ['cv','transcript','degree','certificate','english_test','passport','license','publication','reference_letter','document'];
+    const VALID_KINDS = ['cv','transcript','degree','certificate','english_test','license','publication','reference_letter','document'];
     const kindOverride = VALID_KINDS.includes(String(req.body && req.body.kind || '')) ? String(req.body.kind) : null;
     const results = [];
     for (const f of (req.files || [])) {
@@ -662,7 +665,7 @@ const DOC_CHECKLIST = [
   { key: 'transcript',   label: 'Academic transcripts',        required: true,  match: ['transcript'] },
   { key: 'degree',       label: 'Degree certificates',         required: true,  match: ['degree'] },
   { key: 'english_test', label: 'English test (IELTS/TOEFL/PTE)', required: true, match: ['english_test'] },
-  { key: 'passport',     label: 'Passport (photo page)',       required: true,  match: ['passport'] },
+  { key: 'passport',     label: 'Passport (photo page) — optional, not needed to start', required: false, match: ['passport'] },
   { key: 'license',      label: 'Professional license/registration (work)', required: false, match: ['license'] },
   { key: 'reference_letter', label: 'Reference / recommendation letters', required: false, match: ['reference_letter'] },
   { key: 'publication',  label: 'Publications / research papers', required: false, match: ['publication'] },
