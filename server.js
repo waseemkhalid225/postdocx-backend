@@ -5,6 +5,19 @@ const { admin, userFromToken } = require('./lib/supa');
 
 const app = express();
 try { app.use(require('compression')()); } catch (e) { /* compression not installed yet */ }
+const { slog, errlog } = require('./lib/oblog');
+const _lat = []; // rolling latency + error counters for the observability dashboard
+const _ops = { req: 0, err: 0, ai_err: 0 };
+app.use((req, res, next) => {
+  req.reqId = Math.random().toString(36).slice(2, 10);
+  const t0 = Date.now(); _ops.req++;
+  res.on('finish', () => {
+    const ms = Date.now() - t0; _lat.push(ms); if (_lat.length > 500) _lat.shift();
+    if (res.statusCode >= 500) _ops.err++;
+    if (req.path.startsWith('/api')) slog('http', req.method + ' ' + req.path + ' ' + res.statusCode, { requestId: req.reqId, ms });
+  });
+  next();
+});
 app.use(express.json({ limit: '2mb' }));
 // Long-cache heavy static assets (video/icons); HTML always fresh.
 app.use(express.static('public', { maxAge: '7d', setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
@@ -902,6 +915,11 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
     attachments: (docs || []).map(d => ({ id: d.id, filename: applyLib.niceName(d), url: '/api/apply/doc/' + d.id + '?' + applyLib.docQuery(d.id, req.userId) }))
   });
   await admin().from('audit_log').insert({ actor: req.userId, event: 'APPLY_PACKAGE', detail: a.id });
+  // Safe profile subset for the extension form-filler (Phase 2) — never documents, never credentials.
+  let pr = {}; try { const { data: prof } = await admin().from('profiles').select('full_name,email,phone,city,address,last_institution,degree_level,field,cgpa,experience_years,language_scores,linkedin').eq('id', req.userId).single(); pr = prof || {}; } catch (e) {}
+  pkg.profile = { full_name: pr.full_name, email: pr.email, phone: pr.phone, city: pr.city, address: pr.address,
+    last_institution: pr.last_institution, degree_level: pr.degree_level, field: pr.field, cgpa: pr.cgpa,
+    experience_years: pr.experience_years, language_scores: pr.language_scores, linkedin: pr.linkedin };
   res.json(pkg);
 });
 // Short-lived signed PDF fetch for one prepared document (used by the assistant to attach files).
@@ -934,14 +952,28 @@ app.get('/api/admin/overview', auth, perm('overview.read'), async (req, res) => 
 
 /* ---------- pipeline endpoints ---------- */
 const { discoverForUser, prepareApplication } = require('./lib/engine');
-app.post('/api/run', auth, async (req, res) => {
+app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.discovery_enabled===false)return res.status(503).json({error:'Search is briefly paused for maintenance. Please try again soon.'});next();}, async (req, res) => {
   const { data: st } = await admin().from('app_settings').select('value').eq('key', 'lastRun').single();
   const last = st ? new Date(st.value.at || 0) : new Date(0);
   const mins = (Date.now() - last.getTime()) / 60000;
   if (mins < 30) return res.json({ ok: true, ran: false, message: 'Searched ' + Math.round(mins) + ' min ago. Next run possible in ' + Math.ceil(30 - mins) + ' min.' });
   await admin().from('app_settings').upsert({ key: 'lastRun', value: { at: new Date().toISOString() } });
   res.json({ ok: true, ran: true, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.' });
-  discoverForUser(req.userId, req.body && req.body.kind).catch(e => console.error('[discover]', e.message));
+  require('./lib/jobs').runJob('discover', 'discover:' + req.userId + ':' + Math.floor(Date.now()/1800e3), req.userId, () => discoverForUser(req.userId, req.body && req.body.kind), { retries: 1 });
+});
+/* Observability: the admin sees problems before users complain. */
+app.get('/api/admin/metrics', auth, perm('countries.write'), async (req, res) => {
+  const day = new Date(Date.now() - 24 * 3600e3).toISOString();
+  const q = async p => { try { return (await p).count || 0; } catch (e) { return 0; } };
+  const errors24 = await q(admin().from('error_log').select('id', { count: 'exact', head: true }).gte('at', day));
+  const aiErr24 = await q(admin().from('error_log').select('id', { count: 'exact', head: true }).gte('at', day).ilike('area', '%gemini%'));
+  const jobsFailed = await q(admin().from('jobs').select('id', { count: 'exact', head: true }).eq('status', 'failed'));
+  const opps24 = await q(admin().from('opportunities').select('id', { count: 'exact', head: true }).gte('created_at', day));
+  let cost24 = 0; try { const { data } = await admin().from('ai_cost_ledger').select('cost_usd').gte('created_at', day); cost24 = (data || []).reduce((s, r) => s + Number(r.cost_usd || 0), 0); } catch (e) {}
+  const lat = _lat.slice().sort((a, b) => a - b);
+  const p95 = lat.length ? lat[Math.floor(lat.length * .95)] : 0;
+  const { data: recent } = await admin().from('error_log').select('at,area,message').order('at', { ascending: false }).limit(8);
+  res.json({ errors24, aiErr24, jobsFailed, opps24, cost24: +cost24.toFixed(4), p95ms: p95, requests: _ops.req, recent: recent || [] });
 });
 /* Admin corridor seeding — weakness #1: fill real inventory before launch. */
 app.post('/api/admin/seed', auth, perm('countries.write'), aiLimit, async (req, res) => {
@@ -964,18 +996,19 @@ app.get('/api/applications/:id/status', auth, async (req, res) => {
   }
   res.json({ stage: a.stage, next_action: a.next_action, steps, failed, eta, ready: ['awaiting_authorization','prepared','portal_apply'].includes(a.stage) });
 });
-app.post('/api/applications/:id/prepare', auth, aiLimit, async (req, res) => {
+app.post('/api/applications/:id/prepare', auth, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.prepare_enabled===false)return res.status(503).json({error:'Case preparation is briefly paused for maintenance. Please try again soon.'});next();}, aiLimit, async (req, res) => {
   const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
   res.json({ ok: true, message: 'Preparing your documents and email now.' });
-  prepareApplication(a.id).catch(async e => {
-    console.error('[prepare]', e.message);
+  const markFail = async e => {
     try {
       const { data: cur } = await admin().from('applications').select('prep_progress').eq('id', a.id).single();
       const steps = (cur && cur.prep_progress || []).map(st => st.active ? { ...st, active: false, error: 'This step hit a problem. Retry usually fixes it.' } : st);
       await admin().from('applications').update({ prep_progress: steps, next_action: 'One step needs attention. Press Retry.' }).eq('id', a.id);
     } catch (e2) {}
-  });
+  };
+  require('./lib/jobs').runJob('prepare', 'prepare:' + a.id + ':' + Date.now(), req.userId,
+    () => prepareApplication(a.id).catch(async e => { await markFail(e); throw e; }), { retries: 0 });
 });
 app.get('/api/applications/:id', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
@@ -1016,10 +1049,11 @@ app.post('/api/messages/:id/authorize', auth, async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.use((err, req, res, next) => {
-  console.error('[unhandled]', err.message);
-  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  errlog('http', err, { requestId: req.reqId, userId: req.userId });
+  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. Our team has been notified — please try again.', ref: req.reqId });
 });
 process.on('unhandledRejection', e => console.error('[rejection]', e && e.message));
+try { const { expireAgent } = require('./lib/agents'); setInterval(() => expireAgent().catch(e=>console.error('[expire]',e.message)), 12*3600e3); setTimeout(()=>expireAgent().catch(()=>{}), 60e3); } catch (e) {}
 app.listen(PORT, () => {
   console.log('ForiForeign core on :' + PORT);
   try { require('./lib/agents').startAgents(); } catch (e) { console.error('[agents]', e.message); }
