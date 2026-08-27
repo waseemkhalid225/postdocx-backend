@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#1683FF"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#2563EB">
 <link rel="icon" href="/icon-192.png"><link rel="apple-touch-icon" href="/icon-192.png">
 <title>ForiForeign — Study & Work Abroad, Done For You</title>
@@ -469,6 +469,20 @@ table td{border-bottom:1px solid rgba(120,180,255,.14)!important;color:#E9F1FC}
 .home-cta{background:rgba(8,18,35,.55)!important}
 .home-cta-work{background:rgba(6,26,32,.55)!important}
 
+
+/* v2.3 contrast guarantee: text always bright on dark surfaces */
+.sheet h1,.sheet h2,.sheet h3,.ffwait-card h3,.card h3{color:#fff!important}
+.sheet .sub,.ffwait-card .sub{color:#CBD5E1!important}
+.ring-pct{color:#00D4FF!important;font-weight:800}
+.ring-bg{stroke:rgba(120,180,255,.2)!important}
+.ring-fg{stroke:#1683FF!important;filter:drop-shadow(0 0 8px rgba(0,212,255,.5))}
+
+.steprow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stepcard{background:rgba(8,18,35,.82);border:1px solid rgba(120,180,255,.25);border-radius:14px;padding:14px 12px;font:600 13px Inter;color:#E9F1FC;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.stepcard.done{border-color:#00D4FF;box-shadow:0 0 18px rgba(0,212,255,.18)}
+.stepnum{width:24px;height:24px;border-radius:50%;background:#1683FF;color:#fff;font:700 12px Inter;display:flex;align-items:center;justify-content:center}
+.stepcard.done .stepnum{background:#00B8A9}
+.stepic{font-size:20px}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -511,6 +525,12 @@ async function api(p,o={}){o.headers=Object.assign({'content-type':'application/
   if(!cfg.supabaseUrl){$('view').innerHTML='<div class="empty">Server not configured yet: SUPABASE_URL missing in Railway.</div>';return}
   await loadSiteConfig();
   SB=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey);
+  SB.auth.onAuthStateChange((ev)=>{if(ev==='PASSWORD_RECOVERY'){
+    const w=document.createElement('div');w.style.cssText='position:fixed;inset:0;background:rgba(3,9,22,.8);z-index:90;display:flex;align-items:center;justify-content:center;padding:20px';
+    w.innerHTML=`<div class="sheet"><h3 style="color:#fff">Set a new password</h3>
+    <input id="npw" type="password" placeholder="New password (min 6 characters)" style="margin:10px 0">
+    <button class="btn b-gold" style="width:100%" onclick="(async b=>{b.disabled=true;const p=document.getElementById('npw').value;if(p.length<6){toast('Minimum 6 characters');b.disabled=false;return}const {error}=await SB.auth.updateUser({password:p});if(error){toast(error.message);b.disabled=false}else{toast('✓ Password updated. You are signed in.');b.closest('div[style*=fixed]').remove()}})(this)">Save new password</button></div>`;
+    document.body.appendChild(w);}});
   const {data}=await SB.auth.getSession();SESSION=data.session;
   SB.auth.onAuthStateChange((_e,s)=>{SESSION=s;if(_e==='PASSWORD_RECOVERY'){promptNewPassword();return}if(s)afterLogin();});
   const q=new URLSearchParams(location.search);
@@ -564,7 +584,7 @@ function renderAuth(mode){
         <a onclick="renderAuth('${mode==='signin'?'signup':'signin'}')">${mode==='signin'?'Create an account':'Sign in'}</a></div>
       ${mode==='signup'?`<div class="sub auth-note">A quick verification email confirms your address. That is all we need to get you started.</div>`:''}
       <div class="auth-links">
-        <a onclick="landingInfo('privacy')">Privacy</a><span>·</span><a onclick="landingInfo('refund')">Refunds</a><span>·</span><a onclick="landingInfo('help')">Help</a>
+        <a onclick="landingInfo('privacy')">Privacy</a><span>·</span><a href="mailto:admin@foriforeign.com" style="color:inherit">admin@foriforeign.com</a><span>·</span><a href="https://wa.me/923455216903" target="_blank" style="color:inherit">WhatsApp 0345 5216903</a><span>·</span><a onclick="landingInfo('refund')">Refunds</a><span>·</span><a onclick="landingInfo('help')">Help</a>
       </div>
     </div>
   </div>
@@ -590,6 +610,7 @@ function renderAuth(mode){
       <div class="mkt-card"><div class="mkt-ic">🧠</div><h3>Complete intelligence</h3><p>Every opportunity gets a full report: why you match, what's missing, costs in USD &amp; PKR, verified contacts.</p></div>
       <div class="mkt-card"><div class="mkt-ic">📁</div><h3>Case management</h3><p>Each application is a case — editable documents, statuses, notes, and follow-ups in one place.</p></div>
       <div class="mkt-card"><div class="mkt-ic">🔒</div><h3>Your data, protected</h3><p>Documents are private, used only for your applications. Emails send from your own Gmail, only after you approve.</p></div>
+      <div class="mkt-card" style="border-color:#00D4FF"><div class="mkt-ic">💎</div><h3>First case FREE · then Rs 2,000</h3><p>Upload CV → verified matches from official pages → complete tailored case → you press Send from your own email. No consultant fees, no guarantees sold — just the work, done properly.</p></div>
       <div class="mkt-card"><div class="mkt-ic">🇵🇰</div><h3>Built for Pakistan</h3><p>PKR pricing, JazzCash/Easypaisa/bank transfer, and guidance written for Pakistani applicants.</p></div>
     </div>
     <div id="mktReviews"></div>
@@ -638,7 +659,8 @@ async function ensureWorld(){
   const bg=$('worldBg');if(!bg)return null;
   document.body.classList.add('world-on');bg.classList.add('on');$('worldOverlay').classList.add('on');WORLD_ON=true;
   if(!bg.querySelector('video')){
-    bg.innerHTML='<video autoplay muted loop playsinline preload="metadata" src="/bg.mp4"></video>';
+    bg.innerHTML='<video autoplay muted loop playsinline preload="metadata" src="'+(((window.SITE||{}).background_video_url)||'/bg.mp4')+'"></video>';
+    if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
     const v=bg.querySelector('video');
     v.addEventListener('canplay',()=>{v.play().catch(()=>{})});
     // some browsers pause background videos; nudge it back
@@ -679,7 +701,7 @@ async function doAuth(mode){
   try{
     if(mode==='signup'){
       const name=($('a-name')&&$('a-name').value.trim())||'';
-      const {error}=await SB.auth.signUp({email,password,options:{data:{full_name:name}}});
+      const wa=(document.getElementById('su-wa')||{}).value||'';const {error}=await SB.auth.signUp({email,password,options:{data:{full_name:name,whatsapp:wa},emailRedirectTo:location.origin}});
       if(error)throw error;
       toast('Account created. Check your email for the verification link, then sign in.');renderAuth('signin');
     }else{
@@ -780,6 +802,7 @@ async function vHome(){
     </div>
     <div id="dashGlobePanel" style="display:none;margin-top:10px"></div>
   </div>
+  ${ME&&!ME.phone?`<div class="card" style="border-color:#00D4FF;margin-top:12px"><b>📲 Add your WhatsApp number</b><div class="sub" style="margin:4px 0 8px">Case updates and deadline reminders go to WhatsApp — add your registered WhatsApp number (not just any number).</div><div class="row"><input id="waNum" placeholder="+92 3xx xxxxxxx" style="flex:1;min-width:160px"><button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{await api('/api/me',{method:'PUT',body:{phone:document.getElementById('waNum').value.trim()}});ME.phone=1;toast('✓ Saved');vHome()}catch(e){toast(e.message);b.disabled=false}})(this)">Save</button></div></div>`:``}
   <div class="dash-head" style="margin-top:14px">
     <div id="dashAvatar" style="flex:1;min-width:260px"><div class="sub">Loading your profile…</div></div>
     <div id="readyStrip" style="min-width:220px"></div>
@@ -788,12 +811,19 @@ async function vHome(){
     <button class="btn b-line" onclick="go('buy')">Packages</button>
     <button class="btn b-line" onclick="openSupport()">Support</button>
   </div>
-  <div class="dash-sec"><div class="spread"><h3>Recommended for you</h3><a class="sub" style="cursor:pointer" onclick="go('browse')">See all →</a></div><div id="dashRec"><div class="sub">Loading…</div></div></div>
-  <div class="dash-sec"><div class="spread"><h3>Recently verified</h3></div><div id="dashRecent"><div class="sub">Loading…</div></div></div>
-  <div class="dash-sec"><div class="spread"><h3>Scholarships &amp; funding</h3></div><div id="dashSchol"><div class="sub">Loading…</div></div></div>
+  <div class="dash-sec"><h3 style="margin-bottom:10px">How ForiForeign works</h3>
+  <div class="steprow">
+    ${[['1','📄','Upload your CV',S.hasCV],['2','🔎','We find verified matches',S.matches>0],['3','🧠','We prepare your full case',S.appCount>0],['4','🚀','You apply from your own email',S.state==='application_sent']].map(([n,ic,t,done])=>`
+    <div class="stepcard ${done?'done':''}"><div class="stepnum">${done?'✓':n}</div><div class="stepic">${ic}</div><div>${t}</div></div>`).join('')}
+  </div>
+  <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">
+    <button class="btn b-gold" onclick="go('browse')">Browse opportunities →</button>
+    <span class="sub" style="align-self:center">${S.matches?S.matches+' verified opportunities live now':''}</span>
+  </div></div>
+  <div style="display:none"><div id="dashRec"></div><div id="dashRecent"></div><div id="dashSchol"></div></div>
   ${SITE&&(SITE.country_updates||[]).length?`<div class="dash-sec"><h3>Important country updates</h3>
   ${SITE.country_updates.map(u=>`<div class="card"><b>${esc(u.title||'')}</b>${u.date?` <span class="sub">· ${esc(u.date)}</span>`:''}<div class="sub" style="margin-top:4px;white-space:pre-wrap">${esc(u.text||'')}</div></div>`).join('')}</div>`:''}
-  <div class="dash-sec"><div class="spread"><h3>Saved by you</h3></div><div id="dashSaved"><div class="sub">Loading…</div></div></div>
+  <div style="display:none"><div id="dashSaved"></div></div>
   <div class="dash-sec"><h3>Live around the world 🌍</h3><div class="sub" style="margin-bottom:8px">Verified openings right now, by country — updated from real listings, never inflated.</div><div id="dashLive" class="row" style="flex-wrap:wrap;gap:8px"><div class="sub">Loading…</div></div></div>
   <div class="dash-sec"><h3>Your cases 📁</h3><div id="dashCases"><div class="sub">Loading…</div></div></div>`;
   dashAvatar();dashLive();
@@ -1164,10 +1194,14 @@ async function runSearch(kind){
   const stages=['Understanding your profile','Checking eligibility','Searching official sources','Verifying sources','Checking deadlines','Calculating match scores','Selecting best matches'];
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px';
-  wrap.innerHTML=`<div style="background:#fff;border-radius:20px;padding:30px;text-align:center;max-width:340px;width:100%">
-    <div class="search-ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52"/></svg><div class="ring-pct" id="ringPct">0%</div></div>
-    <h3 style="margin-top:16px">Searching opportunities</h3>
-    <div class="sub" id="ringStage" style="margin-top:6px">${stages[0]}</div></div>`;
+  wrap.innerHTML=`<div class="sheet" style="text-align:center;max-width:400px">
+    <div class="search-ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52"/></svg><div class="ring-pct" id="ringPct" style="color:#00D4FF">0%</div></div>
+    <h3 style="margin-top:14px;color:#fff">Give us a few minutes. ForiForeign is working for you.</h3>
+    <div class="sub" id="ringStage" style="margin-top:6px;color:#CBD5E1">${stages[0]}</div>
+    <div class="ffrotate sub" id="ringLine" style="margin-top:10px">${FF_LINES[0]}</div>
+    <details class="ffstory" style="text-align:left;margin-top:12px"><summary>Why ForiForeign?</summary>
+    <div class="sub" style="line-height:1.7;margin-top:8px;color:#CBD5E1">Built by a Pakistani PhD student to make finding opportunities abroad simpler and more affordable. ForiForeign does the hard, repetitive work — you review and press Send yourself.<br><br><b style="color:#fff">Find opportunities. Prepare properly. Apply yourself. Stay in control.</b><br><br><i>Built in Pakistan. For ambitious people everywhere.</i></div></details></div>`;
+  let _rl=0;const _rot=setInterval(()=>{_rl=(_rl+1)%FF_LINES.length;const el=$('ringLine');if(el){el.style.opacity=0;setTimeout(()=>{el.textContent=FF_LINES[_rl];el.style.opacity=.85},350)}else clearInterval(_rot)},7000);
   document.body.appendChild(wrap);
   const circ=2*Math.PI*52;const fg=$('ringFg');if(fg){fg.style.strokeDasharray=circ;fg.style.strokeDashoffset=circ}
   let pct=0,si=0;const total=150000;const start=Date.now();
@@ -1197,7 +1231,8 @@ async function openApp(id){
   wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:18px">
   <div class="spread"><h2>${esc(opp.institution||'')}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
   <div class="sub">${esc(opp.title||'')} · ${esc(a.case_no)} · <span class="chip c-gold">${esc(a.stage.replace(/_/g,' '))}</span></div>
-  ${a.next_action?`<div class="card" style="margin-top:10px;background:var(--gold-soft);border-color:var(--gold)"><b>Next:</b> ${esc(a.next_action)}</div>`:''}
+  ${a.next_action?`<div class="card" style="margin-top:10px;background:var(--gold-soft);border-color:var(--gold)"><b>Next:</b> ${esc(a.next_action)}</div>`:``}
+  <div class="row" style="margin:8px 0"><button class="btn b-line" onclick="shareCard('${a.id}')">🎉 Share card</button><a class="btn b-line" style="text-decoration:none" target="_blank" href="https://wa.me/923455216903?text=${encodeURIComponent('Assalam o Alaikum ForiForeign, my reference is FF-'+String(a.id).slice(0,8).toUpperCase()+'. ')}">📲 WhatsApp support</a></div>
   <div class="card"><h3>Full details, before you apply</h3>
   <table style="width:100%;border-collapse:collapse;font-size:13.5px">
   ${[
@@ -1386,7 +1421,7 @@ async function applyNow(appId,btn){
   }
   if(btn)btn.disabled=true;
   let d;
-  try{d=await api('/api/applications/'+appId+'/package')}
+  try{d=await api('/api/applications/'+appId+'/package');if(d&&d.profile)window.postMessage({type:'FF_PROFILE',profile:d.profile},'*')}
   catch(e){
     // Portal-only opportunity: no email recipient — offer the official portal, never a blank compose.
     let pe;try{pe=JSON.parse(e.message)}catch(_){}
@@ -1429,7 +1464,7 @@ function applyFallback(p){
   <div class="sub" style="margin-top:12px">ForiForeign never sends anything itself — you review and press Send in your own email.</div>
   ${(()=>{const su=((SITE&&SITE.apply_assistant&&SITE.apply_assistant.store_urls)||{});const link=su.chrome||su.edge||su.firefox;
   return link?`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>💡 Make this one-click next time</b><div class="sub" style="margin:4px 0">Apply Assistant opens your email with the documents already attached — install once, use forever.</div><a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(link)}">Enable Apply Assistant</a></div>`
-  :`<div class="sub" style="margin-top:6px">💡 The <b>Apply Assistant</b> browser extension (auto-attaches your documents) is coming to the Chrome Web Store.</div>`})()}
+  :`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>💡 Make this one-click next time</b><div class="sub" style="margin:4px 0">The Apply Assistant fills portals and attaches your documents automatically. One-minute install, guided.</div><button class="btn b-gold" onclick="installGuide()">Install the Apply Assistant</button></div>`})()}
   <div class="row" style="margin-top:10px"><button class="btn b-green" onclick="markApplied('${p.applicationId}',this)">I pressed Send — mark as applied</button></div>
   </div>`;
   document.body.appendChild(wrap);
@@ -1775,8 +1810,21 @@ async function vAdmin(){
   return adminOverview();
 }
 async function adminOverview(){
+  let M=null;try{M=await api('/api/admin/metrics')}catch(e){}
+  const mHtml=M?`<div class="card"><h3>🩺 System health (24h)</h3>
+  <div class="row" style="flex-wrap:wrap;gap:14px;margin-top:6px">
+    <div><b style="font-size:20px;color:${M.errors24?'#FFB0C0':'#00E5C0'}">${M.errors24}</b><div class="sub">errors</div></div>
+    <div><b style="font-size:20px;color:${M.aiErr24?'#FFB0C0':'#00E5C0'}">${M.aiErr24}</b><div class="sub">AI errors</div></div>
+    <div><b style="font-size:20px;color:${M.jobsFailed?'#FFB0C0':'#00E5C0'}">${M.jobsFailed}</b><div class="sub">failed jobs</div></div>
+    <div><b style="font-size:20px">${M.opps24}</b><div class="sub">opportunities added</div></div>
+    <div><b style="font-size:20px">$${M.cost24}</b><div class="sub">AI cost</div></div>
+    <div><b style="font-size:20px">${M.p95ms}ms</b><div class="sub">p95 latency</div></div>
+  </div>
+  ${(M.recent||[]).length?`<div class="sub" style="margin-top:8px">${M.recent.slice(0,5).map(r=>esc((r.at||'').slice(5,16))+' · '+esc(r.area)+' · '+esc((r.message||'').slice(0,60))).join('<br>')}</div>`:'<div class="sub" style="margin-top:8px">No recent errors 🎉</div>'}
+  </div>`:'';
+  window.__mHtml=mHtml;
   let d;try{d=await api('/api/admin/overview')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
-  $('adminBody').innerHTML=`
+  $('adminBody').innerHTML=(window.__mHtml||'')+`
   <div class="row" style="margin-bottom:12px">
   <div class="card" style="flex:1;text-align:center"><b style="font-size:22px;font-family:Fraunces">${d.users}</b><div class="sub">Users</div></div>
   <div class="card" style="flex:1;text-align:center"><b style="font-size:22px;font-family:Fraunces">${d.applications}</b><div class="sub">Applications</div></div>
@@ -1816,6 +1864,10 @@ async function adminSettings(){
   </div>
   ${applyAssistCard()}
   <div class="card"><h3>🌱 Seed opportunities</h3>
+  <label>Contact email (complaints)</label><input data-cemail value="${escAttr(((window._cfg||{}).contact||{}).email||'')}" style="margin-bottom:8px"><label>WhatsApp number</label><input data-cwa value="${escAttr(((window._cfg||{}).contact||{}).whatsapp||'')}" style="margin-bottom:8px"><label>Background video URL (blank = default). Upload your video to /public in GitHub or any host, paste its link here.</label><input data-bgvid value="${escAttr((window._cfg||{}).background_video_url||'')}" placeholder="https://... or /bg.mp4" style="margin-bottom:10px">
+  <label>Emergency switches</label><div class="row" style="margin-bottom:10px;flex-wrap:wrap">
+  ${[['discovery_enabled','Search'],['prepare_enabled','Case preparation'],['signup_enabled','New signups']].map(([k,l])=>`<button class="segbtn ${((window._cfg||{}).features||{})[k]===false?'':'on'}" onclick="window._cfg.features=window._cfg.features||{};window._cfg.features['${k}']=window._cfg.features['${k}']===false?true:false;adminSettings()">${l}: ${((window._cfg||{}).features||{})[k]===false?'OFF':'ON'}</button>`).join('')}</div>
+<label>Manual WhatsApp to client</label><div class="row" style="margin-bottom:10px"><input data-wanum placeholder="Client number e.g. 03451234567" style="flex:1;min-width:140px"><select data-watpl style="width:auto"><option value="Assalam o Alaikum! Your ForiForeign case is ready. Log in at foriforeign.com to review and apply. Reference: ">Case ready</option><option value="Reminder from ForiForeign: your saved opportunity deadline is approaching. Log in to apply: foriforeign.com ">Deadline reminder</option><option value="Welcome to ForiForeign! Your first case is completely FREE. Upload your CV at foriforeign.com and we do the hard work. ">Welcome</option></select><button class="btn b-gold" onclick="const n=document.querySelector('[data-wanum]').value,t=document.querySelector('[data-watpl]').value;if(n)window.open(waLink(n,t),'_blank')">Open chat</button></div>
   <div class="sub" style="margin:4px 0 8px">Fill real verified inventory before launch. Same quality bar as user discovery — official pages only.</div>
   <div class="row"><select id="seedKind" style="width:auto"><option value="masters">Study: Masters</option><option value="phd">Study: PhD</option><option value="postdoc">Postdoc</option><option value="work">Work</option></select>
   <input id="seedQ" style="flex:1;min-width:160px" placeholder='e.g. fully funded masters Germany'>
@@ -1853,6 +1905,53 @@ function homeCvPick(){
     inp.value='';
   };
   inp.click();
+}
+function waLink(num,text){const n=String(num||'').replace(/[^0-9]/g,'').replace(/^0/, '92');return 'https://wa.me/'+n+'?text='+encodeURIComponent(text)}
+async function shareCard(appId){
+  let a=null;try{const d=await api('/api/applications/'+appId);a=d.application||d.app||d}catch(e){}
+  const opp=(a&&(a.opportunities||a.opp))||{};
+  const showDet=confirm('Include the university/position name on the card?\n\nOK = show it · Cancel = keep it private');
+  const c=document.createElement('canvas');c.width=1080;c.height=1350;const x=c.getContext('2d');
+  const g=x.createLinearGradient(0,0,0,1350);g.addColorStop(0,'#0E2450');g.addColorStop(.6,'#081631');g.addColorStop(1,'#040B1A');x.fillStyle=g;x.fillRect(0,0,1080,1350);
+  const gl=x.createRadialGradient(880,180,10,880,180,420);gl.addColorStop(0,'rgba(0,212,255,.22)');gl.addColorStop(1,'rgba(0,212,255,0)');x.fillStyle=gl;x.fillRect(0,0,1080,700);
+  const bar=x.createLinearGradient(0,0,1080,0);bar.addColorStop(0,'#1683FF');bar.addColorStop(1,'#00D4FF');x.fillStyle=bar;x.fillRect(0,0,1080,14);
+  function rr(a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath()}
+  x.font='700 64px Georgia';x.fillStyle='#fff';x.fillText('Fori',70,140);x.fillStyle='#00D4FF';x.fillText('Foreign',200,140);
+  x.font='600 34px Arial';x.fillStyle='#7BE8FF';x.fillText('foriforeign.com',70,190);
+  x.font='700 76px Georgia';x.fillStyle='#fff';x.fillText('Application',70,340);x.fillText('Submitted ✓',70,430);
+  x.font='400 40px Arial';x.fillStyle='#CBD5E1';
+  const name=(ME&&ME.full_name)||'';if(name)x.fillText(name,70,520);
+  if(showDet&&opp.title){x.font='600 36px Arial';x.fillStyle='#00D4FF';x.fillText(String(opp.title).slice(0,42),70,585);x.fillStyle='#CBD5E1';x.font='400 34px Arial';x.fillText(String(opp.institution||'').slice(0,46),70,635)}
+  else{x.font='400 34px Arial';x.fillText('An international opportunity, prepared and',70,585);x.fillText('applied through ForiForeign.',70,630)}
+  rr(70,690,940,160,22);x.fillStyle='rgba(22,131,255,.14)';x.fill();x.strokeStyle='#1683FF';x.lineWidth=2;x.stroke();
+  x.font='700 34px Arial';x.fillStyle='#fff';x.fillText('Reference: FF-'+String(appId).slice(0,8).toUpperCase(),100,760);
+  x.font='400 30px Arial';x.fillStyle='#9DB8E4';x.fillText('Quote this reference for any status query.',100,815);
+  x.font='700 40px Arial';x.fillStyle='#00E5C0';x.fillText('First case FREE · then just Rs 2,000',70,950);
+  x.font='400 32px Arial';x.fillStyle='#CBD5E1';x.fillText('Verified opportunities · You press Send yourself',70,1005);
+  x.font='700 34px Arial';x.fillStyle='#fff';x.fillText('Invite a friend — share this card 🎁',70,1110);
+  x.font='400 32px Arial';x.fillStyle='#9DB8E4';x.fillText('WhatsApp: '+(((SITE||{}).contact||{}).whatsapp||'0345 5216903'),70,1180);
+  x.fillText('Email: '+(((SITE||{}).contact||{}).email||'admin@foriforeign.com'),70,1230);
+  x.fillStyle='rgba(0,212,255,.1)';x.fillRect(0,1262,1080,88);x.font='600 28px Arial';x.fillStyle='#7BE8FF';x.fillText('🇵🇰 Built in Pakistan · For ambitious people everywhere',70,1316);
+  c.toBlob(async b=>{const f=new File([b],'foriforeign-card.png',{type:'image/png'});
+    if(navigator.share&&navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:'ForiForeign'});return}catch(e){}}
+    const u=URL.createObjectURL(b);const l=document.createElement('a');l.href=u;l.download='foriforeign-card.png';l.click();toast('✓ Card downloaded — share it on WhatsApp');});
+}
+function installGuide(){
+  const w=document.createElement('div');w.style.cssText='position:fixed;inset:0;background:rgba(3,9,22,.8);z-index:85;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto';
+  const store=(SITE&&SITE.apply_assistant&&SITE.apply_assistant.store_url)||'';
+  w.innerHTML=`<div class="sheet" style="max-width:430px"><h3 style="color:#fff;margin:0 0 4px">Install the Apply Assistant</h3>
+  <div class="sub" style="margin-bottom:10px">One-time setup, under a minute. It only helps fill forms and attach your prepared files — it never reads your inbox and never sends anything itself.</div>
+  ${store?`<button class="btn b-gold" style="width:100%;margin-bottom:8px" onclick="window.open('${store}','_blank')">① Open Chrome Web Store → click "Add to Chrome"</button>
+  <div class="sub" style="text-align:center;margin-bottom:8px">That's it — two clicks, done.</div>`
+  :`<div class="sub" style="margin-bottom:6px"><b style="color:#fff">Step 1.</b> Download the assistant:</div>
+  <button class="btn b-gold" style="width:100%;margin-bottom:8px" onclick="window.open('/foriforeign-apply-assistant.zip','_blank')">⬇ Download (small zip file)</button>
+  <div class="sub" style="margin-bottom:6px"><b style="color:#fff">Step 2.</b> Unzip it (right-click → Extract All).</div>
+  <div class="sub" style="margin-bottom:6px"><b style="color:#fff">Step 3.</b> In Chrome, open <b style="color:#00D4FF">chrome://extensions</b> <button class="btn b-line" style="padding:2px 10px;font-size:12px" onclick="navigator.clipboard.writeText('chrome://extensions');toast('✓ Copied — paste in your address bar')">copy</button></div>
+  <div class="sub" style="margin-bottom:6px"><b style="color:#fff">Step 4.</b> Turn ON <b>Developer mode</b> (top-right switch).</div>
+  <div class="sub" style="margin-bottom:10px"><b style="color:#fff">Step 5.</b> Click <b>Load unpacked</b> → select the unzipped folder. Done ✓</div>`}
+  <div class="sub" style="border-top:1px solid rgba(120,180,255,.2);padding-top:8px">Why it asks for permissions: opening your Gmail/Outlook compose and filling the page you are viewing — nothing more. You always press Send and Submit yourself.</div>
+  <button class="btn b-line" style="width:100%;margin-top:10px" onclick="this.closest('div[style*=fixed]').remove()">Close</button></div>`;
+  document.body.appendChild(w);
 }
 function applyAssistCard(){
   const aa=(window._cfg&&window._cfg.apply_assistant)||{};
@@ -1894,6 +1993,9 @@ async function saveAdminSettings(btn){
     document.querySelectorAll('#adminBody [data-aaprov]').forEach(el=>aa.providers[el.dataset.aaprov]=el.checked);
     patch.apply_assistant=aa;
   }
+  const bg=document.querySelector('#adminBody [data-bgvid]');if(bg)patch.background_video_url=bg.value.trim();
+  if(window._cfg&&window._cfg.features)patch.features=window._cfg.features;
+  const ce=document.querySelector('#adminBody [data-cemail]'),cw=document.querySelector('#adminBody [data-cwa]');if(ce||cw)patch.contact={email:ce?ce.value.trim():'',whatsapp:cw?cw.value.trim():''};
   try{const d=await api('/api/admin/settings',{method:'PUT',body:{patch}});
     toast('Saved as v'+d.version+'. Live everywhere within 30 seconds.');await loadSiteConfig();vAdmin();
   }catch(e){toast(e.message);btn.disabled=false}
