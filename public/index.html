@@ -221,6 +221,7 @@ body.world-on .segbtn.on{background:linear-gradient(135deg,#D9A521,#F1C40F);colo
 .home-cta span{display:block;font:500 12.5px Inter;color:#c4d5f5;margin-top:2px}
 .home-cta-arrow{margin-left:auto;font-size:22px;color:#F1C40F}
 .home-freecase{margin-top:14px;background:rgba(22,160,133,.2);border:1px solid #2dd4bf;color:#d7fff4;border-radius:12px;padding:10px 16px;font:600 13.5px Inter;display:inline-block}
+.home-primary-cta{font-size:17px;padding:14px 28px;margin-top:6px}
 /* upload progress rows */
 .uprow{display:flex;align-items:center;gap:10px;margin:6px 0}
 .upname{flex:0 0 auto;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 12.5px Inter;color:#eaf1ff}
@@ -510,13 +511,26 @@ async function sendSupport(btn){
   }catch(e){toast(e.message);btn.disabled=false}
 }
 async function vHome(){
+  $('view').innerHTML='<div class="home-hero"><div class="home-hero-badge">Loading…</div><h1 class="home-hero-h">Getting your next step ready…</h1></div>';
   const firstFree=!(ME&&ME.used_free_case);
+  // Fetch journey state so the home shows ONE clear next action (spec #4).
+  let S={state:'new',hasCV:false,appCount:0};
+  try{S=await api('/api/me/state')}catch(e){}
+  window._homeState=S.state;
+  const heroFor={
+    new:{badge:firstFree?'🎁 Your first opportunity is FREE':'Welcome',h:'Find where you have the <span class="hl">strongest opportunity abroad.</span>',p:'Upload your CV and we\'ll find your best study or work match. Your CV is enough to start.',showLanes:true},
+    cv_uploaded:{badge:'✓ Profile ready',h:'Your profile is <span class="hl">ready.</span>',p:'We have read your CV. Let\'s find your best matches now.',action:{label:'Find My Matches',fn:"runSearch()"}},
+    preparing:{badge:'⏳ Working',h:'<span class="hl">Preparing</span> your application…',p:'Finding the right contact and tailoring your CV, letter and email.',action:{label:'View Progress',fn:"go('apps')"}},
+    application_ready:{badge:'✓ Ready to apply',h:'Your application is <span class="hl">ready.</span>',p:'Recipient, email and documents are prepared. Review and send from your own inbox.',action:{label:'Review & Apply',fn:"go('apps')"}},
+    application_sent:{badge:'🎉 Applied',h:'Your application has been <span class="hl">sent.</span>',p:'Well done. You may have more study, work and funding matches.',action:{label:'Explore More',fn:"go('browse')"}}
+  };
+  const H=heroFor[S.state]||heroFor.new;
   $('view').innerHTML=`
   <div class="home-hero">
-    <div class="home-hero-badge">${firstFree?'🎁 Your first application case is FREE':'✓ Welcome back'}</div>
-    <h1 class="home-hero-h">Study or work abroad — <span class="hl">we do the hard part.</span></h1>
-    <p class="home-hero-p">ForiForeign finds verified opportunities from official sources, checks if you qualify, and prepares your entire application — CV, cover letter and email. You just review and press Send from your own inbox.</p>
-    <div class="home-cta-row">
+    <div class="home-hero-badge">${H.badge}</div>
+    <h1 class="home-hero-h">${H.h}</h1>
+    <p class="home-hero-p">${H.p}</p>
+    ${H.showLanes?`<div class="home-cta-row">
       <button class="home-cta home-cta-study" onclick="window._lane='study';go('browse')">
         <div class="home-cta-ic">🎓</div>
         <div><b>Study Abroad</b><span>Bachelors → Postdoc · scholarships · funding</span></div>
@@ -528,7 +542,8 @@ async function vHome(){
         <div class="home-cta-arrow">→</div>
       </button>
     </div>
-    ${firstFree?`<div class="home-freecase">First case free — no card, no risk. Pick a study or work path above to begin.</div>`:''}
+    ${firstFree?`<div class="home-freecase">First case free — no card, no risk. Pick a study or work path above to begin.</div>`:''}`
+    :`<button class="btn b-gold home-primary-cta" onclick="${H.action.fn}">${H.action.label} →</button>`}
     <div id="dashGlobePanel" style="display:none;margin-top:10px"></div>
   </div>
   <div class="dash-head" style="margin-top:14px">
@@ -536,7 +551,6 @@ async function vHome(){
     <div id="readyStrip" style="min-width:220px"></div>
   </div>
   <div class="row" style="gap:8px;margin:12px 0;flex-wrap:wrap">
-    <button class="btn b-gold" onclick="runSearch()">🔎 Search for me now</button>
     <button class="btn b-line" onclick="go('buy')">Packages</button>
     <button class="btn b-line" onclick="openSupport()">Support</button>
   </div>
@@ -912,6 +926,8 @@ async function runSearch(kind){
   },total);
 }
 async function openApp(id){
+  // Capture which document kinds the user already has, so we only ask for missing ones.
+  try{const dd=await api('/api/documents');window._userDocKinds=[...new Set((dd.documents||[]).map(x=>x.kind))];}catch(e){window._userDocKinds=window._userDocKinds||[];}
   let d;try{d=await api('/api/applications/'+id)}catch(e){toast(e.message);return}
   const a=d.application,opp=a.opportunities||{};
   const msg=(d.messages||[]).find(m=>m.status==='pending')||(d.messages||[])[0];
@@ -921,6 +937,28 @@ async function openApp(id){
   <div class="spread"><h2>${esc(opp.institution||'')}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
   <div class="sub">${esc(opp.title||'')} · ${esc(a.case_no)} · <span class="chip c-gold">${esc(a.stage.replace(/_/g,' '))}</span></div>
   ${a.next_action?`<div class="card" style="margin-top:10px;background:var(--gold-soft);border-color:var(--gold)"><b>Next:</b> ${esc(a.next_action)}</div>`:''}
+  ${(()=>{
+    // Progressive document collection (spec #9): only ask for what THIS opportunity requires
+    // and the user does not already have on file. One-tap contextual upload, no upfront wall.
+    const need=(opp.req_documents||[]).map(s=>String(s));
+    if(!need.length)return '';
+    const have=new Set((window._userDocKinds||[]));
+    const haveNames=(d.documents||[]).map(x=>(x.title||'').toLowerCase());
+    const norm=s=>s.toLowerCase();
+    const missing=need.filter(n=>{const k=norm(n);
+      if(/cv|resume/.test(k))return !have.has('cv');
+      if(/transcript/.test(k))return !have.has('transcript');
+      if(/degree|diploma/.test(k))return !have.has('degree');
+      if(/ielts|toefl|pte|language|english/.test(k))return !have.has('english_test');
+      if(/reference|recommendation|lor/.test(k))return !have.has('reference_letter');
+      if(/passport/.test(k))return false; // never block early on passport
+      return !haveNames.some(hn=>hn.includes(k.slice(0,8)));
+    });
+    if(!missing.length)return '';
+    return `<div class="card" style="border-color:var(--gold)"><h3>This opportunity also needs</h3>
+    <div class="sub" style="margin:4px 0 8px">Add only what this application requires. Your CV is already on file.</div>
+    ${missing.map(m=>`<div class="docrow"><span>📎 ${esc(m)}</span><button class="btn b-gold" style="padding:4px 12px" onclick="addDocFor('${a.id}',this)">Add</button></div>`).join('')}</div>`;
+  })()}
   ${(a.stage==='matched'||a.stage==='preparing')&&!(d.documents||[]).length?`<div class="row" style="margin:10px 0"><button class="btn b-gold" onclick="prepApp('${a.id}',this)">Prepare documents and email now</button></div>`:''}
   ${(()=>{const rq=(a.prep_status||{}).reqs;if(!rq)return'';return`<div class="card"><h3>Documents this application needs</h3>
   ${(rq.missing_urgent||[]).length?`<div class="card" style="background:var(--crimson-soft);border-color:var(--crimson);margin-top:8px"><b>Urgent, required to submit:</b> ${rq.missing_urgent.map(esc).join(', ')} <div class="sub">Upload these in Profile, then re-prepare.</div></div>`:''}
@@ -977,6 +1015,24 @@ async function prepApp(id,btn){btn.disabled=true;
   try{const d=await api('/api/applications/'+id+'/prepare',{method:'POST'});toast(d.message);
   setTimeout(()=>{document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());openApp(id)},60000);
   }catch(e){toast(e.message);btn.disabled=false}}
+function addDocFor(appId,btn){
+  let inp=$('case-doc-files');
+  if(!inp){inp=document.createElement('input');inp.type='file';inp.id='case-doc-files';inp.multiple=true;inp.accept='.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic';inp.style.display='none';document.body.appendChild(inp);}
+  inp.onchange=async()=>{
+    if(!inp.files.length)return;
+    const fd=new FormData();for(const f of inp.files)fd.append('files',f);
+    toast('Uploading…');
+    try{const r=await fetch('/api/documents',{method:'POST',headers:{authorization:'Bearer '+SESSION.access_token},body:fd});
+      const d=await r.json();if(!r.ok)throw new Error(d.error||'Upload failed');
+      toast('✓ Added. Re-preparing this application with your new document.');
+      // refresh the case; a re-prepare picks up the newly available document
+      try{await api('/api/applications/'+appId+'/prepare',{method:'POST'})}catch(e){}
+      setTimeout(()=>{document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());openApp(appId)},2000);
+    }catch(e){toast(e.message)}
+    inp.value='';
+  };
+  inp.click();
+}
 /* ---------- ForiForeign Apply Assistant (client side) ---------- */
 let FF_ASSIST=false;
 window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.data.type==='FF_ASSIST_HELLO'){FF_ASSIST=true}});
@@ -986,7 +1042,17 @@ async function applyNow(appId,btn){
   if(btn)btn.disabled=true;
   let d;
   try{d=await api('/api/applications/'+appId+'/package')}
-  catch(e){toast(e.message);if(btn)btn.disabled=false;return}
+  catch(e){
+    // Portal-only opportunity: no email recipient — offer the official portal, never a blank compose.
+    let pe;try{pe=JSON.parse(e.message)}catch(_){}
+    if(e.message&&e.message.indexOf('portal_only')>=0){
+      const url=(pe&&pe.portal_url)||'';
+      toast(url?'This opportunity applies on its official portal.':'This opportunity has no email — your documents are saved and ready.');
+      if(url)window.open(url,'_blank');
+      if(btn)btn.disabled=false;return;
+    }
+    toast(e.message);if(btn)btn.disabled=false;return;
+  }
   const p=d.package;
   if(FF_ASSIST){
     window.postMessage({type:'FF_APPLY',pkg:p,sig:d.sig},location.origin);
