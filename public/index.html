@@ -29,8 +29,8 @@ body.world-on main#view{position:relative;z-index:2}
 body.world-on{background:#040d1f;overflow-x:hidden}
 html:has(body.world-on){background:#040d1f}
 body.world-on main#view{background:transparent}
-body.world-on .brand b,body.world-on .auth-brand-lg b{color:#F1C40F}
-body.world-on .credit-pill{background:linear-gradient(135deg,#D9A521,#F1C40F);color:#14213D}
+body.world-on .brand b,body.world-on .auth-brand-lg b{color:#1683FF}
+body.world-on .credit-pill{background:linear-gradient(135deg,#1683FF,#00D4FF);color:#14213D}
 h1,h2,h3,.brand{font-family:Fraunces,serif}
 .brand{font-size:22px;font-weight:700}.brand b{color:var(--gold)}
 header{background:var(--ink);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;box-shadow:0 1px 0 rgba(15,39,72,.06)}
@@ -73,7 +73,46 @@ textarea{min-height:90px}
 .checkbox.req{border-color:var(--gold)}
 .progwrap{height:8px;background:var(--soft);border-radius:99px;overflow:hidden;margin:8px 0}
 .progbar{height:100%;background:var(--green);border-radius:99px;transition:width .3s}
-@media(max-width:640px){main{padding:12px 10px 70px}.lane{min-width:100%}}
+@media(max-width:640px){main{padding:12px 10px 84px}.lane{min-width:100%}
+/* Bottom navigation — thumb-friendly */
+#nav{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:40;display:flex!important;justify-content:space-around;background:rgba(6,14,32,.92);backdrop-filter:blur(10px);border-top:1px solid rgba(150,186,255,.25);padding:8px 4px calc(8px + env(safe-area-inset-bottom))}
+#nav button{font-size:13px;padding:8px 10px;min-height:42px}
+header #nav{position:fixed}
+/* Modals become bottom sheets */
+.sheet{width:100%;max-width:100%;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+div[style*="position:fixed"]>div[style*="max-width"]{max-width:100%!important;border-radius:18px 18px 0 0!important}
+/* Filter chips scroll horizontally instead of tall wrap */
+.row.seg{flex-wrap:nowrap!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+.segbtn{white-space:nowrap;min-height:38px}
+/* Detail table scrolls, never overflows the screen */
+table{display:block;overflow-x:auto;white-space:nowrap}
+/* Bigger tap targets */
+.btn{min-height:42px}
+input,select{min-height:42px;font-size:16px}
+.home-hero-h{font-size:26px!important}
+}
+.ffwait{position:fixed;inset:0;background:rgba(4,10,24,.78);backdrop-filter:blur(4px);z-index:80;display:flex;align-items:center;justify-content:center;padding:18px}
+.ffwait-card{width:100%;max-width:460px;background:linear-gradient(165deg,rgba(10,22,46,.97),rgba(6,14,32,.97));border:1px solid rgba(150,186,255,.28);border-radius:20px;padding:24px;color:#eef4ff;box-shadow:0 24px 70px rgba(2,8,20,.6)}
+.ffwait-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.ffwait-title{font:700 19px Fraunces,serif}
+.ffwait-sub{font:400 13px/1.6 Inter;color:#b9cdf0;margin-top:4px}
+.ffmin{background:none;border:1px solid rgba(150,186,255,.35);color:#b9cdf0;border-radius:8px;width:30px;height:30px;cursor:pointer;flex:0 0 auto}
+.ffwait-pct{display:flex;align-items:baseline;gap:10px;margin:16px 0 8px}
+#ffPct{font:700 34px Fraunces,serif;color:#1683FF}
+.ffwait-count{font:600 12.5px Inter;color:#b9cdf0}
+.ffbar{height:6px;background:rgba(150,186,255,.15);border-radius:4px;overflow:hidden}
+.ffbar-fill{height:100%;width:0;background:linear-gradient(90deg,#1683FF,#1683FF);border-radius:4px;transition:width .8s ease}
+.ffeta{margin:8px 0 12px;font-size:12.5px}
+.ffsteps{display:flex;flex-direction:column;gap:7px;margin-bottom:14px}
+.ffstep{font:500 13.5px Inter;color:#8fa6cc;transition:color .3s}
+.ffstep.d{color:#7ef0d4}.ffstep.a{color:#fff;font-weight:600}.ffstep.e{color:#1683FF}
+.ffrotate{font-style:italic;text-align:center;margin:4px 0 12px;opacity:.85;transition:opacity .35s;min-height:18px}
+.ffstory{border-top:1px solid rgba(150,186,255,.18);padding-top:10px}
+.ffstory summary{cursor:pointer;font:600 13px Inter;color:#1683FF;list-style:none}
+.ffcomplete{font:700 13px Inter;letter-spacing:2px;color:#7ef0d4;margin-top:12px}
+.ffpill{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom));right:16px;z-index:79;background:linear-gradient(135deg,#0c1c3e,#14213D);border:1px solid #1683FF;color:#1683FF;font:700 13px Inter;padding:10px 16px;border-radius:999px;cursor:pointer;box-shadow:0 8px 26px rgba(2,8,20,.55)}
+@media(max-width:640px){.ffwait{align-items:flex-end;padding:0}.ffwait-card{max-width:100%;border-radius:20px 20px 0 0;padding-bottom:calc(24px + env(safe-area-inset-bottom))}.ffpill{bottom:calc(70px + env(safe-area-inset-bottom))}}
+.sheet{background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px;max-width:440px;width:100%}
 
 /* ===== Compact sign-in / sign-up (logged-out, fits one screen) ===== */
 .auth-screen{min-height:calc(100vh - 120px);display:flex;align-items:center;justify-content:center;padding:20px 12px}
@@ -159,7 +198,7 @@ body.world-on main#view{padding-bottom:40px}
 /* ===== DARK GLASS THEME over the video (no white boxes) ===== */
 body.world-on{font-size:15px}
 body.world-on .card,body.world-on .dash-head,body.world-on .lane,body.world-on .mkt-card{
-  background:rgba(6,14,32,.38);border:1px solid rgba(150,186,255,.4);color:#f4f8ff;
+  background:rgba(6,14,32,.38);border:1px solid rgba(150,186,255,.28);color:#f4f8ff;
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 12px 40px rgba(2,8,20,.5)}
 body.world-on .card h2,body.world-on .card h3,body.world-on .lane h3,body.world-on .dash-head h2{color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.85)}
 body.world-on h2,body.world-on h3{text-shadow:0 2px 12px rgba(0,0,0,.85),0 0 2px rgba(0,0,0,.6)}
@@ -171,13 +210,13 @@ body.world-on input,body.world-on textarea,body.world-on select{
   background:rgba(4,12,28,.62);border:1px solid rgba(140,178,255,.38);color:#fff;border-radius:10px;font-size:14px}
 body.world-on input::placeholder,body.world-on textarea::placeholder{color:#8fa8d4}
 body.world-on .btn{font-size:14px}
-body.world-on .btn.b-gold{background:linear-gradient(135deg,#D9A521,#F1C40F);color:#14213D;border:none;font-weight:700;text-shadow:none}
+body.world-on .btn.b-gold{background:linear-gradient(135deg,#1683FF,#00D4FF);color:#14213D;border:none;font-weight:700;text-shadow:none}
 body.world-on .btn.b-line{background:rgba(140,178,255,.14);border:1px solid rgba(140,178,255,.5);color:#eef4ff}
 body.world-on .btn.b-green{background:linear-gradient(135deg,#0E7C66,#16a085);color:#fff;border:none}
 body.world-on .btn:hover{filter:brightness(1.12)}
 body.world-on .chip{background:rgba(140,178,255,.16);color:#eef4ff;border:1px solid rgba(140,178,255,.36);font-weight:600}
 body.world-on .chip.c-green{background:rgba(22,160,133,.28);border-color:#2dd4bf;color:#99f6e4}
-body.world-on .chip.c-gold{background:rgba(217,165,33,.26);border-color:#F1C40F;color:#fde68a}
+body.world-on .chip.c-gold{background:rgba(22,131,255,.26);border-color:#1683FF;color:#D6E9FF}
 body.world-on .chip.c-blue{background:rgba(79,142,247,.26);border-color:#7fb0ff;color:#dbeafe}
 body.world-on .chip.c-gray{background:rgba(148,163,184,.2);border-color:#94a3b8;color:#e2e8f0}
 body.world-on .chip.c-crimson,body.world-on .chip.c-red{background:rgba(225,88,120,.26);border-color:#fb7185;color:#fecdd3}
@@ -185,49 +224,61 @@ body.world-on .empty{background:rgba(8,18,40,.44);border:1px solid rgba(140,178,
 body.world-on .auth-card.glass{background:rgba(8,18,40,.58);border:1px solid rgba(140,178,255,.36);color:#eef4ff}
 body.world-on .auth-card.glass .auth-brand{color:#fff}
 body.world-on .auth-card.glass .auth-tag,body.world-on .auth-card.glass .auth-switch{color:#c4d5f5}
-body.world-on .auth-card.glass a{color:#F1C40F}
+body.world-on .auth-card.glass a{color:#1683FF}
 body.world-on #view>.empty{background:rgba(8,18,40,.44);color:#dbe8ff}
 body.world-on table.rep td{color:#eef4ff}
 body.world-on table.rep td.rk{color:#9fb6e0}
 body.world-on pre{background:rgba(4,12,28,.55)!important;color:#e3edff!important;border-radius:10px;padding:10px}
-body.world-on a{color:#F1C40F}
+body.world-on a{color:#1683FF}
 /* inline soft-tint boxes (welcome, urgent, next-step, replies) become translucent tinted glass */
-body.world-on .card[style*="gold-soft"]{background:rgba(217,165,33,.16)!important;border-color:#F1C40F!important;color:#fff!important}
+body.world-on .card[style*="gold-soft"]{background:rgba(22,131,255,.16)!important;border-color:#1683FF!important;color:#fff!important}
 body.world-on .card[style*="green-soft"]{background:rgba(22,160,133,.18)!important;border-color:#2dd4bf!important;color:#fff!important}
 body.world-on .card[style*="crimson-soft"]{background:rgba(225,88,120,.18)!important;border-color:#fb7185!important;color:#fff!important}
 body.world-on .card[style*="-soft"] b{color:#fff}
 body.world-on .card[style*="-soft"] .sub{color:#e2ecff}
 body.world-on .segbtn{background:rgba(140,178,255,.14);border:1px solid rgba(140,178,255,.42);color:#eef4ff;font-size:13.5px;font-weight:600}
-body.world-on .segbtn.on{background:linear-gradient(135deg,#D9A521,#F1C40F);color:#14213D;border-color:#F1C40F}
+body.world-on .segbtn.on{background:linear-gradient(135deg,#1683FF,#00D4FF);color:#14213D;border-color:#1683FF}
 .ctry-picker{margin-top:4px}
 .ctry-head{display:flex;justify-content:space-between;align-items:center;background:rgba(6,16,36,.6);border:1px solid rgba(150,186,255,.4);border-radius:10px;padding:9px 13px;cursor:pointer;color:#eef4ff;font:600 13.5px Inter}
 .ctry-body{margin-top:6px;background:rgba(6,14,32,.72);border:1px solid rgba(150,186,255,.3);border-radius:10px;padding:10px}
 .ctry-search{width:100%;box-sizing:border-box;background:rgba(4,12,28,.7);border:1px solid rgba(150,186,255,.4);color:#fff;border-radius:8px;padding:8px 11px;font-size:13.5px}
-.ctry-list{display:flex;flex-wrap:wrap;gap:6px;max-height:190px;overflow-y:auto;margin-top:2px}
+.ctry-list{display:flex;flex-direction:column;gap:2px;max-height:230px;overflow-y:auto;margin-top:2px}
+.ctryrow{padding:8px 10px;border-radius:8px;cursor:pointer;font:500 13.5px Inter;color:#dbe6fb;display:flex;gap:8px;align-items:center}
+.ctryrow:hover{background:rgba(150,186,255,.12)}
+.ctryrow.on{color:#1683FF;font-weight:700}
+.ctryrow .ck{font-size:15px}
+.fcount{background:#1683FF;color:#14213D;border-radius:999px;padding:1px 8px;font:700 11.5px Inter;vertical-align:middle}
+.fpill{background:rgba(22,131,255,.16);border:1px solid rgba(0,212,255,.5);color:#D6E9FF;border-radius:999px;padding:3px 10px;font:600 12px Inter}
+.fpill a{color:#D6E9FF;cursor:pointer;margin-left:4px;text-decoration:none}
+body.world-on .segbtn{background:rgba(6,16,36,.55);border:1px solid rgba(150,186,255,.35);color:#dbe6fb}
 .ctry-list .segbtn{font-size:13px;padding:5px 11px}
 /* ===== conversion home hero ===== */
 .home-hero{padding:8px 4px 4px}
-.home-hero-badge{display:inline-block;background:linear-gradient(135deg,#D9A521,#F1C40F);color:#14213D;font:700 13px Inter;padding:7px 15px;border-radius:999px;box-shadow:0 6px 20px rgba(217,165,33,.35)}
+.hero-hello{font:600 14px Inter;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+.trustrow{margin-top:16px;flex-wrap:wrap;gap:8px}
+.tbadge{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;padding:7px 14px;font:600 12px Inter;backdrop-filter:blur(6px)}
+.home-hero-badge{display:inline-block;background:linear-gradient(135deg,#1683FF,#00D4FF);color:#14213D;font:700 13px Inter;padding:7px 15px;border-radius:999px;box-shadow:0 6px 20px rgba(22,131,255,.35)}
 .home-hero-h{color:#fff;font:700 clamp(28px,4.5vw,44px)/1.15 Fraunces,serif;margin:14px 0 8px;text-shadow:0 3px 18px rgba(0,0,0,.9);max-width:820px}
-.home-hero-h .hl{color:#F1C40F}
+.home-hero-h .hl{color:#1683FF}
 .home-hero-p{color:#eaf1ff;font:500 15.5px/1.65 Inter;max-width:600px;text-shadow:0 1px 8px rgba(0,0,0,.8);margin:0 0 18px}
 .home-cta-row{display:flex;gap:14px;flex-wrap:wrap}
-.home-cta{flex:1;min-width:280px;display:flex;align-items:center;gap:14px;text-align:left;cursor:pointer;border-radius:16px;padding:18px 20px;color:#fff;border:1.5px solid rgba(150,186,255,.5);background:rgba(6,14,32,.5);backdrop-filter:blur(6px);transition:transform .2s,border-color .2s,background .2s}
+.home-cta{flex:1;min-width:280px;display:flex;align-items:center;gap:14px;text-align:left;cursor:pointer;border-radius:16px;padding:18px 20px;color:#fff;border:1.5px solid rgba(22,131,255,.4);background:linear-gradient(135deg,rgba(37,72,146,.85),rgba(24,48,105,.8));backdrop-filter:blur(8px);transition:transform .2s,border-color .2s,box-shadow .25s}
+.home-cta-work{background:linear-gradient(135deg,rgba(13,110,110,.85),rgba(10,74,84,.8));border-color:rgba(45,212,191,.45)}
 .home-cta:hover{transform:translateY(-4px)}
-.home-cta-study:hover{border-color:#F1C40F;background:rgba(217,165,33,.16)}
-.home-cta-work:hover{border-color:#2dd4bf;background:rgba(22,160,133,.16)}
+.home-cta-study:hover{border-color:#1683FF;box-shadow:0 14px 40px rgba(22,131,255,.25)}
+.home-cta-work:hover{border-color:#2dd4bf;box-shadow:0 14px 40px rgba(45,212,191,.25)}
 .home-cta-ic{font-size:30px;flex:0 0 auto}
 .home-cta b{display:block;font:700 18px Inter;color:#fff}
-.home-cta span{display:block;font:500 12.5px Inter;color:#c4d5f5;margin-top:2px}
-.home-cta-arrow{margin-left:auto;font-size:22px;color:#F1C40F}
-.home-freecase{margin-top:14px;background:rgba(22,160,133,.2);border:1px solid #2dd4bf;color:#d7fff4;border-radius:12px;padding:10px 16px;font:600 13.5px Inter;display:inline-block}
+.home-cta span{display:block;font:500 12.5px Inter;color:#E4EDFF;margin-top:2px}
+.home-cta-arrow{margin-left:auto;font-size:22px;color:#1683FF}
+.home-freecase{margin-top:14px;background:linear-gradient(135deg,rgba(16,148,120,.95),rgba(13,124,110,.95));border:0;color:#fff;border-radius:12px;padding:11px 18px;font:700 13.5px Inter;display:inline-block;box-shadow:0 8px 24px rgba(16,148,120,.35)}
 .home-primary-cta{font-size:17px;padding:14px 28px;margin-top:6px}
 /* upload progress rows */
 .uprow{display:flex;align-items:center;gap:10px;margin:6px 0}
 .upname{flex:0 0 auto;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 12.5px Inter;color:#eaf1ff}
 .upbar{flex:1;height:8px;background:rgba(4,12,28,.6);border-radius:6px;overflow:hidden;border:1px solid rgba(140,178,255,.25)}
-.upfill{height:100%;width:0;background:linear-gradient(90deg,#F1C40F,#D9A521);transition:width .2s}
-.uppct{flex:0 0 auto;font:700 12px Inter;color:#F1C40F;min-width:34px;text-align:right}
+.upfill{height:100%;width:0;background:linear-gradient(90deg,#1683FF,#00D4FF);transition:width .2s}
+.uppct{flex:0 0 auto;font:700 12px Inter;color:#1683FF;min-width:34px;text-align:right}
 /* any stray inline dark text becomes light over the video */
 body.world-on [style*="color:#333"],body.world-on [style*="color:var(--ink)"]{color:#eef4ff!important}
 body.world-on [style*="color:#666"],body.world-on [style*="color:#555"]{color:#c4d5f5!important}
@@ -251,6 +302,173 @@ body.world-on #view>h2,body.world-on #view>.spread>h2,body.world-on #view>div>h2
 body.world-on #view>h2+.sub,body.world-on #view>.sub{color:#cfe1ff}
 body.world-on #view>.empty{background:rgba(255,255,255,.95);border-radius:14px;padding:22px;color:var(--ink)}
 @media(max-width:640px){.pid-card{flex-direction:column;text-align:center}.pid-id .row{justify-content:center}}
+
+/* ============================================================
+   FORIFOREIGN PREMIUM DESIGN SYSTEM — override layer v1.8
+   Minimal · Spatial · Cinematic · Liquid glass (restrained)
+   ============================================================ */
+:root{
+  --ink:#0E1F42; --ink2:#14295A; --line:rgba(160,196,255,.22); --line-hi:rgba(170,205,255,.42);
+  --gold:#1683FF; --gold-2:#00D4FF; --paper:#F5F1E8; --txt:#FFFFFF; --txt-2:#D9E5FB; --txt-3:#A9BEE6;
+  --r-s:10px; --r-m:14px; --r-l:20px;
+  --sh-1:0 1px 2px rgba(2,8,20,.35),0 8px 24px rgba(2,8,20,.35);
+  --sh-2:0 2px 4px rgba(2,8,20,.4),0 18px 50px rgba(2,8,20,.5);
+  --ease:cubic-bezier(.22,.61,.36,1);
+}
+html{scroll-behavior:smooth}
+body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:rgba(22,131,255,.35);color:#fff}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(148,184,255,.22);border-radius:8px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(148,184,255,.4);background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- Editorial typography ---------- */
+body.world-on h1,body.world-on h2,.home-hero-h,.ffwait-title{font-family:Fraunces,serif;letter-spacing:-.015em;font-weight:600}
+body.world-on h2{font-size:24px;line-height:1.2}
+body.world-on h3{font:600 15px/1.3 Inter;letter-spacing:.01em;color:var(--txt)}
+body.world-on .sub{color:var(--txt-2);line-height:1.65}
+label{font:600 11.5px Inter;letter-spacing:.09em;text-transform:uppercase;color:var(--txt-3)!important}
+
+/* ---------- Spatial surfaces: layered depth, not glass-everything ---------- */
+body.world-on .card,body.world-on .dash-head,body.world-on .lane,body.world-on .mkt-card{
+  background:linear-gradient(168deg,rgba(24,46,94,.58),rgba(15,32,70,.5));
+  border:1px solid var(--line);border-radius:var(--r-l);
+  box-shadow:var(--sh-1),inset 0 1px 0 rgba(200,220,255,.07);
+  backdrop-filter:blur(14px) saturate(1.15);-webkit-backdrop-filter:blur(14px) saturate(1.15);
+  transition:transform .35s var(--ease),box-shadow .35s var(--ease),border-color .35s var(--ease);
+}
+body.world-on .card:hover{border-color:var(--line-hi);box-shadow:var(--sh-2),inset 0 1px 0 rgba(200,220,255,.1)}
+/* hero + waiting card = liquid-glass focal layer */
+.ffwait-card,.sheet,.home-cta{
+  background:linear-gradient(160deg,rgba(28,52,104,.72),rgba(16,34,74,.66));
+  backdrop-filter:blur(22px) saturate(1.3);-webkit-backdrop-filter:blur(22px) saturate(1.3);
+  border:1px solid rgba(170,200,255,.22);box-shadow:var(--sh-2),inset 0 1px 0 rgba(210,228,255,.1);
+}
+
+/* ---------- Buttons: one confident accent ---------- */
+.btn{border-radius:12px;font-weight:650;letter-spacing:.01em;transition:transform .18s var(--ease),box-shadow .25s var(--ease),background .25s var(--ease),border-color .25s}
+.btn:active{transform:scale(.97)}
+.b-gold,.btn.b-gold{background:linear-gradient(135deg,var(--gold),var(--gold-2));color:#141d33;border:0;box-shadow:0 4px 14px rgba(22,131,255,.28),inset 0 1px 0 rgba(255,255,255,.35)}
+.b-gold:hover{box-shadow:0 8px 26px rgba(22,131,255,.42),inset 0 1px 0 rgba(255,255,255,.4);transform:translateY(-1px)}
+.b-line,.btn.b-line{background:rgba(148,184,255,.06);border:1px solid var(--line-hi);color:var(--txt)}
+.b-line:hover{background:rgba(148,184,255,.13);border-color:rgba(170,200,255,.5)}
+
+/* ---------- Inputs ---------- */
+body.world-on input,body.world-on select,body.world-on textarea{
+  background:rgba(6,13,28,.65);border:1px solid var(--line);border-radius:12px;color:var(--txt);
+  transition:border-color .25s,box-shadow .25s}
+body.world-on input:focus,body.world-on select:focus,body.world-on textarea:focus{
+  outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(22,131,255,.18)}
+body.world-on input::placeholder{color:var(--txt-3)}
+
+/* ---------- Navigation: refined, animated indicator ---------- */
+body.world-on header{background:linear-gradient(180deg,rgba(6,12,26,.85),rgba(6,12,26,.55));backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
+#nav button{position:relative;font-weight:600;letter-spacing:.02em;transition:color .25s}
+#nav button::after{content:'';position:absolute;left:22%;right:22%;bottom:2px;height:2px;border-radius:2px;background:var(--gold);transform:scaleX(0);transition:transform .3s var(--ease)}
+#nav button.on::after{transform:scaleX(1)}
+
+/* ---------- Chips / segments ---------- */
+.segbtn{border-radius:999px;transition:all .22s var(--ease)}
+.segbtn:hover{border-color:rgba(22,131,255,.55);color:#fff;transform:translateY(-1px)}
+body.world-on .segbtn.on{background:linear-gradient(135deg,var(--gold),var(--gold-2));color:#141d33;border-color:transparent;box-shadow:0 3px 10px rgba(22,131,255,.3)}
+.chip{border-radius:999px;font-weight:600}
+
+/* ---------- Home hero: cinematic spacing ---------- */
+.home-hero{padding:28px 6px 10px}
+.home-hero-badge{box-shadow:0 6px 22px rgba(22,131,255,.3),inset 0 1px 0 rgba(255,255,255,.4)}
+.home-hero-h{margin:18px 0 10px}
+.home-cta{border-radius:var(--r-l)}
+.home-cta:hover{transform:translateY(-5px) scale(1.008)}
+.home-cta-arrow{transition:transform .3s var(--ease)}
+.home-cta:hover .home-cta-arrow{transform:translateX(5px)}
+
+/* ---------- View entrance: subtle spatial motion ---------- */
+@keyframes ffIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+main#view>*{animation:ffIn .5s var(--ease) both}
+main#view>*:nth-child(2){animation-delay:.06s}main#view>*:nth-child(3){animation-delay:.12s}
+main#view>*:nth-child(4){animation-delay:.18s}main#view>*:nth-child(5){animation-delay:.24s}
+
+/* ---------- Tables, docs, misc polish ---------- */
+table td{border-bottom:1px solid rgba(148,184,255,.08)}
+.docrow{border-radius:10px;padding:7px 10px;transition:background .2s}
+.docrow:hover{background:rgba(148,184,255,.08)}
+.empty{border:1px dashed var(--line-hi);border-radius:var(--r-l);padding:34px 18px;background:rgba(8,17,36,.35)}
+.toast{border-radius:12px;box-shadow:var(--sh-2)}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+
+
+
+/* ============ LUXURY DARK CINEMATIC — FINAL v2.1 ============ */
+:root{--gold:#1683FF;--gold-2:#3D9BFF;--gold-soft:rgba(22,131,255,.16);--cy:#00D4FF;
+--line:rgba(120,180,255,.22);--line-hi:rgba(0,212,255,.45);--txt:#FFFFFF;--txt-2:#CBD5E1;--txt-3:#94A6BD}
+#worldOverlay{background:linear-gradient(180deg,rgba(3,9,22,.42),rgba(3,9,22,.22) 40%,rgba(3,9,22,.5))!important}
+body.world-on .card,body.world-on .dash-head,body.world-on .lane,body.world-on .mkt-card,.ctry-body{
+  background:rgba(8,18,35,.82)!important;border:1px solid var(--line)!important;
+  backdrop-filter:blur(16px) saturate(1.2)!important;-webkit-backdrop-filter:blur(16px) saturate(1.2)!important;
+  box-shadow:0 10px 34px rgba(0,0,0,.45),inset 0 1px 0 rgba(140,200,255,.08)!important}
+body.world-on .card:hover{border-color:rgba(22,131,255,.55)!important;box-shadow:0 12px 40px rgba(0,0,0,.5),0 0 24px rgba(22,131,255,.18)!important}
+.ffwait-card,.sheet{background:rgba(8,18,35,.9)!important;border:1px solid rgba(0,212,255,.3)!important;backdrop-filter:blur(20px)!important;box-shadow:0 20px 60px rgba(0,0,0,.6),0 0 40px rgba(0,212,255,.12)!important}
+body.world-on .sub{color:#CBD5E1!important}
+label{color:#94A6BD!important}
+body.world-on h1,body.world-on h2,body.world-on h3,body.world-on .card h2,body.world-on .card h3{color:#FFFFFF!important}
+.b-gold,.btn.b-gold{background:#1683FF!important;color:#fff!important;border:0!important;
+  box-shadow:0 4px 18px rgba(22,131,255,.55),0 0 30px rgba(22,131,255,.35)!important}
+.b-gold:hover{background:#2E90FF!important;box-shadow:0 6px 26px rgba(22,131,255,.7),0 0 44px rgba(22,131,255,.45)!important}
+.b-line,.btn.b-line{background:rgba(22,131,255,.1)!important;border:1px solid rgba(22,131,255,.5)!important;color:#fff!important}
+.b-line:hover{background:rgba(22,131,255,.2)!important;box-shadow:0 0 20px rgba(22,131,255,.3)!important}
+.b-green,.btn.b-green{background:#00B8A9!important;color:#fff!important;border:0!important;box-shadow:0 4px 18px rgba(0,212,255,.35)!important}
+body.world-on .segbtn{background:rgba(8,18,35,.7)!important;border:1px solid rgba(120,180,255,.35)!important;color:#E2ECF9!important}
+body.world-on .segbtn.on{background:#1683FF!important;color:#fff!important;border-color:transparent!important;box-shadow:0 3px 14px rgba(22,131,255,.55)!important}
+.segbtn:hover{border-color:#00D4FF!important}
+body.world-on input,body.world-on select,body.world-on textarea{background:rgba(4,12,26,.85)!important;border:1px solid var(--line)!important;color:#fff!important}
+body.world-on input::placeholder{color:#8FA5C4!important}
+body.world-on input:focus,body.world-on select:focus{border-color:#00D4FF!important;box-shadow:0 0 0 3px rgba(0,212,255,.22),0 0 18px rgba(0,212,255,.25)!important}
+.home-hero-badge{background:#1683FF!important;color:#fff!important;box-shadow:0 6px 24px rgba(22,131,255,.55),0 0 30px rgba(22,131,255,.3)!important}
+.home-hero-h .hl{color:#00D4FF!important;text-shadow:0 0 30px rgba(0,212,255,.4)}
+.home-cta{background:linear-gradient(135deg,rgba(22,131,255,.32),rgba(8,18,35,.85))!important;border:1.5px solid rgba(22,131,255,.6)!important;backdrop-filter:blur(14px)!important}
+.home-cta-study:hover{box-shadow:0 14px 40px rgba(22,131,255,.4),0 0 34px rgba(22,131,255,.3)!important}
+.home-cta-work{background:linear-gradient(135deg,rgba(0,212,255,.26),rgba(8,18,35,.85))!important;border-color:rgba(0,212,255,.6)!important}
+.home-cta-work:hover{box-shadow:0 14px 40px rgba(0,212,255,.35)!important}
+.home-cta span{color:#CBD5E1!important}
+.home-cta-arrow{color:#00D4FF!important}
+.home-freecase{background:#00B8A9!important;color:#fff!important;box-shadow:0 8px 26px rgba(0,212,255,.35)!important}
+.tbadge{background:rgba(8,18,35,.75)!important;border:1px solid rgba(0,212,255,.4)!important;color:#fff!important}
+.ffbar{background:rgba(120,180,255,.18)!important}
+.ffbar-fill,.upfill{background:linear-gradient(90deg,#1683FF,#00D4FF)!important}
+#ffPct{color:#00D4FF!important;text-shadow:0 0 24px rgba(0,212,255,.5)}
+.ffstep.d{color:#00E5C0!important}.ffstep.a{color:#fff!important}
+.fpill{background:rgba(22,131,255,.16)!important;border:1px solid rgba(22,131,255,.55)!important;color:#DCEBFF!important}
+.fcount{background:#1683FF!important;color:#fff!important}
+.ctry-head,.ctry-search{background:rgba(4,12,26,.85)!important;border:1px solid var(--line)!important;color:#fff!important}
+.ctryrow{color:#E2ECF9!important}.ctryrow.on{color:#00D4FF!important}
+.ctryrow:hover{background:rgba(22,131,255,.15)!important}
+.chip{background:rgba(8,18,35,.8)!important;border:1px solid rgba(120,180,255,.4)!important;color:#fff!important}
+.empty{border:1.5px dashed rgba(22,131,255,.5)!important;background:rgba(8,18,35,.6)!important;color:#CBD5E1}
+body.world-on header{background:rgba(4,10,24,.85)!important;backdrop-filter:blur(18px)!important;border-bottom:1px solid rgba(22,131,255,.3)!important}
+#nav button{color:#CBD5E1!important}#nav button.on{color:#fff!important}
+#nav button::after{background:#00D4FF!important;box-shadow:0 0 12px rgba(0,212,255,.6)}
+.ffpill{background:rgba(8,18,35,.92)!important;border:1px solid #00D4FF!important;color:#00D4FF!important;box-shadow:0 8px 26px rgba(0,0,0,.5),0 0 20px rgba(0,212,255,.3)!important}
+table td{border-bottom:1px solid rgba(120,180,255,.14)!important;color:#E9F1FC}
+.docrow:hover{background:rgba(22,131,255,.14)!important}
+.uppct{color:#00D4FF!important}
+
+
+/* v2.2 — fully transparent hero + ghost buttons */
+.home-hero,.dash-hero-float{background:transparent!important;border:0!important;box-shadow:none!important;backdrop-filter:none!important;padding:10px 4px 4px!important}
+.home-hero-h{margin:10px 0 6px!important}
+.home-hero-p{margin-bottom:12px!important}
+.b-gold,.btn.b-gold{background:transparent!important;color:#00D4FF!important;font-weight:800!important;border:1.5px solid rgba(0,212,255,.55)!important;box-shadow:none!important;text-shadow:0 0 14px rgba(0,212,255,.5)}
+.b-gold:hover{background:rgba(0,212,255,.12)!important;box-shadow:0 0 22px rgba(0,212,255,.35)!important}
+.b-line,.btn.b-line{background:transparent!important;color:#fff!important;font-weight:700!important;border:1.5px solid rgba(255,255,255,.45)!important}
+.b-line:hover{background:rgba(255,255,255,.1)!important}
+.b-green,.btn.b-green{background:transparent!important;color:#2FE8C8!important;font-weight:800!important;border:1.5px solid rgba(47,232,200,.55)!important;box-shadow:none!important}
+.home-freecase{background:transparent!important;border:1.5px solid #2FE8C8!important;color:#2FE8C8!important;box-shadow:none!important}
+.home-cta{background:rgba(8,18,35,.55)!important}
+.home-cta-work{background:rgba(6,26,32,.55)!important}
+
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -346,17 +564,19 @@ function renderAuth(mode){
         <a onclick="renderAuth('${mode==='signin'?'signup':'signin'}')">${mode==='signin'?'Create an account':'Sign in'}</a></div>
       ${mode==='signup'?`<div class="sub auth-note">A quick verification email confirms your address. That is all we need to get you started.</div>`:''}
       <div class="auth-links">
-        <a onclick="landingInfo('privacy')">Privacy</a><span>·</span><a onclick="landingInfo('help')">Help</a>
+        <a onclick="landingInfo('privacy')">Privacy</a><span>·</span><a onclick="landingInfo('refund')">Refunds</a><span>·</span><a onclick="landingInfo('help')">Help</a>
       </div>
     </div>
   </div>
   <section class="mkt">
     <div class="mkt-stats" id="mktStats">
+      <div><b>Official sources</b><span>every opportunity verified before you see it</span></div>
       <div><b>50+</b><span>destination countries searched</span></div>
       <div><b>1000+</b><span>universities &amp; institutions covered</span></div>
       <div><b>Study + Work</b><span>scholarships &amp; verified jobs</span></div>
       <div><b>You</b><span>press Send — from your own email</span></div>
     </div>
+    <div class="sub" style="text-align:center;margin-top:10px;opacity:.9">🔒 No inbox access · No stored passwords · Confidential documents stay with you · Source link on every opportunity</div>
     <h2 class="mkt-h">How ForiForeign works</h2>
     <div class="mkt-grid">
       <div class="mkt-card"><div class="mkt-ic">1️⃣</div><h3>Build your real profile</h3><p>Education, experience, publications, documents — once. Our agent works only from your real facts, never inventions.</p></div>
@@ -418,7 +638,7 @@ async function ensureWorld(){
   const bg=$('worldBg');if(!bg)return null;
   document.body.classList.add('world-on');bg.classList.add('on');$('worldOverlay').classList.add('on');WORLD_ON=true;
   if(!bg.querySelector('video')){
-    bg.innerHTML='<video autoplay muted loop playsinline preload="auto" src="/bg.mp4"></video>';
+    bg.innerHTML='<video autoplay muted loop playsinline preload="metadata" src="/bg.mp4"></video>';
     const v=bg.querySelector('video');
     v.addEventListener('canplay',()=>{v.play().catch(()=>{})});
     // some browsers pause background videos; nudge it back
@@ -436,6 +656,13 @@ function onWorldSelect(sel){
 }
 function landingInfo(which){
   const c=(SITE&&SITE.content)||{};
+  if(which==='refund'){
+    const body=`<h2>Refunds &amp; fair use</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.refund||'Your first case is completely free, so you see exactly what ForiForeign delivers before paying anything.\n\nPaid packages are credits for searches and prepared applications. Unused credits are refundable within 14 days of purchase. Credits already spent on delivered work (a completed search or a prepared application) are not refundable, because the work has been done.\n\nWe never charge for admission outcomes and never guarantee admission, scholarship, or visa results — no honest service can. What we guarantee is the work: verified opportunities from official sources, and complete, tailored application preparation.\n\nTo request a refund, message Support from your account. Refunds are returned by your original payment method within 7 working days.')}</div>`;
+    const wrap=document.createElement('div');
+    wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
+    wrap.innerHTML=`<div class="sheet" style="max-width:560px;margin:0 auto">${body}<div class="row" style="margin-top:12px"><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">Close</button></div></div>`;
+    document.body.appendChild(wrap);return;
+  }
   const body=which==='privacy'
     ?`<h2>Your privacy</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.privacy||'Your documents are private and used only for your applications.')}</div>`
     :`<h2>How it works</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.help||'Build your profile, find matches, apply with confidence.')}</div>`;
@@ -518,18 +745,20 @@ async function vHome(){
   try{S=await api('/api/me/state')}catch(e){}
   window._homeState=S.state;
   const heroFor={
-    new:{badge:firstFree?'🎁 Your first opportunity is FREE':'Welcome',h:'Find where you have the <span class="hl">strongest opportunity abroad.</span>',p:'Upload your CV and we\'ll find your best study or work match. Your CV is enough to start.',showLanes:true},
-    cv_uploaded:{badge:'✓ Profile ready',h:'Your profile is <span class="hl">ready.</span>',p:'We have read your CV. Let\'s find your best matches now.',action:{label:'Find My Matches',fn:"runSearch()"}},
+    new:{badge:firstFree?'🎁 Your first opportunity is FREE':'Welcome',h:'Upload your CV. <span class="hl">We do the hard work.</span>',p:'One upload. Verified opportunities. Applications prepared for you.',showLanes:true,showUpload:true},
+    cv_uploaded:{badge:'✓ Profile ready',h:'Your profile is <span class="hl">ready.</span>',p:(S.matches?S.matches+' verified opportunities live'+(S.deadlineSoon?' · '+S.deadlineSoon+' deadlines within 14 days':'')+'. Let\'s find your matches.':'We have read your CV. Let\'s find your best matches now.'),action:{label:'Find My Matches',fn:"runSearch()"}},
     preparing:{badge:'⏳ Working',h:'<span class="hl">Preparing</span> your application…',p:'Finding the right contact and tailoring your CV, letter and email.',action:{label:'View Progress',fn:"go('apps')"}},
     application_ready:{badge:'✓ Ready to apply',h:'Your application is <span class="hl">ready.</span>',p:'Recipient, email and documents are prepared. Review and send from your own inbox.',action:{label:'Review & Apply',fn:"go('apps')"}},
-    application_sent:{badge:'🎉 Applied',h:'Your application has been <span class="hl">sent.</span>',p:'Well done. You may have more study, work and funding matches.',action:{label:'Explore More',fn:"go('browse')"}}
+    application_sent:{badge:'🎉 Applied',h:'Your application has been <span class="hl">sent.</span>',p:'Well done.'+(S.matches?' '+S.matches+' verified opportunities are live'+(S.deadlineSoon?', '+S.deadlineSoon+' with deadlines soon':'')+'.':' You may have more study, work and funding matches.'),action:{label:'Explore More',fn:"go('browse')"}}
   };
   const H=heroFor[S.state]||heroFor.new;
   $('view').innerHTML=`
   <div class="home-hero">
-    <div class="home-hero-badge">${H.badge}</div>
+    <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap"><div class="home-hero-badge">${H.badge}</div>
+    <span class="hero-hello">${ME&&ME.full_name?('Welcome, '+esc(ME.full_name.split(' ')[0])+' 👋'):'Welcome 👋'}</span></div>
     <h1 class="home-hero-h">${H.h}</h1>
     <p class="home-hero-p">${H.p}</p>
+    ${H.showUpload?`<div class="row" style="margin:2px 0 14px"><button class="btn b-gold home-primary-cta" onclick="homeCvPick()">📄 Upload Your Complete CV</button><span class="sub" style="align-self:center">PDF, Word or photo — one file is enough.</span></div>`:''}
     ${H.showLanes?`<div class="home-cta-row">
       <button class="home-cta home-cta-study" onclick="window._lane='study';go('browse')">
         <div class="home-cta-ic">🎓</div>
@@ -544,6 +773,11 @@ async function vHome(){
     </div>
     ${firstFree?`<div class="home-freecase">First case free — no card, no risk. Pick a study or work path above to begin.</div>`:''}`
     :`<button class="btn b-gold home-primary-cta" onclick="${H.action.fn}">${H.action.label} →</button>`}
+    <div class="row trustrow">
+      <span class="tbadge">🛡️ Verified from official sources</span>
+      <span class="tbadge">✅ You review &amp; press Send</span>
+      <span class="tbadge">🔒 No passwords, no inbox access</span>
+    </div>
     <div id="dashGlobePanel" style="display:none;margin-top:10px"></div>
   </div>
   <div class="dash-head" style="margin-top:14px">
@@ -588,7 +822,7 @@ function dashGlobeSelect(sel){
     ${d.work?`<span class="gchip" style="border-color:#22c55e">💼 ${d.work}</span>`:''}</div>
     <div class="row" style="margin-top:8px;gap:6px">
     <button class="btn b-gold" style="padding:5px 12px" onclick="window._lane='study';window._study=window._study||{};Object.assign(window._study,{levels:[],fundings:[],ctrys:['${sel.code}'],subj:'',noLang:false,stipend:false});go('browse')">🎓 Study here</button>
-    <button class="btn b-green" style="padding:5px 12px" onclick="window._lane='work';window._work=window._work||{};window._work.ctry='${sel.code}';go('browse')">💼 Work here</button></div></div>`;
+    <button class="btn b-line" style="padding:5px 12px" onclick="window._lane='work';window._work=window._work||{};window._work.ctry='${sel.code}';go('browse')">💼 Work here</button></div></div>`;
 }
 async function dashLoad(elId,url,n){
   try{const d=await api(url);const el=$(elId);if(!el)return;
@@ -614,7 +848,7 @@ async function dashAvatar(){
   const edu=(m.education||[]).length,exp=(m.experience||[]).length,pubs=(m.publications||[]).length,docs=(m.documents||[]).length;
   const initials=(m.full_name||'?').split(/\s+/).map(x=>x[0]||'').join('').slice(0,2).toUpperCase();
   el.innerHTML=`<div class="row" style="gap:14px;align-items:center;flex-wrap:wrap">
-  <div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#D9A521,#F1C40F);display:flex;align-items:center;justify-content:center;font:700 22px Fraunces,serif;color:#14213D;flex:0 0 auto">${esc(initials)}</div>
+  <div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#1683FF,#00D4FF);display:flex;align-items:center;justify-content:center;font:700 22px Fraunces,serif;color:#14213D;flex:0 0 auto">${esc(initials)}</div>
   <div style="min-width:0;flex:1">
     <b style="font-size:16px">${esc(m.full_name||'Your name')}</b>
     <div class="sub">${esc(m.headline||'Add your professional headline')}</div>
@@ -804,25 +1038,39 @@ function renderCtryList(){
   const el=$('ctryList');if(!el)return;
   const st=window._study||{};const q=(st.ctrySearch||'').toLowerCase();
   const list=(window._countries||[]).filter(c=>!q||c.name.toLowerCase().includes(q));
-  el.innerHTML=list.map(c=>`<button class="segbtn ${st.ctrys.includes(c.code)?'on':''}" onclick="_togStudy('ctrys','${c.code}')">${esc(c.name)}</button>`).join('')||'<span class="sub">No match</span>';
+  el.innerHTML=list.map(c=>{const on=st.ctrys.includes(c.code);
+    return `<div class="ctryrow ${on?'on':''}" onclick="_togStudy('ctrys','${c.code}')"><span class="ck">${on?'☑':'☐'}</span> ${esc(c.name)}</div>`;}).join('')||'<span class="sub">No match</span>';
 }
 async function renderStudyLane(){
   await ensureCountries();
   const st=window._study||(window._study={levels:[],fundings:[],ctrys:[],subj:'',noLang:false,stipend:false,noFee:false,intakeSoon:false,scholarshipOnly:false,ctrySearch:'',ctryOpen:false});
   if(!st.levels)Object.assign(st,{levels:[],fundings:[],ctrys:[],noLang:false,stipend:false});
   if(st.noFee===undefined)Object.assign(st,{noFee:false,intakeSoon:false,scholarshipOnly:false,ctrySearch:'',ctryOpen:false});
+  if(st.moreOpen===undefined)st.moreOpen=false;
   const tog=(arr,v)=>{const i=arr.indexOf(v);i>=0?arr.splice(i,1):arr.push(v)};
   window._togStudy=(k,v)=>{tog(st[k],v);renderStudyLane()};
   window._togAllStudy=(k)=>{const full={levels:['bachelors','masters','phd','postdoc'],fundings:['fully','partial','self'],ctrys:(window._countries||[]).map(c=>c.code)}[k]||[];st[k]=st[k].length===full.length?[]:full.slice();renderStudyLane()};
   $('view').innerHTML=laneBar('study')+`
   <h2 style="margin-bottom:2px">Study Abroad</h2>
-  <div class="sub" style="margin-bottom:10px">All levels from Bachelors to Postdoc, scholarships included. Verified against official pages. Select multiple filters.</div>
-  <div class="card" style="padding:12px">
-    <label style="margin-top:0">Level (multi-select)</label>
+  <div class="sub" style="margin-bottom:10px">Bachelors to Postdoc. Verified against official pages.</div>
+  <div class="card" style="padding:14px">
+    ${(()=>{const n=st.levels.length+st.fundings.length+st.ctrys.length+(st.noLang?1:0)+(st.stipend?1:0)+(st.scholarshipOnly?1:0)+(st.noFee?1:0)+(st.intakeSoon?1:0);
+    return `<div class="spread" style="margin-bottom:8px"><b style="font-size:14px">Filters${n?` <span class="fcount">${n}</span>`:''}</b>
+    ${n?`<a class="sub" style="cursor:pointer" onclick="Object.assign(window._study,{levels:[],fundings:[],ctrys:[],noLang:false,stipend:false,scholarshipOnly:false,noFee:false,intakeSoon:false,subj:''});renderStudyLane()">Clear all</a>`:''}</div>`})()}
+    <div class="row" style="margin-bottom:10px"><input id="study-subj" style="flex:1;min-width:150px" placeholder="Subject or field, e.g. pharmacology" value="${escAttr(st.subj)}" onkeydown="if(event.key==='Enter'){window._study.subj=this.value;renderStudyLane()}"><button class="btn b-gold" onclick="window._study.subj=(document.getElementById('study-subj')||{}).value||'';renderStudyLane()">Search</button></div>
+    <div class="sub" style="margin-bottom:4px">Quick picks</div>
+    <div class="row seg" style="margin-bottom:10px">
+      <button class="segbtn" onclick="Object.assign(window._study,{levels:['masters'],fundings:['fully']});renderStudyLane()">🎯 Fully funded Masters</button>
+      <button class="segbtn" onclick="Object.assign(window._study,{levels:['phd'],fundings:['fully']});renderStudyLane()">🎓 Funded PhD</button>
+      <button class="segbtn" onclick="window._study.noLang=true;renderStudyLane()">🗣️ No IELTS</button>
+      <button class="segbtn" onclick="window._study.intakeSoon=true;renderStudyLane()">⏳ Deadline open</button>
+    </div>
+    <label style="margin-top:0">Level</label>
     <div class="row seg"><button class="segbtn ${st.levels.length===4?'on':''}" onclick="_togAllStudy('levels')"><b>All</b></button>${[['bachelors','Bachelors'],['masters','Masters'],['phd','PhD'],['postdoc','Postdoc']].map(([v,l])=>`<button class="segbtn ${st.levels.includes(v)?'on':''}" onclick="_togStudy('levels','${v}')">${l}</button>`).join('')}</div>
-    <label>Funding (multi-select)</label>
+    <label>Funding</label>
     <div class="row seg"><button class="segbtn ${st.fundings.length===3?'on':''}" onclick="_togAllStudy('fundings')"><b>All</b></button>${[['fully','Fully funded'],['partial','Partial'],['self','Self-finance']].map(([v,l])=>`<button class="segbtn ${st.fundings.includes(v)?'on':''}" onclick="_togStudy('fundings','${v}')">${l}</button>`).join('')}</div>
-    <label>Countries</label>
+    <button class="btn b-line" style="padding:6px 14px;margin:6px 0" onclick="window._study.moreOpen=!window._study.moreOpen;renderStudyLane()">${st.moreOpen?'▲ Fewer filters':'▼ More filters'}</button>
+    ${st.moreOpen?`<label>Countries</label>
     <div class="ctry-picker">
       <div class="ctry-head" onclick="window._study.ctryOpen=!window._study.ctryOpen;renderStudyLane()">
         <span>${st.ctrys.length?st.ctrys.length+' selected':'All countries'}</span>
@@ -841,11 +1089,8 @@ async function renderStudyLane(){
       <button class="segbtn ${st.scholarshipOnly?'on':''}" onclick="window._study.scholarshipOnly=!window._study.scholarshipOnly;renderStudyLane()">🏅 Scholarship available</button>
       <button class="segbtn ${st.noFee?'on':''}" onclick="window._study.noFee=!window._study.noFee;renderStudyLane()">🆓 No application fee</button>
       <button class="segbtn ${st.intakeSoon?'on':''}" onclick="window._study.intakeSoon=!window._study.intakeSoon;renderStudyLane()">⏳ Deadline open</button>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <input id="study-subj" style="width:auto;flex:1;min-width:150px" placeholder="Subject, e.g. pharmacology" value="${escAttr(st.subj)}" onkeydown="if(event.key==='Enter'){window._study.subj=this.value;renderStudyLane()}" onchange="window._study.subj=this.value;renderStudyLane()">
-      <button class="btn b-ink" onclick="window._study.subj=(document.getElementById('study-subj')||{}).value||'';renderStudyLane()">Search</button>
-    </div>
+    </div>`:''}
+
   </div>
   <div id="studyResults"><div class="empty">Loading verified opportunities…</div></div>`;
   if(st.ctryOpen)renderCtryList();
@@ -856,14 +1101,17 @@ async function renderStudyLane(){
       +(st.fundings.length?'&funding_type='+st.fundings.join(','):'')
       +(st.levels.length?'&level='+st.levels.join(','):'')
       +(st.noLang?'&no_language_test=1':'')+(st.stipend?'&has_stipend=1':'')
-      +(st.subj?'&q='+encodeURIComponent(st.subj):'')+'&match=1';
+      +(st.subj?'&q='+encodeURIComponent(st.subj):'')+(st.sort==='recent'?'&sort=recent':'')+'&match=1';
     d=await api(qs);
   }catch(e){const el=$('studyResults');if(el)el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const opps=d.opportunities||[];const el=$('studyResults');if(!el)return;
-  el.innerHTML=opps.length?opps.map(o=>oppCard(o,'b-gold')).join('')
-    :`<div class="empty">No verified study opportunities match these filters yet.<br><br>
+  const pills=[...st.levels.map(v=>['levels',v,v]),...st.fundings.map(v=>['fundings',v,{fully:'Fully funded',partial:'Partial',self:'Self-finance'}[v]||v]),...st.ctrys.slice(0,4).map(v=>['ctrys',v,((window._countries||[]).find(c=>c.code===v)||{}).name||v]),...(st.ctrys.length>4?[['','', '+'+(st.ctrys.length-4)+' more']]:[]),...(st.noLang?[['noLang','','No IELTS']]:[]),...(st.stipend?[['stipend','','Stipend']]:[]),...(st.scholarshipOnly?[['scholarshipOnly','','Scholarship']]:[]),...(st.noFee?[['noFee','','No fee']]:[]),...(st.intakeSoon?[['intakeSoon','','Deadline open']]:[])];
+  const bar=`<div class="spread" style="margin:2px 0 8px;flex-wrap:wrap;gap:8px"><div class="row" style="flex-wrap:wrap;gap:6px">${opps.length?`<b>${opps.length} opportunit${opps.length===1?'y':'ies'}</b>`:''}${pills.map(([k,v,l])=>`<span class="fpill">${esc(String(l))}${k?` <a onclick="event.stopPropagation();(function(){const s=window._study;if(Array.isArray(s['${k}'])){const i=s['${k}'].indexOf('${v}');if(i>=0)s['${k}'].splice(i,1)}else s['${k}']=false;renderStudyLane()})()">✕</a>`:''}</span>`).join('')}</div>
+  <select style="width:auto" onchange="window._study.sort=this.value;renderStudyLane()"><option value="" ${st.sort!=='recent'?'selected':''}>Deadline soonest</option><option value="recent" ${st.sort==='recent'?'selected':''}>Newest first</option></select></div>`;
+  el.innerHTML=bar+(opps.length?opps.map(o=>oppCard(o,'b-gold')).join('')
+    :`<div class="empty"><b>Nothing matches these filters yet.</b><br><span class="sub">Try widening a filter, or let our research team search official sources for you:</span><br><br>
       <button class="btn b-gold" onclick="runSearch('study')">Search official sources for me</button><br>
-      <span class="sub" style="margin-top:8px;display:inline-block">The agent searches against YOUR profile, results appear in 2 to 3 minutes.</span></div>`;
+      <span class="sub" style="margin-top:8px;display:inline-block">The agent searches against YOUR profile, results appear in 2 to 3 minutes.</span></div>`);
 }
 
 /* ---- WORK lane ---- */
@@ -873,26 +1121,39 @@ async function renderWorkLane(){
   $('view').innerHTML=laneBar('work')+`
   <div class="hero" style="background:linear-gradient(135deg,#0E7C66,#0F2748);padding:22px">
     <h1>Work Abroad</h1>
-    <p>Every role names the license or registration you will actually need as a Pakistani professional, so you apply only where you can truly be hired.</p>
+    <p>Verified jobs. Licensing named for you.</p>
   </div>
   <div class="card" style="padding:12px">
     <div class="row">
       <select style="width:auto" onchange="window._work.ctry=this.value;renderWorkLane()"><option value="">All countries</option>${(window._countries||[]).map(c=>`<option value="${c.code}" ${st.ctry===c.code?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
       <input id="work-subj" style="width:auto;flex:1;min-width:150px" placeholder="Role or field, e.g. pharmacist" value="${escAttr(st.subj)}" onkeydown="if(event.key==='Enter'){window._work.subj=this.value;renderWorkLane()}" onchange="window._work.subj=this.value;renderWorkLane()">
-      <button class="btn b-green" onclick="window._work.subj=(document.getElementById('work-subj')||{}).value||'';renderWorkLane()">Search</button>
+      <button class="btn b-gold" onclick="window._work.subj=(document.getElementById('work-subj')||{}).value||'';renderWorkLane()">Search</button>
+    </div>
+    <div class="sub" style="margin:8px 0 4px">Quick picks</div>
+    <div class="row seg" style="margin-bottom:6px">
+      <button class="segbtn" onclick="window._work.visa=true;renderWorkLane()">🛂 Visa sponsored</button>
+      <button class="segbtn" onclick="window._work.remote=true;renderWorkLane()">🌍 Remote</button>
+      <button class="segbtn" onclick="window._work.jobTypes=['internship'];renderWorkLane()">🎓 Internships</button>
+    </div>
+    <div class="sub" style="margin:6px 0 4px">Refine</div>
+    <div class="row seg" style="flex-wrap:wrap;margin-top:0">
+      <button class="segbtn ${st.remote?'on':''}" onclick="window._work.remote=!window._work.remote;renderWorkLane()">🌍 Remote</button>
+      <button class="segbtn ${st.visa?'on':''}" onclick="window._work.visa=!window._work.visa;renderWorkLane()">🛂 Visa sponsorship</button>
+      ${[['full_time','Full-time'],['part_time','Part-time'],['contract','Contract'],['internship','Internship']].map(([k,l])=>`<button class="segbtn ${(st.jobTypes||[]).includes(k)?'on':''}" onclick="window._work.jobTypes=window._work.jobTypes||[];const i=window._work.jobTypes.indexOf('${k}');i>=0?window._work.jobTypes.splice(i,1):window._work.jobTypes.push('${k}');renderWorkLane()">${l}</button>`).join('')}
+      ${[['entry','Entry'],['mid','Mid'],['senior','Senior']].map(([k,l])=>`<button class="segbtn ${(st.exps||[]).includes(k)?'on':''}" onclick="window._work.exps=window._work.exps||[];const i=window._work.exps.indexOf('${k}');i>=0?window._work.exps.splice(i,1):window._work.exps.push('${k}');renderWorkLane()">${l}</button>`).join('')}
     </div>
   </div>
   <div id="workResults"><div class="empty">Loading verified jobs…</div></div>`;
   let d;
   try{
-    const qs='/api/opportunities?kind=work'+(st.ctry?'&country='+encodeURIComponent(st.ctry):'')+(st.subj?'&q='+encodeURIComponent(st.subj):'')+'&match=1';
+    const qs='/api/opportunities?kind=work'+(st.ctry?'&country='+encodeURIComponent(st.ctry):'')+(st.subj?'&q='+encodeURIComponent(st.subj):'')+(st.remote?'&remote=1':'')+(st.visa?'&visa=1':'')+((st.jobTypes||[]).length?'&job_type='+st.jobTypes.join(','):'')+((st.exps||[]).length?'&exp='+st.exps.join(','):'')+(st.sort==='recent'?'&sort=recent':'')+'&match=1';
     d=await api(qs);
   }catch(e){const el=$('workResults');if(el)el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const opps=d.opportunities||[];const el=$('workResults');if(!el)return;
-  el.innerHTML=opps.length?opps.map(o=>oppCard(o,'b-green')).join('')
-    :`<div class="empty">No verified jobs match yet.<br><br>
+  el.innerHTML=(opps.length?`<div class="spread" style="margin:2px 0 8px"><b>${opps.length} verified job${opps.length===1?'':'s'}</b><select style="width:auto" onchange="window._work.sort=this.value;renderWorkLane()"><option value="" ${st.sort!=='recent'?'selected':''}>Deadline soonest</option><option value="recent" ${st.sort==='recent'?'selected':''}>Newest first</option></select></div>`:'')+(opps.length?opps.map(o=>oppCard(o,'b-green')).join('')
+    :`<div class="empty"><b>Nothing matches yet.</b><br><span class="sub">Widen a filter, or let our research team search official sources:</span><br><br>
       <button class="btn b-green" onclick="runSearch('work')">Search official sources for me</button><br>
-      <span class="sub" style="margin-top:8px;display:inline-block">Set your profession in Profile first so licensing is matched correctly.</span></div>`;
+      <span class="sub" style="margin-top:8px;display:inline-block">Set your profession in Profile first so licensing is matched correctly.</span></div>`);
 }
 async function runSearch(kind){
   let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined}})}catch(e){toast(e.message);return}
@@ -937,6 +1198,25 @@ async function openApp(id){
   <div class="spread"><h2>${esc(opp.institution||'')}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
   <div class="sub">${esc(opp.title||'')} · ${esc(a.case_no)} · <span class="chip c-gold">${esc(a.stage.replace(/_/g,' '))}</span></div>
   ${a.next_action?`<div class="card" style="margin-top:10px;background:var(--gold-soft);border-color:var(--gold)"><b>Next:</b> ${esc(a.next_action)}</div>`:''}
+  <div class="card"><h3>Full details, before you apply</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+  ${[
+    ['University / Employer',opp.institution],
+    ['Location',[opp.city,opp.country_code].filter(Boolean).join(', ')],
+    ['Level / Type',opp.level||opp.job_type],
+    ['Duration',opp.duration],
+    ['Tuition / Salary',opp.tuition||opp.salary_note],
+    ['Fee structure',opp.fee_structure],
+    ['Application fee',opp.application_fee],
+    ['Funding / Stipend',[opp.funding,opp.stipend].filter(Boolean).join(' · ')],
+    ['Deadline',opp.deadline],
+    ['Bank statement / proof of funds',opp.bank_statement_note],
+  ].map(([k,v])=>`<tr><td style="padding:5px 8px 5px 0;color:#b9cdf0;white-space:nowrap;vertical-align:top">${k}</td><td style="padding:5px 0">${v?esc(String(v)):'<span class=sub>Not stated on official page</span>'}</td></tr>`).join('')}
+  </table>
+  ${(opp.post_admission_reqs||[]).length?`<div style="margin-top:8px"><b>After admission, the university will ask for:</b><ul style="margin:6px 0 0 18px;padding:0">${opp.post_admission_reqs.map(r=>`<li class="sub" style="margin:3px 0">${esc(r)}</li>`).join('')}</ul></div>`:''}
+  ${opp.url?`<div class="sub" style="margin-top:8px">Source: <a href="${escAttr(opp.url)}" target="_blank" style="color:#7ef0d4">official page ↗</a></div>`:''}
+  <div class="sub" style="margin-top:10px;border-top:1px solid rgba(140,178,255,.2);padding-top:8px">📌 After admission, you send any further documents (bank statement, passport, visa papers) <b>yourself, directly to the admission office</b>. ForiForeign never stores confidential documents, passwords, or handles visa processing — we find, verify, and prepare; you stay in control.</div>
+  </div>
   ${(()=>{
     // Progressive document collection (spec #9): only ask for what THIS opportunity requires
     // and the user does not already have on file. One-tap contextual upload, no upfront wall.
@@ -954,6 +1234,7 @@ async function openApp(id){
       if(/passport/.test(k))return false; // never block early on passport
       return !haveNames.some(hn=>hn.includes(k.slice(0,8)));
     });
+    window._caseMissingDocs=window._caseMissingDocs||{};window._caseMissingDocs[a.id]=missing;
     if(!missing.length)return '';
     return `<div class="card" style="border-color:var(--gold)"><h3>This opportunity also needs</h3>
     <div class="sub" style="margin:4px 0 8px">Add only what this application requires. Your CV is already on file.</div>
@@ -1012,9 +1293,61 @@ async function saveNotes(appId,btn){
   catch(e){toast(e.message);btn.disabled=false}
 }
 async function prepApp(id,btn){btn.disabled=true;
-  try{const d=await api('/api/applications/'+id+'/prepare',{method:'POST'});toast(d.message);
-  setTimeout(()=>{document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());openApp(id)},60000);
-  }catch(e){toast(e.message);btn.disabled=false}}
+  try{await api('/api/applications/'+id+'/prepare',{method:'POST'});ffWait(id);}
+  catch(e){toast(e.message);btn.disabled=false}}
+
+/* ===== ForiForeign Waiting Experience: one elegant popup, real progress only ===== */
+const FF_LINES=["Your next opportunity may be somewhere you haven't looked yet.","Search wider. Prepare better. Apply smarter.","One genuine opportunity can change a career.","Let ForiForeign handle the repetitive work. You stay in control."];
+function ffWait(appId){
+  document.querySelectorAll('.ffwait,.ffpill').forEach(x=>x.remove());
+  const w=document.createElement('div');w.className='ffwait';
+  w.innerHTML=`<div class="ffwait-card">
+    <div class="ffwait-head"><div><div class="ffwait-title">Give us a few minutes.</div><div class="ffwait-sub">ForiForeign is working for you — our research and application teams are searching, checking and preparing everything in the background.</div></div>
+    <button class="ffmin" title="Minimize">—</button></div>
+    <div class="ffwait-pct"><span id="ffPct">0%</span><span class="ffwait-count" id="ffCount"></span></div>
+    <div class="ffbar"><div class="ffbar-fill" id="ffFill"></div></div>
+    <div class="ffeta sub" id="ffEta">Usually takes a few minutes.</div>
+    <div class="ffsteps" id="ffSteps"></div>
+    <div class="ffrotate sub" id="ffLine">${FF_LINES[0]}</div>
+    <details class="ffstory"><summary>Why ForiForeign?</summary>
+    <div class="sub" style="line-height:1.7;margin-top:8px">Built by a Pakistani PhD student who wanted to make finding opportunities abroad simpler and more affordable.<br><br>Finding the right university, job or research position can mean hours of searching, checking requirements, finding the right contact and preparing a different application every time. ForiForeign does that hard, repetitive work for you.<br><br><b>Find opportunities. Prepare properly. Apply yourself. Stay in control.</b><br><br>No expensive middleman. No guaranteed promises. Just better research, better preparation and more opportunities to discover.<br><br><i>Built in Pakistan. For ambitious people everywhere.</i></div></details>
+    <div id="ffDone" style="display:none"></div>
+  </div>`;
+  document.body.appendChild(w);
+  w.querySelector('.ffmin').onclick=()=>{w.style.display='none';ffPill(appId)};
+  let li=0;const rot=setInterval(()=>{li=(li+1)%FF_LINES.length;const el=$('ffLine');if(el){el.style.opacity=0;setTimeout(()=>{el.textContent=FF_LINES[li];el.style.opacity=.85},350)}},7000);
+  const poll=setInterval(()=>ffTick(appId,w,poll,rot),4000);
+  ffTick(appId,w,poll,rot);
+}
+function ffPill(appId){
+  let p=document.querySelector('.ffpill');
+  if(!p){p=document.createElement('button');p.className='ffpill';p.onclick=()=>{p.remove();const w=document.querySelector('.ffwait');if(w)w.style.display='flex';else ffWait(appId)};document.body.appendChild(p);}
+  p.textContent='ForiForeign working · '+((window._ffPct||0))+'%';
+}
+async function ffTick(appId,w,poll,rot){
+  let st;try{st=await api('/api/applications/'+appId+'/status')}catch(e){return}
+  const steps=st.steps||[];const total=steps.length||6;const done=steps.filter(x=>x.done).length;
+  const pct=st.ready?100:Math.round(done/total*100);window._ffPct=pct;
+  const p=$('ffPct'),f=$('ffFill'),c=$('ffCount'),e=$('ffEta'),sl=$('ffSteps');
+  if(p)p.textContent=pct+'%';if(f)f.style.width=pct+'%';
+  if(c)c.textContent=done+' of '+total+' tasks completed';
+  if(e)e.textContent=st.ready?'':st.eta||'';
+  if(sl)sl.innerHTML=steps.map(x=>`<div class="ffstep ${x.done?'d':x.error?'e':x.active?'a':''}">${x.done?'✓':x.error?'!':x.active?'→':'○'} ${esc(x.label)}${x.error?`<div class="sub" style="margin:2px 0 0 20px">${esc(x.error)}</div>`:''}</div>`).join('');
+  const pill=document.querySelector('.ffpill');if(pill)pill.textContent='ForiForeign working · '+pct+'%';
+  if(st.ready){clearInterval(poll);clearInterval(rot);
+    const dn=$('ffDone');if(dn){dn.style.display='block';
+      dn.innerHTML=`<div class="ffcomplete">100% COMPLETE</div><div style="font:600 15px Inter;margin:4px 0 10px">Your case is ready.</div>
+      <button class="btn b-gold" style="width:100%;font-size:16px;padding:13px" onclick="document.querySelectorAll('.ffwait,.ffpill').forEach(x=>x.remove());openApp('${appId}')">REVIEW CASE</button>`;}
+    const hd=w.querySelector('.ffwait-sub');if(hd)hd.textContent='Everything is prepared and checked. Review it whenever you are ready.';
+    const pl=document.querySelector('.ffpill');if(pl){pl.textContent='✓ Case ready — tap to review';pl.onclick=()=>{document.querySelectorAll('.ffwait,.ffpill').forEach(x=>x.remove());openApp(appId)};}
+  }
+  if(st.failed){clearInterval(poll);clearInterval(rot);
+    const dn=$('ffDone');if(dn){dn.style.display='block';
+      dn.innerHTML=`<div style="font:700 15px Inter;color:#1683FF;margin:6px 0">One step needs attention.</div>
+      <div class="row"><button class="btn b-gold" style="flex:1" onclick="this.closest('.ffwait').remove();api('/api/applications/${appId}/prepare',{method:'POST'}).then(()=>ffWait('${appId}')).catch(e=>toast(e.message))">Retry</button>
+      <button class="btn b-line" style="flex:1" onclick="document.querySelectorAll('.ffwait,.ffpill').forEach(x=>x.remove());openApp('${appId}')">View case</button></div>`;}
+  }
+}
 function addDocFor(appId,btn){
   let inp=$('case-doc-files');
   if(!inp){inp=document.createElement('input');inp.type='file';inp.id='case-doc-files';inp.multiple=true;inp.accept='.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic';inp.style.display='none';document.body.appendChild(inp);}
@@ -1039,6 +1372,18 @@ window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.d
 setTimeout(()=>{try{window.postMessage({type:'FF_ASSIST_PING'},location.origin)}catch(e){}},1200);
 async function applyNow(appId,btn){
   if(SITE&&SITE.apply_assistant&&SITE.apply_assistant.enabled===false){toast('Online application assistance is temporarily unavailable.');return}
+  // Stop-and-ask: if this opportunity requires documents the client has not uploaded,
+  // pause and ask before proceeding. Client decides: add now, or continue and send later docs themselves.
+  const miss=window._caseMissingDocs&&window._caseMissingDocs[appId];
+  if(miss&&miss.length&&!window._applyAnyway){
+    const w=document.createElement('div');
+    w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.75);z-index:70;display:flex;align-items:flex-end;justify-content:center';
+    w.innerHTML=`<div class="sheet"><h3 style="margin:0 0 6px">This application also requires</h3>
+    <div class="sub" style="margin-bottom:10px">${miss.map(m=>'📎 '+esc(m)).join('<br>')}</div>
+    <button class="btn b-gold" style="width:100%;margin-bottom:8px" onclick="this.closest('div[style*=fixed]').remove()">Add documents first (recommended)</button>
+    <button class="btn b-line" style="width:100%" onclick="window._applyAnyway=true;this.closest('div[style*=fixed]').remove();applyNow('${appId}')">Apply anyway — I'll send the rest to the office myself</button></div>`;
+    document.body.appendChild(w);if(btn)btn.disabled=false;return;
+  }
   if(btn)btn.disabled=true;
   let d;
   try{d=await api('/api/applications/'+appId+'/package')}
@@ -1083,7 +1428,7 @@ function applyFallback(p){
   </div>
   <div class="sub" style="margin-top:12px">ForiForeign never sends anything itself — you review and press Send in your own email.</div>
   ${(()=>{const su=((SITE&&SITE.apply_assistant&&SITE.apply_assistant.store_urls)||{});const link=su.chrome||su.edge||su.firefox;
-  return link?`<div class="card" style="margin-top:10px;border-color:#F1C40F"><b>💡 Make this one-click next time</b><div class="sub" style="margin:4px 0">Apply Assistant opens your email with the documents already attached — install once, use forever.</div><a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(link)}">Enable Apply Assistant</a></div>`
+  return link?`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>💡 Make this one-click next time</b><div class="sub" style="margin:4px 0">Apply Assistant opens your email with the documents already attached — install once, use forever.</div><a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(link)}">Enable Apply Assistant</a></div>`
   :`<div class="sub" style="margin-top:6px">💡 The <b>Apply Assistant</b> browser extension (auto-attaches your documents) is coming to the Chrome Web Store.</div>`})()}
   <div class="row" style="margin-top:10px"><button class="btn b-green" onclick="markApplied('${p.applicationId}',this)">I pressed Send — mark as applied</button></div>
   </div>`;
@@ -1166,7 +1511,7 @@ async function vProfile(){
   ${(m.publications||[]).map(p=>`<div class="sub" style="padding:4px 0;border-bottom:1px solid var(--line)">${esc(typeof p==='string'?p:(p.title||''))}</div>`).join('')}</div>`:''}
 
   <div class="card" style="border-color:var(--gold)"><h3>My documents</h3>
-  <div class="sub" style="margin:6px 0">Upload in <b>PDF, Word, or image</b> — the agent reads each file, extracts your details, and fills your profile automatically. Your CV alone is enough to start; more documents make a stronger case.</div>
+  <div class="sub" style="margin:6px 0"><b>PDF, Word or image.</b> Your CV is enough — we read it and fill your profile.</div>
   <input id="doc-files" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic" style="display:none" onchange="uploadDocs()">
   <div class="row" style="gap:10px;margin:8px 0">
     <button class="btn b-gold" onclick="uploadAll()">📤 Upload all documents at once</button>
@@ -1183,7 +1528,7 @@ async function vProfile(){
   <div id="verifyList"><span class="sub">Press cross-check, or upload more documents first.</span></div></div>
 
   <div class="card"><h3>Applying: from your own email</h3>
-  <div class="sub" style="margin:6px 0">ForiForeign prepares everything — recipient, tailored email, CV and documents. When you press APPLY on a case, it opens in your own email for you to review and press Send. ForiForeign never accesses your inbox and never sends anything itself.</div></div>
+  <div class="sub" style="margin:6px 0">Press APPLY and everything opens in your own email — you review and press Send. We never access your inbox.</div></div>
 
   <div class="card"><h3>Edit details</h3>
   <label>Full name</label><input id="p-name" value="${esc(m.full_name)}">
@@ -1314,7 +1659,7 @@ function uploadAll(){
   wrap.innerHTML=`<div style="max-width:440px;background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:22px">
   <h3 style="margin:0 0 8px">Upload all documents at once</h3>
   <div class="sub" style="margin-bottom:6px">The agent will read every file, sort it into the right section, and fill your profile automatically.</div>
-  <div style="background:rgba(217,165,33,.16);border:1px solid #F1C40F;border-radius:10px;padding:10px 12px;color:#fde68a;font:600 13px Inter;margin:10px 0">💡 At minimum, include your <b>CV</b>. For a stronger case, add your degrees, transcripts and all relevant documents too.</div>
+  <div style="background:rgba(22,131,255,.16);border:1px solid #1683FF;border-radius:10px;padding:10px 12px;color:#D6E9FF;font:600 13px Inter;margin:10px 0">💡 At minimum, include your <b>CV</b>. For a stronger case, add your degrees, transcripts and all relevant documents too.</div>
   <div class="row"><button class="btn b-gold" onclick="window._uploadKind=null;document.getElementById('doc-files').click();this.closest('div[style*=fixed]').remove()">Choose files</button>
   <button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">Cancel</button></div></div>`;
   document.body.appendChild(wrap);
@@ -1336,7 +1681,7 @@ async function uploadDocs(){
       xhr.upload.onprogress=(e)=>{
         if(!e.lengthComputable)return;
         const pct=Math.round(e.loaded/e.total*100);
-        items.forEach(it=>{const bar=$(it.id),pc=$(it.id+'pct');if(bar){bar.style.width=pct+'%';bar.style.background=pct>=100?'linear-gradient(90deg,#16a085,#2dd4bf)':'linear-gradient(90deg,#F1C40F,#D9A521)'}if(pc)pc.textContent=pct+'%'});
+        items.forEach(it=>{const bar=$(it.id),pc=$(it.id+'pct');if(bar){bar.style.width=pct+'%';bar.style.background=pct>=100?'linear-gradient(90deg,#16a085,#2dd4bf)':'linear-gradient(90deg,#1683FF,#00D4FF)'}if(pc)pc.textContent=pct+'%'});
       };
       xhr.onload=()=>{if(xhr.status>=200&&xhr.status<300)resolve(JSON.parse(xhr.responseText));else{try{reject(new Error(JSON.parse(xhr.responseText).error||'Upload failed'))}catch(e){reject(new Error('Upload failed'))}}};
       xhr.onerror=()=>reject(new Error('Network error'));
@@ -1470,6 +1815,11 @@ async function adminSettings(){
   ${T('features','opportunity_search','Opportunity search enabled')}
   </div>
   ${applyAssistCard()}
+  <div class="card"><h3>🌱 Seed opportunities</h3>
+  <div class="sub" style="margin:4px 0 8px">Fill real verified inventory before launch. Same quality bar as user discovery — official pages only.</div>
+  <div class="row"><select id="seedKind" style="width:auto"><option value="masters">Study: Masters</option><option value="phd">Study: PhD</option><option value="postdoc">Postdoc</option><option value="work">Work</option></select>
+  <input id="seedQ" style="flex:1;min-width:160px" placeholder='e.g. fully funded masters Germany'>
+  <button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{const d=await api('/api/admin/seed',{method:'POST',body:{kind:$('seedKind').value,query:$('seedQ').value}});toast(d.message)}catch(e){toast(e.message)}b.disabled=false})(this)">Seed now</button></div></div>
   <div class="card"><h3>Announcement banner</h3>
   ${T('announcement','enabled','Show announcement to all users')}
   ${F('announcement','text','Announcement text')}</div>
@@ -1487,6 +1837,22 @@ async function adminSettings(){
   ${F('ai','pkr_override_per_case','Fixed PKR cost per case (blank = auto-calculate)')}</div>
   <div class="row" style="margin:12px 0"><button class="btn b-gold" onclick="saveAdminSettings(this)">Save settings</button></div>
   ${(d.history||[]).length?`<div class="card"><h3>Version history</h3>${d.history.map(h=>`<div class="spread" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="sub">v${h.version} · ${esc((h.at||'').slice(0,16).replace('T',' '))}</span><button class="btn b-line" style="padding:3px 10px" onclick="if(confirm('Roll back to v${h.version}? Current settings will be preserved in history.'))rollbackSettings(${h.version},this)">Roll back</button></div>`).join('')}</div>`:''}`;
+}
+function homeCvPick(){
+  let inp=$('home-cv-file');
+  if(!inp){inp=document.createElement('input');inp.type='file';inp.id='home-cv-file';inp.accept='.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic';inp.style.display='none';document.body.appendChild(inp);}
+  inp.onchange=async()=>{
+    if(!inp.files.length)return;
+    const fd=new FormData();fd.append('files',inp.files[0]);fd.append('kind','cv');
+    toast('Reading your CV…');
+    try{const r=await fetch('/api/documents',{method:'POST',headers:{authorization:'Bearer '+SESSION.access_token},body:fd});
+      const d=await r.json();if(!r.ok)throw new Error(d.error||'Upload failed');
+      toast('✓ CV received. Building your profile…');
+      setTimeout(async()=>{try{const me=await api('/api/me');ME=me.me;}catch(e){}vHome();},1500);
+    }catch(e){toast(e.message)}
+    inp.value='';
+  };
+  inp.click();
 }
 function applyAssistCard(){
   const aa=(window._cfg&&window._cfg.apply_assistant)||{};
