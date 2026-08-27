@@ -136,8 +136,8 @@ but the funding/level filters only truly work once the migration is applied.
 2. Railway -> New Service -> Deploy from that repo.
 3. Variables on the NEW service:
    SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY  (from Supabase)
-   ANTHROPIC_API_KEY, OPENAI_API_KEY
-   MODEL_NANO=gpt-5.4-nano  MODEL_MINI=gpt-5.4-mini  MODEL_SEARCH=claude-haiku-4-5-20251001  MODEL_PREMIUM=claude-sonnet-4-6
+   GEMINI_API_KEY            # Google AI Studio key (ForiForeign project), server-side only
+   GEMINI_MODEL=gemini-3.7-flash   # optional override; defaults to gemini-3.7-flash
 4. Open <service-url>/health -> expect {"ok":true,"v":"0.1","db":true}
    db:true proves Railway <-> Supabase connection works.
 
@@ -148,7 +148,7 @@ but the funding/level filters only truly work once the migration is applied.
 - Pricing endpoint (versioned; PKR numbers await founder pricing session)
 - Opportunities read API (verified-only, full-text search ready)
 - Applications: 1 credit consumed per application, duplicate-blocked, stage machine incl. awaiting_authorization (rule R4)
-- Model router (rule R7): extract/classify->nano, main->mini, search_verify->haiku, high_value->sonnet; EVERY call writes ai_cost_ledger with token counts and USD cost
+- Model router: single model (Gemini 3.7 Flash) with thinking levels — extract/classify=low, main/doc_extract/search_verify=medium, high_value=high; EVERY call writes ai_cost_ledger with token counts and USD cost
 
 ## Next build steps (my side, in order)
 1. Frontend v0 (signup/login, profile, buy credits, browse opportunities, start application)

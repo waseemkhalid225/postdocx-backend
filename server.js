@@ -418,6 +418,33 @@ app.get('/api/me', auth, async (req, res) => {
   data.used_free_case = appCount > 0;
   res.json({ me: data, credits: await balance(req.userId) });
 });
+/* ---------- journey state for the state-driven post-login home (Stage 2) ----------
+   Returns ONE state + the single next action the home should show. */
+app.get('/api/me/state', auth, async (req, res) => {
+  try {
+    const uid = req.userId;
+    const { count: cvCount } = await admin().from('documents').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('kind', 'cv');
+    const hasCV = (cvCount || 0) > 0;
+    const { data: apps } = await admin().from('applications').select('id,stage,opportunity_id,updated_at').eq('user_id', uid).order('updated_at', { ascending: false }).limit(50);
+    const list = apps || [];
+    const anyStage = (...s) => list.find(a => s.includes(a.stage));
+    let state = 'new', action = null, appId = null;
+
+    if (!hasCV && !list.length) { state = 'new'; }
+    else {
+      const sent = list.find(a => ['submitted_email', 'submitted', 'sent', 'applied'].includes(a.stage));
+      const ready = anyStage('awaiting_authorization', 'prepared', 'portal_apply');
+      const preparing = anyStage('preparing');
+      const { data: opps } = await admin().from('opportunities').select('id', { count: 'exact', head: false }).limit(1);
+      if (preparing) { state = 'preparing'; appId = preparing.id; }
+      else if (ready) { state = 'application_ready'; appId = ready.id; }
+      else if (sent) { state = 'application_sent'; appId = sent.id; }
+      else if (hasCV) { state = 'cv_uploaded'; }
+      else { state = 'new'; }
+    }
+    res.json({ state, hasCV, appCount: list.length });
+  } catch (e) { res.json({ state: 'new', hasCV: false, appCount: 0 }); }
+});
 app.put('/api/me', auth, async (req, res) => {
   const allowed = ['full_name','phone','mode','headline','field','methods','publications','education','experience','licenses','links','send_mode','annual_budget_pkr','funded_only','profession'];
   const patch = {};
@@ -828,11 +855,18 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
   const { data: msg } = await admin().from('messages').select('*').eq('application_id', a.id).eq('direction', 'outbound').in('status', ['approved', 'ready', 'pending']).order('created_at', { ascending: false }).limit(1).single();
   if (!msg) return res.status(400).json({ error: 'Prepare the application first.' });
+  const recipientEmail = (msg.to_emails || [])[0] || '';
+  if (!recipientEmail) {
+    // Safety net: an email package must never have a blank recipient. If we reach here, the
+    // opportunity is portal-only — tell the client to use the official portal instead.
+    const o0 = a.opportunities || {};
+    return res.status(409).json({ error: 'portal_only', portal_url: o0.url || a.portal_url || '', message: 'This opportunity applies through its official portal. Your documents are ready to attach there.' });
+  }
   const { data: docs } = await admin().from('application_documents').select('id,kind,title').eq('application_id', a.id);
   const o = a.opportunities || {};
   const pkg = applyLib.buildPackage({
     applicationId: a.id, opportunityId: o.id || '',
-    recipient: (msg.to_emails || [])[0] || '', recipientName: o.contact_name || '',
+    recipient: recipientEmail, recipientName: o.contact_name || '',
     organization: o.institution || '', subject: msg.subject || '', body: msg.body || '',
     attachments: (docs || []).map(d => ({ id: d.id, filename: applyLib.niceName(d), url: '/api/apply/doc/' + d.id + '?' + applyLib.docQuery(d.id, req.userId) }))
   });
