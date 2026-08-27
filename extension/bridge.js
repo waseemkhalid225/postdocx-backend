@@ -13,3 +13,8 @@
   });
   window.postMessage({ type: 'FF_ASSIST_HELLO', v: '1.0.0' }, location.origin);
 })();
+
+window.addEventListener('message', ev => {
+  const d = ev.data || {};
+  if (d.type === 'FF_PROFILE' && d.profile) chrome.storage.local.set({ ffProfile: d.profile });
+});

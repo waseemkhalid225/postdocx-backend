@@ -1,9 +1,11 @@
 {
   "manifest_version": 3,
   "name": "ForiForeign Apply Assistant",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Places your ForiForeign-prepared application into your Gmail or Outlook for review. You always press Send yourself. No inbox access.",
   "permissions": [
+    "activeTab",
+    "scripting",
     "storage"
   ],
   "host_permissions": [
