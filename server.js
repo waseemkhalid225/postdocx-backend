@@ -4,8 +4,22 @@ const express = require('express');
 const { admin, userFromToken } = require('./lib/supa');
 
 const app = express();
+try { app.use(require('compression')()); } catch (e) { /* compression not installed yet */ }
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static('public'));
+// Long-cache heavy static assets (video/icons); HTML always fresh.
+app.use(express.static('public', { maxAge: '7d', setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
+app.get('/health', (req, res) => res.json({ ok: true, up: process.uptime() | 0 }));
+
+/* Per-user limiter for AI-triggering actions: protects cost and stability under load.
+   In-memory sliding window: 30 AI actions per user per hour (admin exempt). */
+const _aiHits = new Map();
+function aiLimit(req, res, next) {
+  const id = req.userId || req.ip; const now = Date.now();
+  const arr = (_aiHits.get(id) || []).filter(t => now - t < 3600e3);
+  if (arr.length >= 30) return res.status(429).json({ error: 'You have reached this hour\'s search limit. Please try again shortly.' });
+  arr.push(now); _aiHits.set(id, arr); next();
+}
+if (_aiHits.size > 5000) _aiHits.clear();
 
 process.on('unhandledRejection', e => console.error('[bg]', e && e.message));
 process.on('uncaughtException', e => console.error('[bg!]', e && e.message));
@@ -442,8 +456,19 @@ app.get('/api/me/state', auth, async (req, res) => {
       else if (hasCV) { state = 'cv_uploaded'; }
       else { state = 'new'; }
     }
-    res.json({ state, hasCV, appCount: list.length });
-  } catch (e) { res.json({ state: 'new', hasCV: false, appCount: 0 }); }
+    // Real workspace counts for the home status strip (never fabricated).
+    let matches = 0, deadlineSoon = 0, appsReady = 0;
+    try {
+      const { count: m } = await admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified');
+      matches = m || 0;
+      const soon = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
+      const today = new Date().toISOString().slice(0, 10);
+      const { count: ds } = await admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified').gte('deadline', today).lte('deadline', soon);
+      deadlineSoon = ds || 0;
+      appsReady = list.filter(a => ['awaiting_authorization', 'prepared', 'portal_apply'].includes(a.stage)).length;
+    } catch (e) {}
+    res.json({ state, hasCV, appCount: list.length, matches, deadlineSoon, appsReady });
+  } catch (e) { res.json({ state: 'new', hasCV: false, appCount: 0, matches: 0, deadlineSoon: 0, appsReady: 0 }); }
 });
 app.put('/api/me', auth, async (req, res) => {
   const allowed = ['full_name','phone','mode','headline','field','methods','publications','education','experience','licenses','links','send_mode','annual_budget_pkr','funded_only','profession'];
@@ -540,6 +565,12 @@ app.get('/api/opportunities', auth, async (req, res) => {
   if (String(req.query.no_language_test) === '1') query = query.or('req_language.is.null,req_language.eq.none');
   if (String(req.query.has_stipend) === '1') query = query.neq('stipend', '');
   if (String(req.query.has_deadline) === '1') query = query.not('deadline', 'is', null);
+  if (String(req.query.remote) === '1') query = query.eq('remote', true);
+  if (String(req.query.visa) === '1') query = query.eq('visa_sponsorship', true);
+  const jts = multi(req.query.job_type).filter(j => ['full_time','part_time','contract','internship'].includes(j));
+  if (jts.length) query = query.in('job_type', jts);
+  const exps = multi(req.query.exp).filter(x => ['entry','mid','senior'].includes(x));
+  if (exps.length) query = query.in('experience_level', exps);
   if (q) query = query.textSearch('search_blob', q.split(/\s+/).join(' & '));
   let { data, error } = await query;
   if (error && /funding_type|level|req_language|column/.test(error.message || '')) {
@@ -912,11 +943,39 @@ app.post('/api/run', auth, async (req, res) => {
   res.json({ ok: true, ran: true, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.' });
   discoverForUser(req.userId, req.body && req.body.kind).catch(e => console.error('[discover]', e.message));
 });
-app.post('/api/applications/:id/prepare', auth, async (req, res) => {
+/* Admin corridor seeding — weakness #1: fill real inventory before launch. */
+app.post('/api/admin/seed', auth, perm('countries.write'), aiLimit, async (req, res) => {
+  const { kind, query } = req.body || {};
+  if (!query || String(query).length < 8) return res.status(400).json({ error: 'Give a corridor query, e.g. "fully funded masters Germany"' });
+  res.json({ ok: true, message: 'Seeding started. Verified results appear within 2-3 minutes.' });
+  const { seedDiscovery } = require('./lib/engine');
+  seedDiscovery(String(kind || ''), String(query).slice(0, 200), req.userId).then(n => console.log('[seed]', n, 'added')).catch(e => console.error('[seed]', e.message));
+});
+/* Real job status — weakness #3: the UI polls this until preparation truly finishes. */
+app.get('/api/applications/:id/status', auth, async (req, res) => {
+  const { data: a } = await admin().from('applications').select('id,user_id,stage,next_action,updated_at,prep_progress,prep_started_at').eq('id', req.params.id).single();
+  if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  const steps = a.prep_progress || [];
+  const failed = steps.some(st => st.error);
+  let eta = 'Usually takes a few minutes.';
+  if (a.prep_started_at) {
+    const el = (Date.now() - new Date(a.prep_started_at).getTime()) / 1000;
+    if (el < 150) eta = 'Estimated time remaining: about 1–2 minutes';
+  }
+  res.json({ stage: a.stage, next_action: a.next_action, steps, failed, eta, ready: ['awaiting_authorization','prepared','portal_apply'].includes(a.stage) });
+});
+app.post('/api/applications/:id/prepare', auth, aiLimit, async (req, res) => {
   const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
   res.json({ ok: true, message: 'Preparing your documents and email now.' });
-  prepareApplication(a.id).catch(e => console.error('[prepare]', e.message));
+  prepareApplication(a.id).catch(async e => {
+    console.error('[prepare]', e.message);
+    try {
+      const { data: cur } = await admin().from('applications').select('prep_progress').eq('id', a.id).single();
+      const steps = (cur && cur.prep_progress || []).map(st => st.active ? { ...st, active: false, error: 'This step hit a problem. Retry usually fixes it.' } : st);
+      await admin().from('applications').update({ prep_progress: steps, next_action: 'One step needs attention. Press Retry.' }).eq('id', a.id);
+    } catch (e2) {}
+  });
 });
 app.get('/api/applications/:id', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
@@ -956,6 +1015,11 @@ app.post('/api/messages/:id/authorize', auth, async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+app.use((err, req, res, next) => {
+  console.error('[unhandled]', err.message);
+  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong. Please try again.' });
+});
+process.on('unhandledRejection', e => console.error('[rejection]', e && e.message));
 app.listen(PORT, () => {
   console.log('ForiForeign core on :' + PORT);
   try { require('./lib/agents').startAgents(); } catch (e) { console.error('[agents]', e.message); }
