@@ -314,3 +314,36 @@ alter table if exists public.opportunities
 
 -- Helpful when reviewing which opportunities still lack a verified recipient.
 create index if not exists idx_opps_recipient_conf on public.opportunities (recipient_confidence);
+
+-- ===== 0019_job_filters.sql =====
+-- ForiForeign — 0019: job-mode filter columns (spec #9).
+-- Additive and idempotent. Backs real filters: remote, visa sponsorship, job type,
+-- experience level and salary note for work opportunities.
+
+alter table if exists public.opportunities
+  add column if not exists remote boolean,
+  add column if not exists visa_sponsorship boolean,
+  add column if not exists job_type text,          -- full_time | part_time | contract | internship
+  add column if not exists experience_level text,  -- entry | mid | senior
+  add column if not exists salary_note text;       -- salary/stipend exactly as stated, or empty
+
+create index if not exists idx_opps_remote on public.opportunities (remote);
+create index if not exists idx_opps_visa on public.opportunities (visa_sponsorship);
+create index if not exists idx_opps_jobtype on public.opportunities (job_type);
+
+-- ===== 0020_full_disclosure.sql =====
+-- ForiForeign — 0020: full-disclosure fields for the applicant detail table.
+-- Additive and idempotent. Everything stored EXACTLY as stated on official pages,
+-- or left empty — never estimated, never invented.
+
+alter table if exists public.opportunities
+  add column if not exists fee_structure text,            -- semester/annual fee breakdown as stated
+  add column if not exists bank_statement_note text,      -- proof-of-funds amount as stated
+  add column if not exists post_admission_reqs jsonb default '[]'::jsonb; -- requirements after admission, literally listed
+
+-- ===== 0021_prep_progress.sql =====
+-- ForiForeign — 0021: genuine preparation progress for the waiting experience.
+-- The engine writes each completed step here; the UI shows only real progress.
+alter table if exists public.applications
+  add column if not exists prep_progress jsonb default '[]'::jsonb,
+  add column if not exists prep_started_at timestamptz;
