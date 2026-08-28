@@ -18,7 +18,38 @@ app.use((req, res, next) => {
   });
   next();
 });
+/* Crash-proofing: unexpected errors are logged and survived — the platform never
+   dies over one bad request or one rejected promise. */
+process.on('unhandledRejection', err => { try { require('./lib/oblog').errlog('process:unhandledRejection', err instanceof Error ? err : new Error(String(err)), {}); } catch (e) {} });
+process.on('uncaughtException', err => { try { require('./lib/oblog').errlog('process:uncaughtException', err, {}); } catch (e) {} console.error('[uncaught]', err && err.message); });
+
+/* Security headers on every response. */
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
+
+/* Load shield: simple per-IP rate limit on the API (600 requests / 5 min).
+   Generous for real users, a wall for scripts and floods. Memory-safe: the map
+   is swept every window. */
+const _rl = new Map();
+const _rlSweep = setInterval(() => _rl.clear(), 5 * 60000);
+if (_rlSweep.unref) _rlSweep.unref();
+app.use('/api', (req, res, next) => {
+  const ip = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || 'x';
+  const n = (_rl.get(ip) || 0) + 1;
+  _rl.set(ip, n);
+  if (n > 600) return res.status(429).json({ error: 'Too many requests. Please slow down for a few minutes.' });
+  next();
+});
+
 app.use(express.json({ limit: '2mb' }));
+const multer = require('multer');
+const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 12 } });
 // Long-cache heavy static assets (video/icons); HTML always fresh.
 app.use(express.static('public', { maxAge: '7d', setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
 app.get('/health', (req, res) => res.json({ ok: true, up: process.uptime() | 0 }));
@@ -309,6 +340,77 @@ app.get('/api/admin/universities', auth, perm('countries.read'), async (req, res
   const { data } = await q.then(r => r, () => ({ data: [] }));
   res.json({ universities: data || [] });
 });
+/* Import a country's institutions from an uploaded Excel/CSV/Word file.
+   Extracts {name, official email} pairs; AI enrichment fills the rest in background. */
+app.post('/api/admin/universities/import', auth, perm('countries.write'), up.single('file'), async (req, res) => {
+  const cc = String(req.body && req.body.country_code || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return res.status(400).json({ error: 'Valid ISO2 country code required' });
+  if (!req.file) return res.status(400).json({ error: 'Attach an .xlsx, .csv or .docx file' });
+  const ext = (req.file.originalname || '').toLowerCase().split('.').pop();
+  const EMAIL = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+  let lines = [];
+  try {
+    if (['xlsx', 'xls', 'csv'].includes(ext)) {
+      const XLSX = require('xlsx');
+      const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      lines = XLSX.utils.sheet_to_json(sheet, { header: 1 }).map(r => (r || []).map(c => String(c || '').trim()).filter(Boolean).join(' , '));
+    } else if (ext === 'docx') {
+      const AdmZip = require('adm-zip');
+      const xml = new AdmZip(req.file.buffer).readAsText('word/document.xml') || '';
+      lines = xml.replace(/<w:p[ >]/g, '\n<').replace(/<[^>]+>/g, ' ').split('\n').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    } else if (ext === 'txt') {
+      lines = req.file.buffer.toString('utf8').split(/\r?\n/);
+    } else return res.status(400).json({ error: 'Use .xlsx, .csv, .docx or .txt' });
+  } catch (e) { return res.status(400).json({ error: 'Could not read the file: ' + e.message }); }
+  const rows = [];
+  for (const raw of lines.slice(0, 400)) {
+    const line = String(raw).trim(); if (line.length < 3) continue;
+    const em = (line.match(EMAIL) || [])[0] || null;
+    const name = line.replace(EMAIL, '').replace(/[,;|\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+    if (name.length >= 3 && !/^(name|university|institution|email|s\.?no)/i.test(name)) rows.push({ name, email: em });
+  }
+  if (!rows.length) return res.status(400).json({ error: 'No institution rows recognised in the file' });
+  const { data: existing } = await admin().from('universities').select('id,name').eq('country_code', cc);
+  const byName = new Map((existing || []).map(u => [u.name.toLowerCase(), u.id]));
+  let created = 0, updated = 0, pri = (existing || []).length;
+  for (const r of rows.slice(0, 200)) {
+    const id = byName.get(r.name.toLowerCase());
+    if (id) { await admin().from('universities').update({ official_email: r.email || undefined, enabled: true }).eq('id', id); updated++; }
+    else { pri++; await admin().from('universities').insert({ country_code: cc, name: r.name, official_email: r.email, priority: pri, enabled: true }); created++; }
+  }
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'UNILIST_IMPORT', detail: cc + ': +' + created + ' new, ' + updated + ' updated from ' + ext }).then(() => {}, () => {});
+  // AI enrichment runs in the background: latest admissions, fees, intakes, news.
+  require('./lib/jobs').runJob('discover', 'uni-enrich:' + cc + ':' + Date.now(), req.userId, () => enrichUniversities(cc, 8), { retries: 0, timeoutMs: 480000 });
+  res.json({ ok: true, created, updated, enriching: true });
+});
+/* AI enrichment: for each institution, pull the latest verifiable picture. */
+async function enrichUniversities(cc, limit) {
+  const { data: unis } = await admin().from('universities').select('id,name,official_email,info_updated_at').eq('country_code', cc).eq('enabled', true)
+    .order('info_updated_at', { ascending: true, nullsFirst: true }).limit(limit || 6);
+  if (!unis || !unis.length) return 0;
+  const { callAI } = require('./lib/router');
+  const { parseJSON } = require('./lib/engine');
+  const prompt = 'For EACH institution below, search its OFFICIAL website and report the latest verifiable facts. Respond ONLY with a JSON array, one object per institution, schema: [{"name":"exact name given","admissions_open":"what is currently open, or empty","next_intake":"","application_fee":"","tuition_range":"","scholarships":"named scholarships available","latest_note":"one line of recent relevant news","admissions_email":"only if printed on the official site"}]. Facts literally on official pages only; leave unknown fields empty.\nINSTITUTIONS (' + cc + '):\n' + unis.map(u => '- ' + u.name).join('\n');
+  const txt = await callAI('search_verify', prompt, { search: true, urls: true, maxTokens: 3200, userId: null });
+  const arr = parseJSON(txt) || [];
+  let n = 0;
+  for (const it of arr) {
+    const u = unis.find(x => x.name.toLowerCase() === String(it.name || '').toLowerCase()) || unis.find(x => String(it.name || '').toLowerCase().includes(x.name.toLowerCase().slice(0, 12)));
+    if (!u) continue;
+    const info = { admissions_open: it.admissions_open || '', next_intake: it.next_intake || '', application_fee: it.application_fee || '', tuition_range: it.tuition_range || '', scholarships: it.scholarships || '', latest_note: it.latest_note || '' };
+    const patch = { info, info_updated_at: new Date().toISOString() };
+    if (!u.official_email && /@/.test(String(it.admissions_email || ''))) patch.official_email = String(it.admissions_email).slice(0, 140);
+    await admin().from('universities').update(patch).eq('id', u.id); n++;
+  }
+  return n;
+}
+app.post('/api/admin/universities/enrich', auth, perm('countries.write'), async (req, res) => {
+  const cc = String(req.body && req.body.country_code || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return res.status(400).json({ error: 'Valid ISO2 country code required' });
+  require('./lib/jobs').runJob('discover', 'uni-enrich:' + cc + ':' + Date.now(), req.userId, () => enrichUniversities(cc, 8), { retries: 0, timeoutMs: 480000 });
+  res.json({ ok: true, message: 'AI is refreshing this country now; check back in a few minutes.' });
+});
 app.post('/api/admin/universities/bulk', auth, perm('countries.write'), async (req, res) => {
   const cc = String(req.body && req.body.country_code || '').toUpperCase();
   const names = Array.isArray(req.body && req.body.names) ? req.body.names.map(n => String(n).trim().slice(0, 120)).filter(Boolean).slice(0, 200) : [];
@@ -492,6 +594,22 @@ app.get('/api/admin/pnl', auth, perm('aicost.read'), async (req, res) => {
     total_expense: 'fixed monthly shares + AI cost of the month',
     profit: 'confirmed payments of the month - total expense'
   };
+  res.json(out);
+});
+/* One-click AI engine diagnostic: proves key, models, and search grounding live. */
+app.get('/api/admin/ai-selftest', auth, perm('aicost.read'), async (req, res) => {
+  const { geminiCall } = require('./lib/gemini');
+  const out = { plain: null, grounded: null };
+  const run = async (name, opts) => {
+    const t0 = Date.now();
+    try {
+      const r = await geminiCall(name === 'plain' ? 'Reply with exactly: OK' : 'Search the web for the official website of MIT and reply with just its domain.', opts);
+      return { ok: true, ms: Date.now() - t0, model: r.model || null, sample: String(r.text || '').slice(0, 60) };
+    } catch (e) { return { ok: false, ms: Date.now() - t0, error: String(e.message).slice(0, 200) }; }
+  };
+  out.plain = await run('plain', { maxTokens: 20, thinking: 'low' });
+  out.grounded = await run('grounded', { maxTokens: 100, thinking: 'low', search: true });
+  out.backup = { configured: !!process.env.OPENAI_API_KEY, model: process.env.OPENAI_BACKUP_MODEL || 'gpt-5.4-mini (default)' };
   res.json(out);
 });
 app.get('/api/admin/ai-costs', auth, perm('aicost.read'), async (req, res) => {
@@ -694,6 +812,13 @@ app.get('/api/home', auth, async (req, res) => {
     out.support = { answered: ans || 0 };
   } catch (e) {}
   try {
+    // Referral identity: every user gets a permanent code; balance rides along.
+    const { data: me } = await admin().from('profiles').select('referral_code,referral_balance_pkr').eq('id', uid).single();
+    let code = me && me.referral_code;
+    if (!code) { code = 'FF' + uid.replace(/-/g, '').slice(0, 8).toUpperCase(); await admin().from('profiles').update({ referral_code: code }).eq('id', uid); }
+    out.referral = { code, balance_pkr: Number(me && me.referral_balance_pkr) || 0 };
+  } catch (e) {}
+  try {
     const { data: st } = await admin().from('app_settings').select('value').eq('key', 'discover:' + uid).single();
     const v = st && st.value;
     if (v && v.status === 'running' && Date.now() - new Date(v.startedAt || 0).getTime() < 12 * 60000)
@@ -751,6 +876,7 @@ function lockTease(o) {
     id: o.id, kind: o.kind, country_code: o.country_code, deadline: o.deadline,
     funding: o.funding || null, funding_type: o.funding_type || null, level: o.level || null,
     stipend: o.stipend || null, tuition: o.tuition || null, salary_note: o.salary_note || null,
+    req_language: o.req_language || null, req_language_min: o.req_language_min || null,
     created_at: o.created_at || null, verified_at: o.verified_at || null,
     match: o.match || null, locked: true
   };
@@ -771,8 +897,14 @@ app.post('/api/payments', auth, async (req, res) => {
   const { data: pr } = await admin().from('pricing').select('*').eq('active', true).single();
   const pack = ((pr || {}).packs || []).find(p => p.credits === Number(credits));
   if (!pack) return res.status(400).json({ error: 'Choose a valid credit pack' });
+  // Referral discount: Rs 500 per case, automatically applied from the user's balance.
+  let discount = 0;
+  try {
+    const { data: me } = await admin().from('profiles').select('referral_balance_pkr').eq('id', req.userId).single();
+    discount = Math.min(Number(me && me.referral_balance_pkr) || 0, 500 * pack.credits);
+  } catch (e) {}
   const { data, error } = await admin().from('payments').insert({
-    user_id: req.userId, amount_pkr: pack.pkr, credits: pack.credits,
+    user_id: req.userId, amount_pkr: Math.max(0, pack.pkr - discount), credits: pack.credits, discount_pkr: discount,
     reference: String(reference || '').slice(0, 120), pricing_version: pr.version
   }).select().single();
   if (error) return res.status(400).json({ error: error.message });
@@ -786,6 +918,25 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
   const { data: flipped } = await admin().from('payments').update({ status: 'confirmed', confirmed_by: req.userId, confirmed_at: new Date().toISOString() }).eq('id', p.id).eq('status', 'pending').select('id');
   if (!flipped || !flipped.length) return res.status(400).json({ error: 'Already confirmed' });
   await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: p.credits, reason: 'purchase', payment_id: p.id });
+  // Referral settlement: consume the buyer's applied discount; reward the referrer
+  // Rs 500 per case on the buyer's FIRST confirmed payment.
+  try {
+    if (Number(p.discount_pkr) > 0) {
+      const { data: me } = await admin().from('profiles').select('referral_balance_pkr').eq('id', p.user_id).single();
+      await admin().from('profiles').update({ referral_balance_pkr: Math.max(0, (Number(me && me.referral_balance_pkr) || 0) - Number(p.discount_pkr)) }).eq('id', p.user_id);
+    }
+    const { count: prior } = await admin().from('payments').select('id', { count: 'exact', head: true }).eq('user_id', p.user_id).eq('status', 'confirmed').neq('id', p.id);
+    if ((prior || 0) === 0) {
+      const { data: buyer } = await admin().from('profiles').select('referred_by').eq('id', p.user_id).single();
+      if (buyer && buyer.referred_by) {
+        const bonus = 500 * Number(p.credits || 1);
+        const { data: refr } = await admin().from('profiles').select('referral_balance_pkr').eq('id', buyer.referred_by).single();
+        await admin().from('profiles').update({ referral_balance_pkr: (Number(refr && refr.referral_balance_pkr) || 0) + bonus }).eq('id', buyer.referred_by);
+        admin().from('audit_log').insert({ actor: p.user_id, event: 'REFERRAL_BONUS', detail: 'Rs ' + bonus + ' credited to referrer for first confirmed payment' }).then(() => {}, () => {});
+        admin().from('support_tickets').insert({ user_id: buyer.referred_by, subject: 'Referral reward earned', message: 'A friend you invited completed their first purchase.', reply: 'Congratulations — Rs ' + bonus + ' referral discount is now in your account, applied automatically on your next package.', status: 'answered' }).then(() => {}, () => {});
+      }
+    }
+  } catch (e) {}
   // Manual-verification era: the moment credits land, the user sees a dashboard
   // notification (Ask us badge + thread). When the payment gateway goes live,
   // this same confirm path runs automatically with zero admin involvement.
@@ -946,8 +1097,7 @@ app.get('/api/applications', auth, async (req, res) => {
 
 
 /* ---------- documents: upload, read, view, delete + auto profile fill ---------- */
-const multer = require('multer');
-const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 12 } });
+// (multer defined near the top so every upload route can use it)
 const { saveUpload, signedUrl, extractProfile } = require('./lib/docs');
 app.post('/api/documents', auth, up.array('files', 12), async (req, res) => {
   try {
@@ -1216,6 +1366,44 @@ app.get('/api/admin/overview', auth, perm('overview.read'), async (req, res) => 
     pendingPayments: pend||[], abuseFlags: flags });
 });
 
+/* Referral claim: a new user attaches to the friend whose link brought them. */
+app.post('/api/referral/claim', auth, async (req, res) => {
+  const code = String(req.body && req.body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+  if (!code) return res.status(400).json({ error: 'Code required' });
+  const { data: me } = await admin().from('profiles').select('referred_by,referral_code').eq('id', req.userId).single();
+  if (me && me.referred_by) return res.json({ ok: true, already: true });
+  if (me && me.referral_code === code) return res.status(400).json({ error: 'That is your own code' });
+  const { data: refr } = await admin().from('profiles').select('id').eq('referral_code', code).single();
+  if (!refr) return res.status(404).json({ error: 'Referral code not found' });
+  await admin().from('profiles').update({ referred_by: refr.id }).eq('id', req.userId);
+  res.json({ ok: true });
+});
+/* ---------- Dormant hygiene: keep Supabase lean; admin removes unused accounts ---------- */
+app.get('/api/admin/dormant', auth, perm('users.read'), async (req, res) => {
+  const months = Math.min(36, Math.max(6, Number(req.query.months) || 12));
+  const cutoff = new Date(Date.now() - months * 30 * 864e5).toISOString();
+  const { data: profs } = await admin().from('profiles').select('id,full_name,updated_at,created_at').lt('updated_at', cutoff).limit(200);
+  const out = [];
+  for (const pr2 of (profs || [])) {
+    const { count: apps2 } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', pr2.id);
+    const { count: pays } = await admin().from('payments').select('id', { count: 'exact', head: true }).eq('user_id', pr2.id).eq('status', 'confirmed');
+    if ((apps2 || 0) === 0 && (pays || 0) === 0) out.push({ id: pr2.id, name: pr2.full_name, last_active: pr2.updated_at, joined: pr2.created_at });
+  }
+  res.json({ months, dormant: out });
+});
+app.post('/api/admin/dormant/:userId/purge', auth, perm('users.write'), async (req, res) => {
+  const uid = req.params.userId;
+  // Safety: never purge anyone with cases or confirmed payments.
+  const { count: apps2 } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', uid);
+  const { count: pays } = await admin().from('payments').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('status', 'confirmed');
+  if ((apps2 || 0) > 0 || (pays || 0) > 0) return res.status(400).json({ error: 'This account has cases or payments and cannot be purged.' });
+  for (const t of ['documents', 'support_tickets', 'credit_ledger', 'payments']) { try { await admin().from(t).delete().eq('user_id', uid); } catch (e) {} }
+  for (const k of ['lastRun:', 'discover:', 'prefs:']) { try { await admin().from('app_settings').delete().eq('key', k + uid); } catch (e) {} }
+  try { await admin().from('profiles').delete().eq('id', uid); } catch (e) {}
+  try { await admin().auth.admin.deleteUser(uid); } catch (e) {}
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'DORMANT_PURGE', detail: 'Removed dormant account ' + uid }).then(() => {}, () => {});
+  res.json({ ok: true });
+});
 /* ---------- saved search preferences: one search remembers the next ---------- */
 app.get('/api/prefs', auth, async (req, res) => {
   try { const { data } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single(); res.json({ prefs: (data && data.value) || null }); }
@@ -1241,7 +1429,15 @@ const FUTURE_PATH = {
   SA: { name: 'Saudi Arabia', embassy: 'Royal Embassy of Saudi Arabia Islamabad; work visas via Enjaz/Musaned through your employer', portal: 'Your employer initiates the work visa; you complete biometrics at Etimad centres', funds: 'Employer-sponsored; no personal bank statement normally required for work visas', extra: 'SCFHS classification (via DataFlow + Prometric) must be complete for healthcare roles.' },
   AE: { name: 'United Arab Emirates', embassy: 'Employer processes the work permit; entry visa issued electronically', portal: 'Employer-driven via MOHRE/ICP; you provide attested documents', funds: 'Employer-sponsored', extra: 'DHA/HAAD/MOH licensing via DataFlow verification must be complete.' },
   CA: { name: 'Canada', embassy: 'VFS Global Canada Visa Application Centres, Islamabad / Lahore / Karachi', portal: 'https://ircc.canada.ca — study permit online (SDS closed; regular stream)', funds: 'CAD 20,635/year + first-year tuition (GIC where applicable)', extra: 'Provincial attestation letter (PAL) is required with most study permits.' },
-  US: { name: 'United States', embassy: 'US Embassy Islamabad / Consulate Karachi — F-1 interview', portal: 'Pay SEVIS fee (fmjfee.com), complete DS-160, book the interview', funds: 'Evidence covering I-20 first-year amount', extra: 'Carry original documents to the interview; answer plainly and honestly.' }
+  US: { name: 'United States', embassy: 'US Embassy Islamabad / Consulate Karachi — F-1 interview', portal: 'Pay SEVIS fee (fmjfee.com), complete DS-160, book the interview', funds: 'Evidence covering I-20 first-year amount', extra: 'Carry original documents to the interview; answer plainly and honestly.' },
+  KR: { name: 'South Korea', embassy: 'Embassy of the Republic of Korea, Islamabad (Diplomatic Enclave)', portal: 'D-2 student visa at the embassy with your Certificate of Admission; GKS awardees follow NIIED instructions', funds: 'Approx. USD 20,000 bank balance certificate for self-financed; GKS is fully covered', extra: 'TOPIK improves both admission and GKS scoring; apply via embassy OR university track.' },
+  JP: { name: 'Japan', embassy: 'Embassy of Japan Islamabad; visa via designated agencies after CoE', portal: 'University obtains your Certificate of Eligibility (CoE), then you apply for the student visa', funds: 'MEXT is fully funded; self-financed need approx. JPY 2M/year evidence', extra: 'MEXT embassy-track opens April-May yearly at the embassy website.' },
+  CN: { name: 'China', embassy: 'Embassy of China Islamabad / consulates Karachi, Lahore', portal: 'X1 visa with JW201/JW202 form + admission letter; CSC awardees get JW201', funds: 'CSC is fully funded (tuition, dorm, stipend); self-financed approx. USD 4,000-8,000/year', extra: 'CSC applications run November-March via csc.edu.cn and university portals.' },
+  TR: { name: 'Turkiye', embassy: 'Embassy of Turkiye Islamabad; e-visa/education visa after acceptance', portal: 'Turkiye Burslari (turkiyeburslari.gov.tr) covers everything; visa with acceptance letter', funds: 'Burslari is fully funded incl. flight; self-financed approx. USD 3,000-6,000/year', extra: 'Burslari window is typically January-February — one application, all universities.' },
+  IE: { name: 'Ireland', embassy: 'Embassy of Ireland Islamabad (visa via VFS)', portal: 'Study visa online at irishimmigration.ie, then VFS biometrics', funds: 'EUR 10,000 evidence plus first-year fees paid', extra: 'Government of Ireland International Education Scholarship pays EUR 10,000 + full fee waiver.' },
+  NL: { name: 'Netherlands', embassy: 'Netherlands embassy route is handled BY the university (TEV procedure)', portal: 'The university applies for your MVV/residence permit; you attend biometrics when called', funds: 'Approx. EUR 13,000/year transferred to the university before arrival', extra: 'Orange Knowledge and university excellence scholarships stack with this route.' },
+  HU: { name: 'Hungary', embassy: 'Embassy of Hungary Islamabad', portal: 'Stipendium Hungaricum via apply.stipendiumhungaricum.hu (deadline mid-January), then D visa', funds: 'Stipendium is fully funded: tuition, stipend, housing allowance, insurance', extra: 'HEC Pakistan co-nominates — watch hec.gov.pk for the parallel window.' },
+  NZ: { name: 'New Zealand', embassy: 'New Zealand visas are processed online (no local embassy visit needed)', portal: 'Student visa via immigration.govt.nz with offer of place', funds: 'NZD 20,000/year evidence plus tuition', extra: 'Post-study work rights up to 3 years; Manaaki New Zealand Scholarships are fully funded.' }
 };
 app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
@@ -1261,7 +1457,8 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   pdf.font('Times-Bold').fontSize(17).text('Your Future Path', { align: 'center' });
   pdf.font('Times-Roman').fontSize(11.5).text(clean((opp.institution || '') + (g ? ' · ' + g.name : '')) + ((pr && pr.full_name) ? '  —  prepared for ' + pr.full_name : ''), { align: 'center' });
   pdf.moveDown(0.5);
-  P('This guide covers what happens after you are accepted, step by step, until you land. ForiForeign does not provide visa or document-processing services, and you do not need any agent: every step below is designed for you to do yourself, easily and officially.');
+  P('Congratulations on reaching this stage. The distance between you and ' + clean(g ? g.name : 'your destination') + ' is now a checklist, not a dream' + (opp.funding_type === 'fully' ? ' — and this position is fully funded, so the numbers are already on your side' : '') + (opp.stipend ? '. Your stated stipend: ' + clean(String(opp.stipend).slice(0, 40)) + '.' : '.'));
+  P('This guide covers what happens after you are accepted, step by step, until you land and secure your position. ForiForeign does not provide visa or document-processing services, and you do not need any agent: every step below is designed for you to do yourself, easily and officially. Thousands of Pakistani students and professionals complete these exact steps every year. So will you.');
   H('1. After acceptance');
   B('You may be invited to an online interview. Prepare with your CV and the documents ForiForeign drafted; answer plainly.');
   B('Degree attestation: first HEC (eservices.hec.gov.pk, online account, courier both ways), then MOFA (mofa.gov.pk attestation, online appointment or Qousia counters). Attest degree + transcripts.');
@@ -1281,6 +1478,13 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   B('Verify your offer, CAS/admission letter, visa, passport validity (18+ months), and attested originals in hand luggage.');
   B('Arrange accommodation for the first weeks through the institution where possible.');
   B('Inform the institution of your arrival date; register on arrival as instructed (city registration / police / university enrolment).');
+  H('5. Your first weeks — securing the position');
+  B('Open a local bank account in week one (your admission letter and passport are enough almost everywhere).');
+  B('Complete enrolment/joining formalities and collect your student or employee ID; this activates insurance and access.');
+  B('Learn the part-time work rules of your visa before accepting any work; keep every payslip and document.');
+  B('Stay in touch with your department or HR in the first month — early visibility becomes references, assistantships and renewals.');
+  pdf.moveDown(0.5);
+  pdf.font('Times-Bold').fontSize(12).text('You have done the hardest part already. Follow the list, keep your documents tidy, and go claim it.', { align: 'center' });
   pdf.moveDown(0.8);
   pdf.font('Times-Roman').fontSize(10.5).fillColor('#333').text('Every fact above follows official channels current at preparation time; always confirm on the linked official pages, which are the only authority. ForiForeign · foriforeign.com', { align: 'center' });
   pdf.end();
@@ -1335,7 +1539,7 @@ app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').c
     jobTypes: arr(b.job_types, ['full_time', 'part_time', 'contract', 'internship']),
     exps: arr(b.exps, ['entry', 'mid', 'senior']),
     licenses: Array.isArray(b.licenses) ? b.licenses.map(x => String(x).toUpperCase()).filter(x => LIC.includes(x)).slice(0, 8) : [],
-    field: /^[a-z]{2,20}$/.test(String(b.field || '')) ? String(b.field) : null,
+    field: /^[a-z][a-z-]{1,40}$/.test(String(b.field || '')) ? String(b.field) : null,
     intake: ['2026', '2027'].includes(String(b.intake || '')) ? String(b.intake) : null,
     noLang: !!b.no_lang, remote: !!b.remote,
     target: 5
@@ -1480,6 +1684,62 @@ app.use((err, req, res, next) => {
 });
 process.on('unhandledRejection', e => console.error('[rejection]', e && e.message));
 try { const { expireAgent } = require('./lib/agents'); setInterval(() => expireAgent().catch(e=>console.error('[expire]',e.message)), 12*3600e3); setTimeout(()=>expireAgent().catch(()=>{}), 60e3); } catch (e) {}
+/* Self-seeding inventory: on boot and daily at 03:00, if verified stock is thin,
+   the agent seeds high-demand corridors itself. The platform can never sit empty
+   waiting for an admin. */
+const SEED_CORRIDORS = [
+  ['masters', 'fully funded masters scholarships Germany Sweden Finland Norway for international students'],
+  ['masters', 'fully funded masters scholarships Italy France Netherlands Denmark for international students'],
+  ['phd', 'fully funded PhD positions Germany Netherlands Scandinavia sciences engineering health'],
+  ['phd', 'funded PhD positions UK Ireland Australia New Zealand with stipend'],
+  ['postdoc', 'postdoc positions Europe USA Canada life sciences chemistry pharmacology open now'],
+  ['scholarship', 'fully funded government scholarships China Turkey Hungary Korea Japan for Pakistani students'],
+  ['scholarship', 'fully funded scholarships USA Canada Australia for international students 2026 2027'],
+  ['bachelors', 'fully funded bachelors scholarships for international students Europe Turkey Hungary'],
+  ['work', 'pharmacist nurse doctor jobs Saudi Arabia UAE Qatar with visa sponsorship'],
+  ['work', 'healthcare allied health jobs Gulf hospitals SCFHS DHA licensed'],
+  ['work', 'engineer IT jobs Europe Germany Netherlands visa sponsorship for international candidates'],
+  ['work', 'nurse jobs UK Ireland Australia New Zealand international recruitment']
+];
+async function selfSeed(reason) {
+  try {
+    const { count } = await admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified');
+    if ((count || 0) >= 40) return;
+    const { seedDiscovery } = require('./lib/engine');
+    for (let i = 0; i < SEED_CORRIDORS.length; i++) {
+      const [k, q] = SEED_CORRIDORS[i];
+      require('./lib/jobs').runJob('discover', 'selfseed:' + i + ':' + k + ':' + new Date().toISOString().slice(0, 10), null,
+        () => seedDiscovery(k, q, null), { retries: 1, timeoutMs: 600000 });
+      await new Promise(r => setTimeout(r, 15000)); // stagger, be gentle on the API
+    }
+    console.log('[selfSeed] launched (' + reason + '), stock was ' + (count || 0));
+  } catch (e) { console.error('[selfSeed]', e.message); }
+}
+try { require('node-cron').schedule('0 3 * * *', () => selfSeed('daily')); } catch (e) {}
+setTimeout(() => selfSeed('boot'), 20000);
+/* Harvest pipeline: RSS + Brave leads flow into a queue; AI verifies queued URLs in
+   small batches; priority institutions are swept on rotation. Feeds and Brave are
+   free; only verification and sweeps spend AI — in controlled, capped batches. */
+try {
+  const harvest = require('./lib/harvest');
+  require('node-cron').schedule('15 */6 * * *', () => { harvest.rssWatch(); harvest.braveLeads(); });   // gather leads, zero/near-zero cost
+  require('node-cron').schedule('45 */2 * * *', () => harvest.verifyLeads());                            // verify up to 6 leads per 2h
+  require('node-cron').schedule('0 4 * * *', () => harvest.uniSweep());                                  // 6 priority institutions daily, rotating
+  setTimeout(() => { harvest.rssWatch(); harvest.braveLeads(); }, 60000);
+  setTimeout(() => harvest.verifyLeads(), 180000);
+} catch (e) { console.error('[harvest] scheduling failed', e.message); }
+/* Final error net: any handler that throws returns clean JSON instead of killing the request. */
+app.use((err, req, res, next) => {
+  try { require('./lib/oblog').errlog('express:' + (req.path || ''), err, {}); } catch (e) {}
+  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. It has been logged and the self-healer is on it.' });
+});
+/* Self-healing supervisor: every 10 minutes, detect and repair known failure
+   patterns automatically — stalled jobs, stuck preparations, zero-result runs. */
+try {
+  const { runHealer } = require('./lib/healer');
+  require('node-cron').schedule('*/10 * * * *', runHealer);
+  setTimeout(runHealer, 90000);
+} catch (e) { console.error('[healer] scheduling failed', e.message); }
 // Boot sweeper: a restart mid-job leaves rows stuck 'running' forever. Sweep them
 // to 'failed' so retries work and the failed-jobs metric stays truthful.
 (async () => { try { await admin().from('jobs').update({ status: 'failed', last_error: 'server restarted mid-job', updated_at: new Date().toISOString() }).eq('status', 'running'); } catch (e) {} })();
