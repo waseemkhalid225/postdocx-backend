@@ -189,7 +189,7 @@ function pkrText(txt, rate) {
   const nice = pkr >= 1e7 ? (pkr / 1e7).toFixed(1) + ' crore' : pkr >= 1e5 ? (pkr / 1e5).toFixed(1) + ' lakh' : Math.round(pkr).toLocaleString();
   return '≈ Rs ' + nice;
 }
-const seoPage = (title, desc, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | ForiForeign</title><meta name="description" content="${desc}"><link rel="canonical" href=""><style>body{margin:0;background:#050d1f;color:#eef4ff;font:15px/1.6 system-ui,Segoe UI,Arial}a{color:#00D4FF}.wrap{max-width:760px;margin:0 auto;padding:28px 16px}h1{font-size:26px;margin:6px 0}h2{font-size:18px;margin:18px 0 6px;color:#fff}.sub{color:#9db8e8;font-size:13px}.card{background:rgba(8,18,40,.92);border:1px solid rgba(140,178,255,.3);border-radius:14px;padding:14px;margin:10px 0}.chip{display:inline-block;border:1px solid rgba(140,178,255,.4);border-radius:999px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0;color:#cfe1ff}.g{color:#2dd4bf;font-weight:700}.cta{display:inline-block;background:linear-gradient(90deg,#1683FF,#00D4FF);color:#04101f;font-weight:800;padding:12px 22px;border-radius:12px;text-decoration:none;margin-top:14px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}</style></head><body><div class="wrap"><div class="top"><a href="/" style="font-weight:800;text-decoration:none;color:#fff">ForiForeign</a><a href="/" class="sub">Open the app →</a></div>${body}<a class="cta" href="/">Find my opportunities — first case free</a><div class="sub" style="margin-top:16px">Every opportunity verified on the official page before you see it. You review, you press Send. Built in Pakistan.</div></div></body></html>`;
+const seoPage = (title, desc, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | ForiForeign</title><meta name="description" content="${desc}"><link rel="canonical" href=""><style>body{margin:0;background:#050d1f;color:#eef4ff;font:15px/1.6 system-ui,Segoe UI,Arial}a{color:#00D4FF}.wrap{max-width:760px;margin:0 auto;padding:28px 16px}h1{font-size:26px;margin:6px 0}h2{font-size:18px;margin:18px 0 6px;color:#fff}.sub{color:#9db8e8;font-size:13px}.card{background:rgba(8,18,40,.92);border:1px solid rgba(140,178,255,.3);border-radius:14px;padding:14px;margin:10px 0}.chip{display:inline-block;border:1px solid rgba(140,178,255,.4);border-radius:999px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0;color:#cfe1ff}.g{color:#2dd4bf;font-weight:700}.cta{display:inline-block;background:linear-gradient(90deg,#1683FF,#00D4FF);color:#04101f;font-weight:800;padding:12px 22px;border-radius:12px;text-decoration:none;margin-top:14px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}</style></head><body><div class="wrap"><div class="top"><a href="/" style="font-weight:800;text-decoration:none;color:#fff">ForiForeign</a><a href="/" class="sub">Open the app →</a></div>${body}<a class="cta" href="/">See my matches — free CV analysis</a><div class="sub" style="margin-top:16px">Every opportunity verified on the official page before you see it. You review, you press Send. Built in Pakistan.</div></div></body></html>`;
 app.get('/s/:slug', async (req, res) => {
   try {
     const slug = String(req.params.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
@@ -212,7 +212,7 @@ app.get('/s/:slug', async (req, res) => {
     const cfg = await siteSettings.getConfig().catch(() => siteSettings.DEFAULTS);
     const rate = Number(cfg.ai && cfg.ai.usd_to_pkr) || 278;
     const h = slug.split('-').map(w => w[0] ? w[0].toUpperCase() + w.slice(1) : w).join(' ');
-    const cards = rows.map(o => { const pk = pkrText(o.stipend || o.tuition, rate); return `<div class="card"><span class="chip">${o.country_code || ''}</span>${o.level ? `<span class="chip">${o.level}</span>` : ''}${o.funding_type === 'fully' ? '<span class="chip" style="border-color:#2dd4bf;color:#2dd4bf">Fully funded</span>' : ''}${o.deadline ? `<span class="chip">Deadline ${o.deadline}</span>` : ''}${o.stipend ? `<div class="g" style="margin-top:6px">Stipend: ${String(o.stipend).slice(0, 60)} ${pk ? '<span class="sub">' + pk + '</span>' : ''}</div>` : ''}<div class="sub" style="margin-top:6px">Verified on the official page. Institution and full details open inside ForiForeign — your first case is free.</div></div>`; }).join('');
+    const cards = rows.map(o => { const pk = pkrText(o.stipend || o.tuition, rate); return `<div class="card"><span class="chip">${o.country_code || ''}</span>${o.level ? `<span class="chip">${o.level}</span>` : ''}${o.funding_type === 'fully' ? '<span class="chip" style="border-color:#2dd4bf;color:#2dd4bf">Fully funded</span>' : ''}${o.deadline ? `<span class="chip">Deadline ${o.deadline}</span>` : ''}${o.stipend ? `<div class="g" style="margin-top:6px">Stipend: ${String(o.stipend).slice(0, 60)} ${pk ? '<span class="sub">' + pk + '</span>' : ''}</div>` : ''}<div class="sub" style="margin-top:6px">Verified on the official page. Institution and full details open with your ForiForeign package. Uploading your CV and seeing your match scores is free.</div></div>`; }).join('');
     res.set('Cache-Control', 'public, max-age=3600');
     res.send(seoPage(h, h + ' for Pakistani students and professionals — verified on official pages, matched to your CV, applications prepared for you.', `<h1>${h}</h1><div class="sub">${rows.length ? rows.length + ' verified openings live right now.' : 'The agent searches official sources daily — open the app and it searches for you.'} Matched to your CV. Applications prepared for you.</div>${cards}`));
   } catch (e) { res.redirect('/'); }
@@ -309,6 +309,25 @@ app.get('/api/admin/universities', auth, perm('countries.read'), async (req, res
   const { data } = await q.then(r => r, () => ({ data: [] }));
   res.json({ universities: data || [] });
 });
+app.post('/api/admin/universities/bulk', auth, perm('countries.write'), async (req, res) => {
+  const cc = String(req.body && req.body.country_code || '').toUpperCase();
+  const names = Array.isArray(req.body && req.body.names) ? req.body.names.map(n => String(n).trim().slice(0, 120)).filter(Boolean).slice(0, 200) : [];
+  if (!/^[A-Z]{2}$/.test(cc)) return res.status(400).json({ error: 'Valid ISO2 country code required' });
+  // Replace semantics: saving a country's list replaces its previous list, priorities follow line order.
+  await admin().from('universities').delete().eq('country_code', cc);
+  if (names.length) {
+    const rows = names.map((name, i) => ({ country_code: cc, name, priority: i + 1, enabled: true }));
+    const { error } = await admin().from('universities').insert(rows);
+    if (error) return res.status(400).json({ error: error.message });
+  }
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'UNILIST_SAVE', detail: cc + ': ' + names.length + ' institutions' }).then(() => {}, () => {});
+  res.json({ ok: true, saved: names.length });
+});
+app.delete('/api/admin/universities/:id', auth, perm('countries.write'), async (req, res) => {
+  const { error } = await admin().from('universities').delete().eq('id', req.params.id);
+  if (error) return res.status(400).json({ error: error.message });
+  res.json({ ok: true });
+});
 app.post('/api/admin/universities', auth, perm('countries.write'), async (req, res) => {
   const b = req.body || {};
   const cc = String(b.country_code || '').toUpperCase().slice(0, 2);
@@ -393,14 +412,15 @@ app.get('/api/support/mine', auth, async (req, res) => {
 app.get('/api/admin/support', auth, perm('support.read'), async (req, res) => {
   const status = String(req.query.status || '');
   let q = admin().from('support_tickets').select('*').order('created_at', { ascending: false }).limit(100);
-  if (['new', 'open', 'waiting', 'resolved', 'closed'].includes(status)) q = q.eq('status', status);
+  if (['new', 'open', 'waiting', 'answered', 'resolved', 'closed'].includes(status)) q = q.eq('status', status);
   const { data } = await q.then(r => r, () => ({ data: [] }));
   res.json({ tickets: data || [] });
 });
 app.post('/api/admin/support/:id', auth, perm('support.write'), async (req, res) => {
   const patch = {};
   if (req.body && typeof req.body.reply === 'string') patch.reply = req.body.reply.slice(0, 4000);
-  if (req.body && ['new', 'open', 'waiting', 'resolved', 'closed'].includes(req.body.status)) patch.status = req.body.status;
+  if (req.body && ['new', 'open', 'waiting', 'answered', 'resolved', 'closed'].includes(req.body.status)) patch.status = req.body.status;
+  if (patch.reply && !patch.status) patch.status = 'answered'; // a reply is a notification
   if (req.body && typeof req.body.internal_note === 'string') patch.internal_note = req.body.internal_note.slice(0, 2000);
   if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update' });
   patch.updated_at = new Date().toISOString();
@@ -408,6 +428,71 @@ app.post('/api/admin/support/:id', auth, perm('support.write'), async (req, res)
   if (error) return res.status(400).json({ error: error.message });
   await admin().from('audit_log').insert({ actor: req.userId, event: 'SUPPORT_UPDATE', detail: req.params.id + ' ' + JSON.stringify(patch).slice(0, 200) }).then(() => {}, () => {});
   res.json({ ok: true });
+});
+app.post('/api/support/seen', auth, async (req, res) => {
+  await admin().from('support_tickets').update({ status: 'resolved', updated_at: new Date().toISOString() }).eq('user_id', req.userId).eq('status', 'answered').then(() => {}, () => {});
+  res.json({ ok: true });
+});
+/* Approve a user-submitted review ticket straight onto the public homepage. */
+app.post('/api/admin/support/:id/approve-review', auth, perm('reviews.write'), async (req, res) => {
+  const { data: t } = await admin().from('support_tickets').select('*').eq('id', req.params.id).single();
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const { data: pr } = await admin().from('profiles').select('full_name').eq('id', t.user_id).single();
+  const stars = (String(t.subject).match(/★(\d)/) || [])[1];
+  const cfg = await siteSettings.getConfig();
+  cfg.reviews = Array.isArray(cfg.reviews) ? cfg.reviews : [];
+  cfg.reviews.unshift({ name: (pr && pr.full_name ? pr.full_name.split(' ')[0] : 'Client'), country: '', stars: Number(stars) || 5, text: String(t.message).slice(0, 200), visible: true });
+  cfg.reviews = cfg.reviews.slice(0, 12);
+  await admin().from('app_settings').upsert({ key: 'site_config', value: cfg });
+  await admin().from('support_tickets').update({ status: 'resolved', reply: t.reply || 'Thank you! Your review is now live on our homepage.', updated_at: new Date().toISOString() }).eq('id', t.id);
+  res.json({ ok: true });
+});
+/* ---------- Business: expenses + monthly profit & loss (full admin control) ---------- */
+app.get('/api/admin/expenses', auth, perm('aicost.read'), async (req, res) => {
+  const { data } = await admin().from('app_settings').select('value').eq('key', 'expenses').single().then(r => r, () => ({ data: null }));
+  res.json({ items: (data && data.value && data.value.items) || [] });
+});
+app.put('/api/admin/expenses', auth, perm('settings.write'), async (req, res) => {
+  const items = Array.isArray(req.body && req.body.items) ? req.body.items.slice(0, 40).map(x => ({
+    name: String(x.name || '').slice(0, 60),
+    amount: Math.max(0, Number(x.amount) || 0),
+    currency: ['USD', 'PKR'].includes(x.currency) ? x.currency : 'PKR',
+    period: ['monthly', 'yearly'].includes(x.period) ? x.period : 'monthly'
+  })).filter(x => x.name && x.amount > 0) : [];
+  await admin().from('app_settings').upsert({ key: 'expenses', value: { items } });
+  res.json({ ok: true, saved: items.length });
+});
+app.get('/api/admin/pnl', auth, perm('aicost.read'), async (req, res) => {
+  const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : new Date().toISOString().slice(0, 7);
+  const cfg = await siteSettings.getConfig().catch(() => ({}));
+  const rate = Number(cfg.ai && cfg.ai.usd_to_pkr) || 278;
+  const out = { month, rate, income_pkr: 0, ai_cost_pkr: 0, fixed_pkr: 0, items: [], formulas: {} };
+  try {
+    const { data: pays } = await admin().from('payments').select('*').eq('status', 'confirmed').gte('confirmed_at', month + '-01').lt('confirmed_at', month + '-31T23:59:59Z');
+    out.income_pkr = (pays || []).reduce((sm, p2) => sm + (Number(p2.amount_pkr || p2.amount || p2.price_pkr || 0)), 0);
+  } catch (e) {}
+  try {
+    const { data: ai } = await admin().from('ai_cost_ledger').select('cost_usd,created_at').gte('created_at', month + '-01').lt('created_at', month + '-31T23:59:59Z');
+    out.ai_cost_pkr = Math.round((ai || []).reduce((sm, r2) => sm + Number(r2.cost_usd || 0), 0) * rate);
+  } catch (e) {}
+  try {
+    const { data: ex } = await admin().from('app_settings').select('value').eq('key', 'expenses').single();
+    const items = (ex && ex.value && ex.value.items) || [];
+    out.items = items.map(x => {
+      const monthly = x.period === 'yearly' ? x.amount / 12 : x.amount;
+      const pkr = Math.round(x.currency === 'USD' ? monthly * rate : monthly);
+      out.fixed_pkr += pkr;
+      return { ...x, monthly_pkr: pkr };
+    });
+  } catch (e) {}
+  out.total_expense_pkr = out.fixed_pkr + out.ai_cost_pkr;
+  out.profit_pkr = out.income_pkr - out.total_expense_pkr;
+  out.formulas = {
+    monthly_share: 'yearly amount / 12; USD amounts x rate (' + rate + ')',
+    total_expense: 'fixed monthly shares + AI cost of the month',
+    profit: 'confirmed payments of the month - total expense'
+  };
+  res.json(out);
 });
 app.get('/api/admin/ai-costs', auth, perm('aicost.read'), async (req, res) => {
   try {
@@ -590,15 +675,9 @@ app.get('/api/home', auth, async (req, res) => {
   try {
     const bal = await balance(uid);
     const { data: led } = await admin().from('credit_ledger').select('delta').eq('user_id', uid);
-    const { data: pr } = await admin().from('profiles').select('free_case_used').eq('id', uid).single();
     const purchased = (led || []).filter(l => Number(l.delta) > 0).reduce((sm, l) => sm + Number(l.delta), 0);
     const { count: casesUsed } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', uid);
-    out.credits = {
-      balance: bal,
-      creditsRemaining: bal + ((pr && pr.free_case_used === false) ? 1 : 0),
-      casesUsed: casesUsed || 0,
-      casesTotal: purchased + 1 // + the free first case
-    };
+    out.credits = { balance: bal, creditsRemaining: bal, casesUsed: casesUsed || 0, casesTotal: purchased };
   } catch (e) {}
   try {
     // Personalized: how many CURRENT verified opportunities score >=70% for THIS user.
@@ -609,6 +688,10 @@ app.get('/api/home', auth, async (req, res) => {
       const pcts = (m || []).map(x => x.pct).filter(p => p != null);
       out.myMatches = { count70: pcts.filter(p => p >= 70).length, best: pcts.length ? Math.max(...pcts) : null, scored: pcts.length, live: opps.length };
     } else out.myMatches = { count70: 0, best: null, scored: 0, live: 0 };
+  } catch (e) {}
+  try {
+    const { count: ans } = await admin().from('support_tickets').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('status', 'answered');
+    out.support = { answered: ans || 0 };
   } catch (e) {}
   try {
     const { data: st } = await admin().from('app_settings').select('value').eq('key', 'discover:' + uid).single();
@@ -653,13 +736,11 @@ async function balance(userId) {
   const { data } = await admin().rpc('credit_balance', { uid: userId });
   return typeof data === 'number' ? data : 0;
 }
-/* Paywall: a user is entitled to full opportunity identity if they are staff,
-   still hold their free first case, or have at least 1 credit. */
+/* Paywall: full opportunity identity is for staff and package members only. */
 async function entitled(userId) {
   try {
-    const { data: prof } = await admin().from('profiles').select('role,free_case_used').eq('id', userId).single();
+    const { data: prof } = await admin().from('profiles').select('role').eq('id', userId).single();
     if (prof && ['admin', 'staff'].includes(prof.role)) return true;
-    if (prof && prof.free_case_used === false) return true;
     return (await balance(userId)) >= 1;
   } catch (e) { return true; } // never lock everyone out on an internal error
 }
@@ -705,6 +786,15 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
   const { data: flipped } = await admin().from('payments').update({ status: 'confirmed', confirmed_by: req.userId, confirmed_at: new Date().toISOString() }).eq('id', p.id).eq('status', 'pending').select('id');
   if (!flipped || !flipped.length) return res.status(400).json({ error: 'Already confirmed' });
   await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: p.credits, reason: 'purchase', payment_id: p.id });
+  // Manual-verification era: the moment credits land, the user sees a dashboard
+  // notification (Ask us badge + thread). When the payment gateway goes live,
+  // this same confirm path runs automatically with zero admin involvement.
+  admin().from('support_tickets').insert({
+    user_id: p.user_id, subject: 'Payment confirmed',
+    message: 'Package purchase — ' + p.credits + ' case credit' + (p.credits === 1 ? '' : 's'),
+    reply: 'Your payment is verified and ' + p.credits + ' case credit' + (p.credits === 1 ? ' is' : 's are') + ' now active. Open Find Opportunities, pick your best match, and your first case begins immediately.',
+    status: 'answered'
+  }).then(() => {}, () => {});
   await admin().from('audit_log').insert({ actor: req.userId, event: 'PAYMENT_CONFIRMED', detail: p.id + ' +' + p.credits + 'cr' });
   res.json({ ok: true });
 });
@@ -803,9 +893,9 @@ app.get('/api/opportunities', auth, async (req, res) => {
   // Free-preview model: after the free case is used and credits are exhausted, the list
   // still shows match strength / funding / deadline, but identity is locked until purchase.
   try {
-    const { data: prof } = await admin().from('profiles').select('role,free_case_used').eq('id', req.userId).single();
+    const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
     const isStaff = prof && ['admin', 'staff'].includes(prof.role);
-    if (!isStaff && prof && prof.free_case_used === true) {
+    if (!isStaff && (await balance(req.userId)) < 1) {
       const bal = await balance(req.userId);
       if (bal < 1) {
         opportunities = opportunities.map(o => lockTease(o));
@@ -818,7 +908,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
 /* ---------- applications: 1 credit = 1 application (consume on create) ---------- */
 app.post('/api/applications', auth, async (req, res) => {
   const { opportunityId } = req.body || {};
-  const { data: prof } = await admin().from('profiles').select('role,free_case_used').eq('id', req.userId).single();
+  const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
   const isAdmin = prof && ['admin', 'staff'].includes(prof.role);
   // CV is the one required document before any application can be prepared.
   const { data: cvDocs } = await admin().from('documents').select('id').eq('user_id', req.userId).eq('kind', 'cv').eq('generated', false).limit(1);
@@ -826,36 +916,27 @@ app.post('/api/applications', auth, async (req, res) => {
     return res.status(400).json({ error: 'Please upload your CV first. It is the only required document, and every application is prepared from it.' });
   }
   const bal = await balance(req.userId);
-  const freeAvailable = prof && prof.free_case_used === false;
-  const freeUsed = prof && prof.free_case_used === true;
-  if (!isAdmin && bal < 1 && !freeAvailable) {
-    return res.status(402).json({
-      error: freeUsed
-        ? 'You have already used your one free opportunity with this account. To continue, please choose a credit package. Every case is prepared completely, end to end.'
-        : 'No credits. Buy a pack to start this application.'
-    });
+  if (!isAdmin && bal < 1) {
+    return res.status(402).json({ error: 'Your matches are ready. Choose a package to start this case — every case is prepared completely, end to end.' });
   }
   const { data: opp } = await admin().from('opportunities').select('id,institution').eq('id', opportunityId).single();
   if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
-  const usingFree = !isAdmin && bal < 1 && freeAvailable;
   const caseNo = 'FF-' + Date.now().toString(36).toUpperCase();
   const { data: appRow, error } = await admin().from('applications')
-    .insert({ user_id: req.userId, opportunity_id: opp.id, case_no: caseNo, stage: 'preparing', credits_consumed: (isAdmin || usingFree) ? 0 : 1 })
+    .insert({ user_id: req.userId, opportunity_id: opp.id, case_no: caseNo, stage: 'preparing', credits_consumed: isAdmin ? 0 : 1 })
     .select().single();
   if (error) return res.status(400).json({ error: error.message.includes('duplicate') ? 'You already have an application for this opportunity' : error.message });
-  if (usingFree) {
-    // Atomic claim: only ONE request can flip free_case_used false->true. A racing
-    // duplicate gets zero rows back, and we roll its application away.
-    const { data: claimed } = await admin().from('profiles').update({ free_case_used: true, free_case_used_at: new Date().toISOString() }).eq('id', req.userId).eq('free_case_used', false).select('id');
-    if (!claimed || !claimed.length) {
+  if (!isAdmin) {
+    // Re-check after insert: if a racing request drained the last credit, roll back.
+    const balNow = await balance(req.userId);
+    if (balNow < 1) {
       try { await admin().from('applications').delete().eq('id', appRow.id); } catch (e) {}
-      return res.status(402).json({ error: 'Your free case was already used. Choose a credit package to continue.' });
+      return res.status(402).json({ error: 'That credit was just used by another action. Please choose a package to continue.' });
     }
-    await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 0, reason: 'free_case', application_id: appRow.id, note: opp.institution + ' (free first case)' });
-  } else if (!isAdmin) {
     await admin().from('credit_ledger').insert({ user_id: req.userId, delta: -1, reason: 'consume', application_id: appRow.id, note: opp.institution });
   }
-  res.json({ application: appRow, freeCase: usingFree });
+  if (req.body && req.body.requirements_acknowledged) admin().from('audit_log').insert({ actor: req.userId, event: 'REQ_ACK', detail: 'Requirements acknowledged before case ' + appRow.case_no + ' (' + opp.institution + ')' }).then(() => {}, () => {});
+  res.json({ application: appRow, freeCase: false });
 });
 app.get('/api/applications', auth, async (req, res) => {
   const { data } = await admin().from('applications').select('*, opportunities(title,institution,country_code,deadline,url)').eq('user_id', req.userId).order('updated_at', { ascending: false });
@@ -1150,37 +1231,151 @@ app.put('/api/prefs', auth, async (req, res) => {
   try { await admin().from('app_settings').upsert({ key: 'prefs:' + req.userId, value: clean }); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
+/* ---------- Future Path Guide: individualized post-acceptance roadmap PDF ---------- */
+const FUTURE_PATH = {
+  DE: { name: 'Germany', embassy: 'German Embassy Islamabad, Ramna 5, Diplomatic Enclave', portal: 'https://videx.diplo.de (VIDEX form) + appointment via the embassy website', funds: 'Blocked account approx. EUR 11,904 (Rs ~36 lakh) via Expatrio/Fintiba/Coracle, opened online', extra: 'APS certificate (aps-pakistan.pk) is required BEFORE the visa application.' },
+  FI: { name: 'Finland', embassy: 'VFS Global Islamabad / Karachi (Finland residence permits)', portal: 'https://enterfinland.fi — apply online, then biometrics at VFS', funds: 'Approx. EUR 6,720/year (Rs ~21 lakh) in your own account', extra: 'Early tuition-waiver deadlines matter; accept your offer fast.' },
+  IT: { name: 'Italy', embassy: 'Embassy of Italy Islamabad, Diplomatic Enclave', portal: 'Pre-enrolment on https://universitaly.it, then D-visa at the embassy', funds: 'Approx. EUR 6,000/year, plus DSU grant award letter if you have one', extra: 'Start degree attestation early; Italian pre-enrolment paperwork takes time.' },
+  GB: { name: 'United Kingdom', embassy: 'VFS Global UK Visa Application Centres, Islamabad / Lahore / Karachi', portal: 'https://gov.uk/student-visa — apply online with your CAS', funds: 'GBP 1,023/month for 9 months outside London (Rs ~32 lakh), held 28 days', extra: 'IHS health surcharge is paid during the application; TB test at an approved clinic.' },
+  AU: { name: 'Australia', embassy: 'Australian High Commission Islamabad (visas processed online)', portal: 'https://immi.homeaffairs.gov.au — Subclass 500 via ImmiAccount', funds: 'Approx. AUD 29,710/year (Rs ~55 lakh) evidence', extra: 'The GS (Genuine Student) statement matters most; write it yourself, honestly.' },
+  SA: { name: 'Saudi Arabia', embassy: 'Royal Embassy of Saudi Arabia Islamabad; work visas via Enjaz/Musaned through your employer', portal: 'Your employer initiates the work visa; you complete biometrics at Etimad centres', funds: 'Employer-sponsored; no personal bank statement normally required for work visas', extra: 'SCFHS classification (via DataFlow + Prometric) must be complete for healthcare roles.' },
+  AE: { name: 'United Arab Emirates', embassy: 'Employer processes the work permit; entry visa issued electronically', portal: 'Employer-driven via MOHRE/ICP; you provide attested documents', funds: 'Employer-sponsored', extra: 'DHA/HAAD/MOH licensing via DataFlow verification must be complete.' },
+  CA: { name: 'Canada', embassy: 'VFS Global Canada Visa Application Centres, Islamabad / Lahore / Karachi', portal: 'https://ircc.canada.ca — study permit online (SDS closed; regular stream)', funds: 'CAD 20,635/year + first-year tuition (GIC where applicable)', extra: 'Provincial attestation letter (PAL) is required with most study permits.' },
+  US: { name: 'United States', embassy: 'US Embassy Islamabad / Consulate Karachi — F-1 interview', portal: 'Pay SEVIS fee (fmjfee.com), complete DS-160, book the interview', funds: 'Evidence covering I-20 first-year amount', extra: 'Carry original documents to the interview; answer plainly and honestly.' }
+};
+app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
+  const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
+  if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  const opp = a.opportunities || {};
+  const { data: pr } = await admin().from('profiles').select('full_name').eq('id', req.userId).single();
+  const g = FUTURE_PATH[opp.country_code] || null;
+  const clean = t => String(t || '').replace(/[\u2013\u2014]/g, '-');
+  const PDFDocument = require('pdfkit');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename="Future Path Guide - ' + clean(opp.institution || 'Your Case').replace(/[^A-Za-z0-9 .-]/g, '').slice(0, 60) + '.pdf"');
+  const pdf = new PDFDocument({ size: 'A4', margins: { top: 60, bottom: 60, left: 58, right: 58 } });
+  pdf.pipe(res);
+  const H = t => { pdf.moveDown(0.6).font('Times-Bold').fontSize(13).fillColor('#000').text(t); pdf.moveDown(0.2); };
+  const P = t => pdf.font('Times-Roman').fontSize(11.5).fillColor('#000').text(clean(t), { align: 'justify' });
+  const B = t => pdf.font('Times-Roman').fontSize(11.5).text('•  ' + clean(t), { indent: 12 });
+  pdf.font('Times-Bold').fontSize(17).text('Your Future Path', { align: 'center' });
+  pdf.font('Times-Roman').fontSize(11.5).text(clean((opp.institution || '') + (g ? ' · ' + g.name : '')) + ((pr && pr.full_name) ? '  —  prepared for ' + pr.full_name : ''), { align: 'center' });
+  pdf.moveDown(0.5);
+  P('This guide covers what happens after you are accepted, step by step, until you land. ForiForeign does not provide visa or document-processing services, and you do not need any agent: every step below is designed for you to do yourself, easily and officially.');
+  H('1. After acceptance');
+  B('You may be invited to an online interview. Prepare with your CV and the documents ForiForeign drafted; answer plainly.');
+  B('Degree attestation: first HEC (eservices.hec.gov.pk, online account, courier both ways), then MOFA (mofa.gov.pk attestation, online appointment or Qousia counters). Attest degree + transcripts.');
+  B('Institutions often ask for attested hard copies by courier later; keep two attested sets ready.');
+  H('2. Visa, done by yourself' + (g ? ' — ' + g.name : ''));
+  if (g) {
+    B('Where: ' + g.embassy + '.');
+    B('How: ' + g.portal + '.');
+    if (g.extra) B('Important: ' + g.extra);
+  } else {
+    B('Apply directly through the official embassy or government portal of the destination country; the offer letter states the visa category.');
+  }
+  B('Book the appointment yourself, pay the official fee only, and submit your own file. No agent adds anything a careful applicant cannot do.');
+  H('3. Financial evidence');
+  P(g && g.funds ? g.funds + '. Keep the funds seasoned in your own or an immediate family member\'s account, with a clean 6-month statement and a maintenance letter from the bank.' : 'Follow the exact amount stated in your offer or the embassy checklist; keep a clean 6-month bank statement and a bank maintenance letter.');
+  H('4. Before you fly');
+  B('Verify your offer, CAS/admission letter, visa, passport validity (18+ months), and attested originals in hand luggage.');
+  B('Arrange accommodation for the first weeks through the institution where possible.');
+  B('Inform the institution of your arrival date; register on arrival as instructed (city registration / police / university enrolment).');
+  pdf.moveDown(0.8);
+  pdf.font('Times-Roman').fontSize(10.5).fillColor('#333').text('Every fact above follows official channels current at preparation time; always confirm on the linked official pages, which are the only authority. ForiForeign · foriforeign.com', { align: 'center' });
+  pdf.end();
+});
+/* ---------- Professional PDF of a case document (editable content -> elegant PDF) ---------- */
+app.get('/api/applications/:id/documents/:docId/pdf', auth, async (req, res) => {
+  const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
+  if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  const { data: doc } = await admin().from('application_documents').select('*').eq('id', req.params.docId).eq('application_id', a.id).single();
+  if (!doc) return res.status(404).json({ error: 'Document not found' });
+  const { data: pr } = await admin().from('profiles').select('full_name').eq('id', req.userId).single();
+  const person = (pr && pr.full_name) || '';
+  const clean = str => String(str || '').replace(/[\u2013\u2014]/g, '-');
+  const fname = (clean(doc.title || 'Document') + (person ? ' - ' + person : '')).replace(/[^A-Za-z0-9 .-]/g, '').replace(/\s+/g, ' ').trim() + '.pdf';
+  const PDFDocument = require('pdfkit');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + fname + '"');
+  const pdf = new PDFDocument({ size: 'A4', margins: { top: 64, bottom: 64, left: 60, right: 60 } });
+  pdf.pipe(res);
+  // Title block: black, academic, elegant.
+  pdf.font('Times-Bold').fontSize(17).fillColor('#000000').text(clean(doc.title || ''), { align: 'center' });
+  if (person) pdf.moveDown(0.2).font('Times-Roman').fontSize(11.5).text(person, { align: 'center' });
+  pdf.moveDown(0.8);
+  const lines = clean(doc.content || '').split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { pdf.moveDown(0.45); continue; }
+    const hd = line.match(/^\*\*(.+)\*\*:?\s*$/);
+    if (hd || (line.length < 42 && /^[A-Z][A-Za-z &/-]+$/.test(line) && !/[.]$/.test(line))) {
+      pdf.moveDown(0.3).font('Times-Bold').fontSize(12.5).text((hd ? hd[1] : line).replace(/\*\*/g, ''), { align: 'left' });
+      pdf.moveDown(0.15); continue;
+    }
+    const body = line.replace(/\*\*/g, '');
+    if (/^[-•]\s+/.test(body)) pdf.font('Times-Roman').fontSize(11.5).text(body.replace(/^[-•]\s+/, '•  '), { align: 'left', indent: 14 });
+    else pdf.font('Times-Roman').fontSize(11.5).text(body, { align: 'justify' });
+  }
+  pdf.end();
+});
 /* ---------- pipeline endpoints ---------- */
 const { discoverForUser, prepareApplication } = require('./lib/engine');
 app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.discovery_enabled===false)return res.status(503).json({error:'Search is briefly paused for maintenance. Please try again soon.'});next();}, async (req, res) => {
-  const { data: st } = await admin().from('app_settings').select('value').eq('key', 'lastRun:' + req.userId).single();
-  const last = st ? new Date(st.value.at || 0) : new Date(0);
-  const mins = (Date.now() - last.getTime()) / 60000;
-  if (mins < 30) return res.json({ ok: true, ran: false, message: 'Searched ' + Math.round(mins) + ' min ago. Next run possible in ' + Math.ceil(30 - mins) + ' min.' });
-  await admin().from('app_settings').upsert({ key: 'lastRun:' + req.userId, value: { at: new Date().toISOString() } });
   // Search preferences + package fulfillment: paid credits define how many verified
   // opportunities the agent must deliver (min 5, max 20). Priority countries are
   // searched first; comparable nearby destinations complete the set only if needed.
   const b = req.body || {};
+  const arr = (v, ok) => Array.isArray(v) ? v.map(x => String(x)).filter(x => ok.includes(x)).slice(0, 8) : [];
+  const LIC = ['DHA', 'SCFHS', 'PLAB', 'PEBC', 'NCLEX', 'MOH', 'HAAD', 'USMLE'];
   const prefs = {
     countries: Array.isArray(b.countries) ? b.countries.filter(c => /^[A-Za-z]{2}$/.test(String(c))).map(c => String(c).toUpperCase()).slice(0, 15) : [],
-    fundedOnly: !!b.funded_only, remote: !!b.remote, target: 5
+    fundings: arr(b.fundings, ['fully', 'partial', 'self']),
+    levels: arr(b.levels, ['bachelors', 'masters', 'phd', 'postdoc']),
+    jobTypes: arr(b.job_types, ['full_time', 'part_time', 'contract', 'internship']),
+    exps: arr(b.exps, ['entry', 'mid', 'senior']),
+    licenses: Array.isArray(b.licenses) ? b.licenses.map(x => String(x).toUpperCase()).filter(x => LIC.includes(x)).slice(0, 8) : [],
+    field: /^[a-z]{2,20}$/.test(String(b.field || '')) ? String(b.field) : null,
+    intake: ['2026', '2027'].includes(String(b.intake || '')) ? String(b.intake) : null,
+    noLang: !!b.no_lang, remote: !!b.remote,
+    target: 5
   };
+  prefs.fundedOnly = !!b.funded_only || prefs.fundings.includes('fully');
+  prefs.level = prefs.levels[0] || null; prefs.license = prefs.licenses[0] || null; // back-compat
+  prefs.prefsHash = JSON.stringify({ k: b.kind || null, c: prefs.countries, f: prefs.fundings, l: prefs.levels, j: prefs.jobTypes, e: prefs.exps, x: prefs.licenses, fd: prefs.field, i: prefs.intake, n: prefs.noLang, r: prefs.remote });
+  // Admin and staff run without limits: no cooldown, full delivery target.
+  let isAdminRun = false;
+  try { const { data: pr0 } = await admin().from('profiles').select('role').eq('id', req.userId).single(); isAdminRun = !!(pr0 && ['admin', 'staff'].includes(pr0.role)); } catch (e) {}
+  // Smart cooldown: 30 min between runs, WAIVED when the last run delivered zero
+  // or the user changed what they are searching for. A paid user with an empty
+  // result or an updated profile is never made to wait.
+  const { data: st } = await admin().from('app_settings').select('value').eq('key', 'lastRun:' + req.userId).single();
+  const last = st ? new Date(st.value.at || 0) : new Date(0);
+  const mins = (Date.now() - last.getTime()) / 60000;
+  if (mins < 30 && !isAdminRun) {
+    let waive = false;
+    try {
+      const { data: ds } = await admin().from('app_settings').select('value').eq('key', 'discover:' + req.userId).single();
+      const v = ds && ds.value;
+      if (!v || Number(v.found) === 0 || (v.prefsHash && v.prefsHash !== prefs.prefsHash)) waive = true;
+    } catch (e) { waive = true; }
+    if (!waive) return res.json({ ok: true, ran: false, cooldown: Math.ceil(30 - mins), message: 'Your matches from ' + Math.round(mins) + ' min ago are still fresh — opening them now. A new search is available in ' + Math.ceil(30 - mins) + ' min, or immediately if you change your filters.' });
+  }
+  await admin().from('app_settings').upsert({ key: 'lastRun:' + req.userId, value: { at: new Date().toISOString() } });
   try {
     const bal = await balance(req.userId);
-    const { data: pr } = await admin().from('profiles').select('free_case_used').eq('id', req.userId).single();
-    prefs.target = Math.min(20, Math.max(5, (bal || 0) + ((pr && pr.free_case_used === false) ? 1 : 0)));
+    prefs.target = isAdminRun ? 20 : Math.min(20, Math.max(5, bal || 0));
   } catch (e) {}
   // Server-side, resumable progress: the run continues even if the phone dies.
   const progressKey = 'discover:' + req.userId;
   prefs.progressKey = progressKey;
   prefs.startedAt = new Date().toISOString();
-  try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'running', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: 0 } }); } catch (e) {}
+  try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'running', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: 0, prefsHash: prefs.prefsHash } }); } catch (e) {}
   res.json({ ok: true, ran: true, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.' });
   require('./lib/jobs').runJob('discover', 'discover:' + req.userId + ':' + Math.floor(Date.now()/1800e3), req.userId, () =>
     discoverForUser(req.userId, b.kind, prefs)
-      .then(async n => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'done', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: n } }); } catch (e) {} return n; })
-      .catch(async e => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'error', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, message: String(e.message).slice(0, 160) } }); } catch (e2) {} throw e; }),
+      .then(async n => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'done', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: n, prefsHash: prefs.prefsHash } }); } catch (e) {} return n; })
+      .catch(async e => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'error', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, message: String(e.message).slice(0, 160), prefsHash: prefs.prefsHash } }); } catch (e2) {} throw e; }),
     { retries: 1, timeoutMs: 600000 });
 });
 /* Observability: the admin sees problems before users complain. */

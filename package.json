@@ -4,7 +4,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/smoke.test.js"
+    "test": "node test/smoke.test.js && node test/paywall.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
