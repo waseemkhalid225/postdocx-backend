@@ -43,12 +43,14 @@ main{max-width:920px;margin:0 auto;padding:18px 14px 80px}
 label{display:block;font:600 12px Inter;color:var(--slate);margin:10px 0 4px}
 input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:14px Inter;background:#fff}
 textarea{min-height:90px}
-.btn{border:none;border-radius:10px;padding:10px 16px;font:600 13.5px Inter;cursor:pointer}
+.btn{border:none;border-radius:10px;padding:10px 16px;font:600 13.5px Inter;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
 .b-ink{background:var(--ink);color:#fff}.b-gold{background:var(--gold);color:#fff}.b-green{background:var(--green);color:#fff}
 .b-line{background:#fff;border:1px solid var(--line);color:var(--ink)}
 .btn:disabled{opacity:.5;cursor:default}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.spread{display:flex;justify-content:space-between;align-items:center;gap:10px}
-.chip{display:inline-block;padding:3px 9px;border-radius:99px;font:600 11px Inter}
+.chiprow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.provrow{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:12px;color:var(--slate)}
+.chip{display:inline-flex;align-items:center;height:24px;padding:0 11px;border-radius:99px;font:600 11px/1 Inter;letter-spacing:.02em;white-space:nowrap;border:1px solid transparent}
 .c-green{background:var(--green-soft);color:var(--green)}.c-gold{background:var(--gold-soft);color:#1D4FB8}
 .c-gray{background:var(--soft);color:var(--slate)}.c-red{background:var(--crimson-soft);color:var(--crimson)}.c-blue{background:var(--blue-soft);color:var(--blue)}
 .empty{border:1.5px dashed var(--line);border-radius:14px;padding:26px;text-align:center;color:var(--slate);font-size:13px;background:#FDFCFA}
@@ -483,6 +485,13 @@ table td{border-bottom:1px solid rgba(120,180,255,.14)!important;color:#E9F1FC}
 .stepnum{width:24px;height:24px;border-radius:50%;background:#1683FF;color:#fff;font:700 12px Inter;display:flex;align-items:center;justify-content:center}
 .stepcard.done .stepnum{background:#00B8A9}
 .stepic{font-size:20px}
+.vstep{display:flex;align-items:center;gap:12px;background:rgba(8,18,35,.82);border:1px solid rgba(120,180,255,.25);border-radius:12px;padding:0 12px;min-height:52px;margin-bottom:8px;font:600 13.5px Inter;color:#E9F1FC}
+.vstep.done{border-color:rgba(0,184,169,.6);opacity:.8}
+.vstep.act{border-color:#00D4FF;box-shadow:0 0 14px rgba(0,212,255,.15)}
+.vstep-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vstep-btn{padding:8px 18px;flex:0 0 auto;min-height:34px;min-width:84px}
+.vstep .stepnum{flex:0 0 auto}
+.vstep .sub{flex:0 0 auto}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -548,6 +557,21 @@ async function afterLogin(){
 let SITE=null;
 async function loadSiteConfig(){
   try{SITE=(await (await fetch('/api/site-config')).json()).config||null}catch(e){SITE=null}
+  fetch('/api/stats').then(r=>r.json()).then(st=>{
+    const f=(id,v)=>{const el=document.getElementById(id);if(el&&v)el.textContent=v};
+    if(st.opportunities>=25)f('stOpps',st.opportunities.toLocaleString());
+    if(st.countries>=5)f('stCtry',st.countries);
+    if(st.added7>=3)f('stNew','+'+st.added7);
+  }).catch(()=>{});
+  setTimeout(()=>{try{
+    const box=document.getElementById('mktStats');
+    if(box&&SITE&&Array.isArray(SITE.stories)&&SITE.stories.length){
+      const d=document.createElement('div');
+      d.style.cssText='margin:-18px 0 30px;text-align:center';
+      d.innerHTML=SITE.stories.map(x=>`<div style="display:inline-block;max-width:300px;margin:6px 8px;background:rgba(8,22,48,.72);border:1px solid rgba(120,160,255,.25);border-radius:14px;padding:12px 14px;text-align:left"><span style="color:#cfe1ff;font-style:italic">“${esc(x.text)}”</span><div style="color:#00D4FF;font-weight:700;margin-top:4px;font-size:12.5px">— ${esc(x.name)}</div></div>`).join('');
+      box.parentNode.insertBefore(d,box.nextSibling);
+    }
+  }catch(e){}},400);
 }
 function showAnnouncement(){
   if(!SITE||!SITE.announcement||!SITE.announcement.enabled||!SITE.announcement.text)return;
@@ -559,7 +583,7 @@ function showAnnouncement(){
 async function signOut(){await SB.auth.signOut();location.reload()}
 function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render()}
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b){if(b.dataset.t==='browse')window._lane='';go(b.dataset.t)}});
-function render(){if(TAB==='apps')TAB='home';({home:vHome,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
+function render(){({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
 
 /* ---------- auth view ---------- */
 function renderAuth(mode){
@@ -584,19 +608,19 @@ function renderAuth(mode){
         <a onclick="renderAuth('${mode==='signin'?'signup':'signin'}')">${mode==='signin'?'Create an account':'Sign in'}</a></div>
       ${mode==='signup'?`<div class="sub auth-note">A quick verification email confirms your address. That is all we need to get you started.</div>`:''}
       <div class="auth-links">
-        <a onclick="landingInfo('privacy')">Privacy</a><span>·</span><a href="mailto:admin@foriforeign.com" style="color:inherit">admin@foriforeign.com</a><span>·</span><a href="https://wa.me/923455216903" target="_blank" style="color:inherit">WhatsApp 0345 5216903</a><span>·</span><a onclick="landingInfo('refund')">Refunds</a><span>·</span><a onclick="landingInfo('help')">Help</a>
+        <a onclick="landingInfo('privacy')">Privacy</a><span>·</span><a onclick="landingInfo('refund')">Refunds</a><span>·</span><a onclick="landingInfo('help')">Help</a>
       </div>
     </div>
   </div>
   <section class="mkt">
     <div class="mkt-stats" id="mktStats">
       <div><b>Official sources</b><span>every opportunity verified before you see it</span></div>
-      <div><b>50+</b><span>destination countries searched</span></div>
-      <div><b>1000+</b><span>universities &amp; institutions covered</span></div>
-      <div><b>Study + Work</b><span>scholarships &amp; verified jobs</span></div>
+      <div><b id="stOpps">Live</b><span>verified opportunities right now</span></div>
+      <div><b id="stCtry">50+</b><span>countries covered</span></div>
+      <div><b id="stNew">Fresh</b><span>added this week</span></div>
       <div><b>You</b><span>press Send — from your own email</span></div>
     </div>
-    <div class="sub" style="text-align:center;margin-top:10px;opacity:.9">🔒 No inbox access · No stored passwords · Confidential documents stay with you · Source link on every opportunity</div>
+    <div class="sub" style="text-align:center;margin-top:10px;opacity:.9">No inbox access · No stored passwords · Confidential documents stay with you · Source link on every opportunity</div>
     <h2 class="mkt-h">How ForiForeign works</h2>
     <div class="mkt-grid">
       <div class="mkt-card"><div class="mkt-ic">1️⃣</div><h3>Build your real profile</h3><p>Education, experience, publications, documents — once. Our agent works only from your real facts, never inventions.</p></div>
@@ -605,11 +629,11 @@ function renderAuth(mode){
     </div>
     <h2 class="mkt-h">Why students &amp; professionals choose us</h2>
     <div class="mkt-grid">
-      <div class="mkt-card"><div class="mkt-ic">🎓</div><h3>Study lane</h3><p>Bachelors to Postdoc with scholarship &amp; funding filters, no-IELTS options, stipend flags.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">💼</div><h3>Work lane</h3><p>Verified jobs with the licensing route named — DHA, SCFHS, NCLEX, PEBC — so you know the real path.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">🧠</div><h3>Complete intelligence</h3><p>Every opportunity gets a full report: why you match, what's missing, costs in USD &amp; PKR, verified contacts.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">📁</div><h3>Case management</h3><p>Each application is a case — editable documents, statuses, notes, and follow-ups in one place.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">🔒</div><h3>Your data, protected</h3><p>Documents are private, used only for your applications. Emails send from your own Gmail, only after you approve.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Study lane</h3><p>Bachelors to Postdoc with scholarship &amp; funding filters, no-IELTS options, stipend flags.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Work lane</h3><p>Verified jobs with the licensing route named — DHA, SCFHS, NCLEX, PEBC — so you know the real path.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Complete intelligence</h3><p>Every opportunity gets a full report: why you match, what's missing, costs in USD &amp; PKR, verified contacts.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Case management</h3><p>Each application is a case — editable documents, statuses, notes, and follow-ups in one place.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Your data, protected</h3><p>Documents are private, used only for your applications. Emails send from your own Gmail, only after you approve.</p></div>
       <div class="mkt-card" style="border-color:#00D4FF"><div class="mkt-ic">💎</div><h3>First case FREE · then Rs 2,000</h3><p>Upload CV → verified matches from official pages → complete tailored case → you press Send from your own email. No consultant fees, no guarantees sold — just the work, done properly.</p></div>
       <div class="mkt-card"><div class="mkt-ic">🇵🇰</div><h3>Built for Pakistan</h3><p>PKR pricing, JazzCash/Easypaisa/bank transfer, and guidance written for Pakistani applicants.</p></div>
     </div>
@@ -647,9 +671,9 @@ function authGlobeSelect(sel){
     ?`<b>🇵🇰 Pakistan — your starting point</b><div class="sub" style="color:#cfe1ff">Every route begins here. Create your profile and let the agent map your path.</div>`
     :`<b>${esc(sel.name)}</b><div style="font:700 26px Fraunces,serif;color:#fff">${sel.count}</div><div class="sub" style="color:#cfe1ff">verified ${sel.count===1?'opportunity':'opportunities'} right now</div>
     ${sel.count?`<div class="row" style="gap:5px;margin-top:6px;flex-wrap:wrap">
-    ${d.study?`<span class="gchip" style="border-color:#4f8ef7">🎓 ${d.study} study</span>`:''}
-    ${d.scholarship?`<span class="gchip" style="border-color:#f59e0b">🏅 ${d.scholarship} scholarships</span>`:''}
-    ${d.work?`<span class="gchip" style="border-color:#22c55e">💼 ${d.work} jobs</span>`:''}</div>
+    ${d.study?`<span class="gchip" style="border-color:#4f8ef7">${d.study} study</span>`:''}
+    ${d.scholarship?`<span class="gchip" style="border-color:#f59e0b">${d.scholarship} scholarships</span>`:''}
+    ${d.work?`<span class="gchip" style="border-color:#22c55e">${d.work} jobs</span>`:''}</div>
     ${d.last?`<div class="sub" style="color:#9db8e8;margin-top:4px">Last verified ${esc(String(d.last).slice(0,10))}</div>`:''}`:''}
     <button class="btn b-gold" style="margin-top:8px" onclick="renderAuth('signup')">Start free →</button>`;
 }
@@ -763,75 +787,73 @@ async function vHome(){
   $('view').innerHTML='<div class="home-hero"><div class="home-hero-badge">Loading…</div><h1 class="home-hero-h">Getting your next step ready…</h1></div>';
   const firstFree=!(ME&&ME.used_free_case);
   // Fetch journey state so the home shows ONE clear next action (spec #4).
-  let S={state:'new',hasCV:false,appCount:0};
-  try{S=await api('/api/me/state')}catch(e){}
+  let S={state:'new',hasCV:false,appCount:0},HM=null;
+  try{HM=await api('/api/home');if(HM&&HM.state)S=HM.state}catch(e){}
+  if(!HM){try{S=await api('/api/me/state')}catch(e){}}
+  const MY=(HM&&HM.myMatches)||{count70:0};
   window._homeState=S.state;
   const heroFor={
-    new:{badge:firstFree?'🎁 Your first opportunity is FREE':'Welcome',h:'Upload your CV. <span class="hl">We do the hard work.</span>',p:'One upload. Verified opportunities. Applications prepared for you.',showLanes:true,showUpload:true},
-    cv_uploaded:{badge:'✓ Profile ready',h:'Your profile is <span class="hl">ready.</span>',p:(S.matches?S.matches+' verified opportunities live'+(S.deadlineSoon?' · '+S.deadlineSoon+' deadlines within 14 days':'')+'. Let\'s find your matches.':'We have read your CV. Let\'s find your best matches now.'),action:{label:'Find My Matches',fn:"runSearch()"}},
-    preparing:{badge:'⏳ Working',h:'<span class="hl">Preparing</span> your application…',p:'Finding the right contact and tailoring your CV, letter and email.',action:{label:'View Progress',fn:"go('apps')"}},
-    application_ready:{badge:'✓ Ready to apply',h:'Your application is <span class="hl">ready.</span>',p:'Recipient, email and documents are prepared. Review and send from your own inbox.',action:{label:'Review & Apply',fn:"go('apps')"}},
-    application_sent:{badge:'🎉 Applied',h:'Your application has been <span class="hl">sent.</span>',p:'Well done.'+(S.matches?' '+S.matches+' verified opportunities are live'+(S.deadlineSoon?', '+S.deadlineSoon+' with deadlines soon':'')+'.':' You may have more study, work and funding matches.'),action:{label:'Explore More',fn:"go('browse')"}}
+    new:{badge:firstFree?'First case free':'Welcome',h:'Four steps. You are in control.'},
+    cv_uploaded:{badge:'✓ CV ready',h:'Step 2 — find your matches.'},
+    preparing:{badge:'Working',h:'Step 3 — preparing your case…'},
+    application_ready:{badge:'✓ Ready',h:'Step 4 — review and apply.'},
+    application_sent:{badge:'✓ Applied',h:'Sent. Find the next one.'}
   };
   const H=heroFor[S.state]||heroFor.new;
   $('view').innerHTML=`
   <div class="home-hero">
     <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap"><div class="home-hero-badge">${H.badge}</div>
-    <span class="hero-hello">${ME&&ME.full_name?('Welcome, '+esc(ME.full_name.split(' ')[0])+' 👋'):'Welcome 👋'}</span></div>
+    <span class="hero-hello">${ME&&ME.full_name?('Welcome, '+esc(ME.full_name.split(' ')[0])):'Welcome'}</span></div>
     <h1 class="home-hero-h">${H.h}</h1>
-    <p class="home-hero-p">${H.p}</p>
-    ${H.showUpload?`<div class="row" style="margin:2px 0 14px"><button class="btn b-gold home-primary-cta" onclick="homeCvPick()">📄 Upload Your Complete CV</button><span class="sub" style="align-self:center">PDF, Word or photo — one file is enough.</span></div>`:''}
-    ${H.showLanes?`<div class="home-cta-row">
-      <button class="home-cta home-cta-study" onclick="window._lane='study';go('browse')">
-        <div class="home-cta-ic">🎓</div>
-        <div><b>Study Abroad</b><span>Bachelors → Postdoc · scholarships · funding</span></div>
-        <div class="home-cta-arrow">→</div>
-      </button>
-      <button class="home-cta home-cta-work" onclick="window._lane='work';go('browse')">
-        <div class="home-cta-ic">💼</div>
-        <div><b>Work Abroad</b><span>Verified jobs · licensing route named for you</span></div>
-        <div class="home-cta-arrow">→</div>
-      </button>
-    </div>
-    ${firstFree?`<div class="home-freecase">First case free — no card, no risk. Pick a study or work path above to begin.</div>`:''}`
-    :`<button class="btn b-gold home-primary-cta" onclick="${H.action.fn}">${H.action.label} →</button>`}
-    <div class="row trustrow">
-      <span class="tbadge">🛡️ Verified from official sources</span>
-      <span class="tbadge">✅ You review &amp; press Send</span>
-      <span class="tbadge">🔒 No passwords, no inbox access</span>
-    </div>
     <div id="dashGlobePanel" style="display:none;margin-top:10px"></div>
   </div>
-  ${ME&&!ME.phone?`<div class="card" style="border-color:#00D4FF;margin-top:12px"><b>📲 Add your WhatsApp number</b><div class="sub" style="margin:4px 0 8px">Case updates and deadline reminders go to WhatsApp — add your registered WhatsApp number (not just any number).</div><div class="row"><input id="waNum" placeholder="+92 3xx xxxxxxx" style="flex:1;min-width:160px"><button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{await api('/api/me',{method:'PUT',body:{phone:document.getElementById('waNum').value.trim()}});ME.phone=1;toast('✓ Saved');vHome()}catch(e){toast(e.message);b.disabled=false}})(this)">Save</button></div></div>`:``}
-  <div class="dash-head" style="margin-top:14px">
-    <div id="dashAvatar" style="flex:1;min-width:260px"><div class="sub">Loading your profile…</div></div>
-    <div id="readyStrip" style="min-width:220px"></div>
-  </div>
-  <div class="row" style="gap:8px;margin:12px 0;flex-wrap:wrap">
-    <button class="btn b-line" onclick="go('buy')">Packages</button>
-    <button class="btn b-line" onclick="openSupport()">Support</button>
-  </div>
-  <div class="dash-sec"><h3 style="margin-bottom:10px">How ForiForeign works</h3>
-  <div class="steprow">
-    ${[['1','📄','Upload your CV',S.hasCV],['2','🔎','We find verified matches',S.matches>0],['3','🧠','We prepare your full case',S.appCount>0],['4','🚀','You apply from your own email',S.state==='application_sent']].map(([n,ic,t,done])=>`
-    <div class="stepcard ${done?'done':''}"><div class="stepnum">${done?'✓':n}</div><div class="stepic">${ic}</div><div>${t}</div></div>`).join('')}
-  </div>
-  <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">
-    <button class="btn b-gold" onclick="go('browse')">Browse opportunities →</button>
-    <span class="sub" style="align-self:center">${S.matches?S.matches+' verified opportunities live now':''}</span>
+  ${ME&&!ME.phone?`<div class="card" style="border-color:#00D4FF;margin-top:12px"><div class="row"><b style="flex:0 0 auto">WhatsApp</b><span class="sub" style="flex:1;min-width:120px">Case updates &amp; deadline reminders</span></div><div class="row" style="margin-top:6px"><input id="waNum" placeholder="+92 3xx xxxxxxx" style="flex:1;min-width:160px"><button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{await api('/api/me',{method:'PUT',body:{phone:document.getElementById('waNum').value.trim()}});ME.phone=1;toast('✓ Saved');vHome()}catch(e){toast(e.message);b.disabled=false}})(this)">Save</button></div></div>`:``}
+  <div class="dash-sec"><h3 style="margin-bottom:10px">Your steps</h3>
+  <input id="doc-files" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic" style="display:none" onchange="uploadDocs()">
+  <div id="uploadProgress"></div>
+  ${(()=>{const steps=[
+    ['Upload CV',S.hasCV,'Upload',"window._uploadKind=null;document.getElementById('doc-files').click()"],
+    ['Find opportunities'+(MY.count70?' · '+MY.count70+' found':''),MY.count70>0,'Find',"openFinder()"],
+    ['We prepare your case',S.appCount>0,'',''],
+    ['Apply from your email',S.state==='application_sent','Apply',"const el=document.getElementById('dashCases');if(el)el.scrollIntoView({behavior:'smooth'})"]
+  ];let active=steps.findIndex(x=>!x[1]);if(active<0)active=steps.length-1;
+  return steps.map((sp,i)=>`
+    <div class="vstep ${sp[1]?'done':i===active?'act':''}">
+      <div class="stepnum">${sp[1]?'✓':i+1}</div>
+      <div class="vstep-t">${sp[0]}</div>
+      ${i===active?(sp[2]?`<button class="btn b-gold vstep-btn" onclick="${sp[3]}">${sp[2]}</button>`:`<span class="sub">automatic</span>`):''}
+    </div>`).join('')})()}
+  ${HM&&HM.credits?(()=>{const c=HM.credits;const p=c.casesTotal?Math.min(100,Math.round(c.casesUsed/c.casesTotal*100)):0;return `
+  <div class="card" style="margin-top:6px;padding:12px 14px">
+    <div class="spread"><b style="font-size:13.5px">Package</b><span class="sub">${c.casesUsed} of ${c.casesTotal} cases · ${c.creditsRemaining} left${c.creditsRemaining<1?` · <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="go('buy')">View packages</a>`:''}</span></div>
+    <div class="ffbar" style="margin-top:8px;height:6px"><div class="ffbar-fill" style="width:${p}%"></div></div>
+  </div>`})():''}
+  ${HM&&HM.discover&&HM.discover.status==='running'?`
+  <div class="card" style="border-color:#00D4FF;margin-top:6px">
+    <div class="spread"><b>Search in progress</b><span class="sub">${HM.discover.found} of ${HM.discover.target} found</span></div>
+    <div class="sub" style="margin:4px 0 8px">Running on our servers — finishes even if you close the app.</div>
+    <button class="btn b-gold" onclick="resumeSearch('${HM.discover.kind||''}')">View live progress</button>
+  </div>`:''}
+  <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
+    <a class="sub" style="cursor:pointer" onclick="go('browse')">Browse all opportunities →</a>
+    ${MY.count70?`<span class="sub">· ${MY.count70} matched to you now</span>`:S.matches?`<span class="sub">· ${S.matches} verified live now</span>`:''}
   </div></div>
-  <div style="display:none"><div id="dashRec"></div><div id="dashRecent"></div><div id="dashSchol"></div></div>
+
   ${SITE&&(SITE.country_updates||[]).length?`<div class="dash-sec"><h3>Important country updates</h3>
   ${SITE.country_updates.map(u=>`<div class="card"><b>${esc(u.title||'')}</b>${u.date?` <span class="sub">· ${esc(u.date)}</span>`:''}<div class="sub" style="margin-top:4px;white-space:pre-wrap">${esc(u.text||'')}</div></div>`).join('')}</div>`:''}
-  <div style="display:none"><div id="dashSaved"></div></div>
-  <div class="dash-sec"><h3>Live around the world 🌍</h3><div class="sub" style="margin-bottom:8px">Verified openings right now, by country — updated from real listings, never inflated.</div><div id="dashLive" class="row" style="flex-wrap:wrap;gap:8px"><div class="sub">Loading…</div></div></div>
-  <div class="dash-sec"><h3>Your cases 📁</h3><div id="dashCases"><div class="sub">Loading…</div></div></div>`;
-  dashAvatar();dashLive();
-  loadReadiness();
-  dashLoad('dashRec','/api/opportunities?kind=study&match=1&sort=recent',3);
-  dashLoad('dashRecent','/api/opportunities?kind=study&sort=recent',3);
-  dashLoad('dashSchol','/api/opportunities?kind=scholarship&sort=recent',3);
-  dashLoad('dashSaved','/api/opportunities/saved/list',3);
+
+  <div class="dash-sec"><h3>Live around the world</h3><div id="dashLive" class="row" style="flex-wrap:wrap;gap:8px"><div class="sub">Loading…</div></div></div>
+  <div class="dash-sec"><h3>Your cases</h3><div id="dashCases"><div class="sub">Loading…</div></div></div>
+  <div class="card" style="margin-top:14px;text-align:center">
+    <b>Contact</b>
+    <div class="sub" style="margin-top:6px">
+      <a href="mailto:${esc(((SITE||{}).contact||{}).email||'admin@foriforeign.com')}" style="color:inherit">${esc(((SITE||{}).contact||{}).email||'admin@foriforeign.com')}</a>
+      &nbsp;·&nbsp;
+      <a href="https://wa.me/${esc(String(((SITE||{}).contact||{}).whatsapp||'03455216903').replace(/[^0-9]/g,'').replace(/^0/,'92'))}" target="_blank" style="color:inherit">WhatsApp ${esc(((SITE||{}).contact||{}).whatsapp||'0345 5216903')}</a>
+    </div>
+    <div class="sub" style="margin-top:4px;opacity:.7">ForiForeign · Built in Pakistan, for ambitious people everywhere.</div>
+  </div>`;
+  dashLive();
   dashCases();
   window._worldSelectHandler=dashGlobeSelect;
   ensureWorld().then(()=>worldInteractive(true));
@@ -847,12 +869,12 @@ function dashGlobeSelect(sel){
     :`<div class="globe-panel" style="position:static;max-width:300px"><b>${esc(sel.name)}</b>
     <div style="font:700 22px Fraunces,serif;color:#fff">${sel.count} <span style="font:500 12px Inter;color:#cfe1ff">verified</span></div>
     <div class="row" style="gap:5px;margin-top:4px;flex-wrap:wrap">
-    ${d.study?`<span class="gchip" style="border-color:#4f8ef7">🎓 ${d.study}</span>`:''}
-    ${d.scholarship?`<span class="gchip" style="border-color:#f59e0b">🏅 ${d.scholarship}</span>`:''}
-    ${d.work?`<span class="gchip" style="border-color:#22c55e">💼 ${d.work}</span>`:''}</div>
+    ${d.study?`<span class="gchip" style="border-color:#4f8ef7">${d.study} study</span>`:''}
+    ${d.scholarship?`<span class="gchip" style="border-color:#f59e0b">${d.scholarship} scholarships</span>`:''}
+    ${d.work?`<span class="gchip" style="border-color:#22c55e">${d.work} jobs</span>`:''}</div>
     <div class="row" style="margin-top:8px;gap:6px">
-    <button class="btn b-gold" style="padding:5px 12px" onclick="window._lane='study';window._study=window._study||{};Object.assign(window._study,{levels:[],fundings:[],ctrys:['${sel.code}'],subj:'',noLang:false,stipend:false});go('browse')">🎓 Study here</button>
-    <button class="btn b-line" style="padding:5px 12px" onclick="window._lane='work';window._work=window._work||{};window._work.ctry='${sel.code}';go('browse')">💼 Work here</button></div></div>`;
+    <button class="btn b-gold" style="padding:5px 12px" onclick="window._lane='study';window._study=window._study||{};Object.assign(window._study,{levels:[],fundings:[],ctrys:['${sel.code}'],subj:'',noLang:false,stipend:false});go('browse')">Study here</button>
+    <button class="btn b-line" style="padding:5px 12px" onclick="window._lane='work';window._work=window._work||{};window._work.ctrys=['${sel.code}'];go('browse')">Work here</button></div></div>`;
 }
 async function dashLoad(elId,url,n){
   try{const d=await api(url);const el=$(elId);if(!el)return;
@@ -883,10 +905,10 @@ async function dashAvatar(){
     <b style="font-size:16px">${esc(m.full_name||'Your name')}</b>
     <div class="sub">${esc(m.headline||'Add your professional headline')}</div>
     <div class="row" style="gap:5px;margin-top:6px;flex-wrap:wrap">
-      <span class="chip c-blue">🎓 ${edu} education</span>
-      <span class="chip c-green">💼 ${exp} experience</span>
-      ${pubs?`<span class="chip c-gold">📄 ${pubs} publications</span>`:''}
-      <span class="chip ${docs?'c-green':'c-crimson'}">📎 ${docs} documents</span>
+      <span class="chip c-blue">${edu} education</span>
+      <span class="chip c-green">${exp} experience</span>
+      ${pubs?`<span class="chip c-gold">${pubs} publications</span>`:''}
+      <span class="chip ${docs?'c-green':'c-crimson'}">${docs} documents</span>
     </div>
   </div>
   <button class="btn b-line" onclick="go('profile')">✏️ Edit profile</button></div>`;
@@ -900,9 +922,9 @@ async function dashLive(){
     el.innerHTML=rows.length?rows.map(r=>`<div class="card" style="padding:10px 14px;cursor:pointer;min-width:150px" onclick="window._lane='study';window._study=window._study||{levels:[],fundings:[],ctrys:[],subj:'',noLang:false,stipend:false};window._study.ctrys=['${r.code}'];go('browse')">
     <b>${esc(r.name)}</b>
     <div class="row" style="gap:4px;margin-top:5px;flex-wrap:wrap">
-    ${r.study?`<span class="chip c-blue">🎓 ${r.study}</span>`:''}
-    ${r.scholarship?`<span class="chip c-gold">🏅 ${r.scholarship}</span>`:''}
-    ${r.work?`<span class="chip c-green">💼 ${r.work}</span>`:''}
+    ${r.study?`<span class="chip c-blue">${r.study} study</span>`:''}
+    ${r.scholarship?`<span class="chip c-gold">${r.scholarship} scholarships</span>`:''}
+    ${r.work?`<span class="chip c-green">${r.work} jobs</span>`:''}
     </div></div>`).join('')
     :'<div class="sub">Live counts appear as soon as the agent verifies opportunities. Run a search to begin.</div>';
   }catch(e){el.innerHTML='<div class="sub">Counts unavailable right now.</div>'}
@@ -930,13 +952,13 @@ function renderLaneChooser(){
   <p>Pick a lane. Every listing here has been checked against its official source, so you are never chasing dead links.</p></div>
   <div class="row" style="gap:12px">
     <div class="lane lane-study" onclick="window._lane='study';vBrowse()">
-      <div class="lane-ic">🎓</div>
+      
       <h2>Study Abroad</h2>
       <p class="sub">Bachelors, Masters, PhD and Postdoc — plus scholarships built in. Filter by funding: fully funded, partial, or self-finance.</p>
       <span class="btn b-gold" style="margin-top:12px;pointer-events:none">Explore study routes →</span>
     </div>
     <div class="lane lane-work" onclick="window._lane='work';vBrowse()">
-      <div class="lane-ic">💼</div>
+      
       <h2>Work Abroad</h2>
       <p class="sub">Real jobs for Pakistani professionals, with the exact license or registration route named for each destination (DHA, SCFHS, NCLEX, PEBC and more).</p>
       <span class="btn b-green" style="margin-top:12px;pointer-events:none">Explore work routes →</span>
@@ -956,36 +978,58 @@ function matchBadge(m){
   const pct=(m.pct!=null)?' · '+m.pct+'%':'';
   return `<span class="chip ${cls}">${word}${pct}</span>`;
 }
+function pkrHint(txt){
+  try{
+    const m=String(txt||'').match(/([$€£])\s?([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s?(USD|EUR|GBP)/i);
+    if(!m)return '';
+    const amt=parseFloat((m[2]||m[3]||'').replace(/,/g,''));if(!isFinite(amt)||amt<=0)return '';
+    const cur=(m[1]||m[4]||'$').toUpperCase();
+    const mult=(cur==='€'||cur==='EUR')?1.08:(cur==='£'||cur==='GBP')?1.27:1;
+    const rate=(SITE&&SITE.fx&&Number(SITE.fx.usd_to_pkr))||278;
+    const pkr=amt*mult*rate;
+    const nice=pkr>=1e7?(pkr/1e7).toFixed(1)+' crore':pkr>=1e5?(pkr/1e5).toFixed(1)+' lakh':Math.round(pkr).toLocaleString();
+    return ' ≈ Rs '+nice;
+  }catch(e){return ''}
+}
+function daysLeft(d){if(!d)return null;const n=Math.ceil((new Date(d).getTime()-Date.now())/864e5);return isFinite(n)?n:null}
+function isNewOpp(o){const t=o.created_at&&new Date(o.created_at).getTime();return t&&Date.now()-t<7*864e5}
 function oppCard(o,ctaColor){
+  const dl=daysLeft(o.deadline);
+  const dlChip=dl!=null?(dl<=14?`<span class="chip c-red">Closes in ${dl}d</span>`:`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`):'';
+  const newChip=isNewOpp(o)?'<span class="chip c-blue">New this week</span>':'';
   const fundingChip = o.funding_type==='fully'?'<span class="chip c-green">Fully funded</span>'
     : o.funding_type==='partial'?'<span class="chip c-gold">Partial funding</span>'
     : o.funding_type==='self'?'<span class="chip c-gray">Self-finance</span>':'';
   const levelChip = o.level?`<span class="chip c-blue">${esc(({bachelors:'Bachelors',masters:'Masters',phd:'PhD',postdoc:'Postdoc'})[o.level]||o.level)}</span>`:'';
   if(o.locked){
+    const lp=o.match&&o.match.pct!=null?o.match.pct:null;
+    const consider=lp!=null?(lp>=85?'High chance of consideration for your profile':lp>=70?'Strong consideration likelihood for your profile':'Matched against your profile'):'Verified against the official source';
     return `<div class="card locked-card">
-      <div class="locked-blur"><b>University name hidden</b><div class="sub">Position title hidden</div></div>
-      <div class="row" style="margin-top:8px">
-      ${matchBadge(o.match)}${levelChip}${fundingChip}
+      <div class="chiprow" style="margin-top:0">
+      ${matchBadge(o.match)}${fundingChip}${levelChip}
       ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}</span>`:''}
-      ${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}</div>
+      ${newChip}${dlChip}</div>
+      ${o.stipend?`<div style="font:700 16px Inter;color:#2dd4bf;margin-top:8px">Stipend: ${esc(o.stipend)}<span class="sub">${pkrHint(o.stipend)}</span></div>`:o.salary_note?`<div style="font:700 15px Inter;color:#2dd4bf;margin-top:8px">${esc(o.salary_note)}<span class="sub">${pkrHint(o.salary_note)}</span></div>`:''}
+      ${o.tuition?`<div class="sub" style="margin-top:2px">Tuition: ${esc(o.tuition)}${pkrHint(o.tuition)}</div>`:''}
+      ${o.funding&&!fundingChip?`<div class="sub" style="margin-top:2px">${esc(o.funding)}</div>`:''}
+      <div style="font:600 13px Inter;color:#D6E9FF;margin-top:8px">${consider}</div>
+      <div class="locked-blur" style="margin-top:8px"><b>Reserved for package members</b><div class="sub">Institution, official page and verified contact open with your package — and we prepare the complete application for you.</div></div>
       <div class="row" style="margin-top:10px;align-items:center">
-      <button class="btn b-gold" onclick="go('buy')">🔓 Unlock with a package</button>
-      <span class="sub">This verified opportunity matches your profile. Unlock to see the institution and apply.</span></div></div>`;
+      <button class="btn b-gold" onclick="go('buy')">View packages &amp; apply</button>
+      <span class="sub">One case or several — you decide.</span></div></div>`;
   }
   return `<div class="card">
     <div class="spread"><div style="min-width:0"><b>${esc(o.institution)}</b><div class="sub">${esc(o.title)}</div></div>
     ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}${o.city?' · '+esc(o.city):''}</span>`:''}</div>
-    <div class="row" style="margin-top:8px">
-    ${matchBadge(o.match)}${levelChip}${fundingChip}
-    ${o.deadline?`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`:''}
-    ${o.funding&&!fundingChip?`<span class="chip c-green">${esc(o.funding)}</span>`:''}
-    ${o.stipend?`<span class="chip c-green">${esc(o.stipend)}</span>`:''}
-    ${o.tuition?`<span class="chip c-gray">Tuition: ${esc(o.tuition)}</span>`:''}
-    ${o.req_language&&o.req_language!=='none'?`<span class="chip c-blue">${esc(o.req_language)}${o.req_language_min?' '+esc(o.req_language_min):''}</span>`:o.req_language==='none'?'<span class="chip c-green">No IELTS stated</span>':''}
-    ${o.freshness==='verified_today'?'<span class="chip c-green">Verified today</span>':o.freshness==='verified_recently'?'<span class="chip c-blue">Recently verified</span>':o.freshness==='needs_reverification'?'<span class="chip c-gold">Needs re-verification</span>':''}</div>
+    <div class="chiprow">
+    ${matchBadge(o.match)}${levelChip}${fundingChip}${newChip}${dlChip}
+    ${o.stipend?`<span class="chip c-green">${esc(String(o.stipend).slice(0,38))}${pkrHint(o.stipend)}</span>`:''}
+    ${o.tuition?`<span class="chip c-gray">Tuition ${esc(String(o.tuition).slice(0,30))}${pkrHint(o.tuition)}</span>`:''}
+    ${o.req_language&&o.req_language!=='none'?`<span class="chip c-blue">${esc(o.req_language)}${o.req_language_min?' '+esc(o.req_language_min):''}</span>`:o.req_language==='none'?'<span class="chip c-green">No IELTS stated</span>':''}</div>
+    <div class="provrow">${o.freshness==='verified_today'?'✓ Verified today':o.freshness==='verified_recently'?'✓ Recently verified':'Awaiting re-verification'} on the official page${o.url?` · <a href="${escAttr(o.url)}" target="_blank" rel="noopener" style="color:#00D4FF;text-decoration:none">official source ↗</a>`:''}</div>
     <div class="row" style="margin-top:10px">
     <button class="btn ${ctaColor||'b-gold'}" onclick="oppReport('${o.id}')">View Complete Intelligence</button>
-    <button class="btn b-line" onclick="startApp('${o.id}','${escAttr(o.institution)}')">Start case</button>
+    ${o.started?`<button class="btn b-green" onclick="go('apps')">Case started — open</button>`:`<button class="btn b-line" onclick="startApp('${o.id}','${escAttr(o.institution)}')">Start case</button>`}
     <button class="btn b-line" onclick="saveOpp('${o.id}',this)">☆ Save</button></div></div>`;
 }
 async function saveOpp(id,btn){
@@ -1064,6 +1108,13 @@ async function whyMatch(id){
 }
 
 /* ---- STUDY lane: level + funding + country + subject filters, scholarships inside ---- */
+function renderWorkCtryList(){
+  const el=$('workCtryList');if(!el)return;
+  const st=window._work||{};const q=(st.ctrySearch||'').toLowerCase();
+  const list=(window._countries||[]).filter(c=>!q||c.name.toLowerCase().includes(q));
+  el.innerHTML=list.map(c=>{const on=(st.ctrys||[]).includes(c.code);
+    return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._work.ctrys;const i=a.indexOf('${c.code}');i>=0?a.splice(i,1):a.push('${c.code}');renderWorkLane()})()"><span class="ck">${on?'☑':'☐'}</span> ${esc(c.name)}</div>`}).join('')||'<span class="sub">No match</span>';
+}
 function renderCtryList(){
   const el=$('ctryList');if(!el)return;
   const st=window._study||{};const q=(st.ctrySearch||'').toLowerCase();
@@ -1090,10 +1141,10 @@ async function renderStudyLane(){
     <div class="row" style="margin-bottom:10px"><input id="study-subj" style="flex:1;min-width:150px" placeholder="Subject or field, e.g. pharmacology" value="${escAttr(st.subj)}" onkeydown="if(event.key==='Enter'){window._study.subj=this.value;renderStudyLane()}"><button class="btn b-gold" onclick="window._study.subj=(document.getElementById('study-subj')||{}).value||'';renderStudyLane()">Search</button></div>
     <div class="sub" style="margin-bottom:4px">Quick picks</div>
     <div class="row seg" style="margin-bottom:10px">
-      <button class="segbtn" onclick="Object.assign(window._study,{levels:['masters'],fundings:['fully']});renderStudyLane()">🎯 Fully funded Masters</button>
-      <button class="segbtn" onclick="Object.assign(window._study,{levels:['phd'],fundings:['fully']});renderStudyLane()">🎓 Funded PhD</button>
-      <button class="segbtn" onclick="window._study.noLang=true;renderStudyLane()">🗣️ No IELTS</button>
-      <button class="segbtn" onclick="window._study.intakeSoon=true;renderStudyLane()">⏳ Deadline open</button>
+      <button class="segbtn" onclick="Object.assign(window._study,{levels:['masters'],fundings:['fully']});renderStudyLane()">Fully funded Masters</button>
+      <button class="segbtn" onclick="Object.assign(window._study,{levels:['phd'],fundings:['fully']});renderStudyLane()">Funded PhD</button>
+      <button class="segbtn" onclick="window._study.noLang=true;renderStudyLane()">No IELTS</button>
+      <button class="segbtn" onclick="window._study.intakeSoon=true;renderStudyLane()">Deadline open</button>
     </div>
     <label style="margin-top:0">Level</label>
     <div class="row seg"><button class="segbtn ${st.levels.length===4?'on':''}" onclick="_togAllStudy('levels')"><b>All</b></button>${[['bachelors','Bachelors'],['masters','Masters'],['phd','PhD'],['postdoc','Postdoc']].map(([v,l])=>`<button class="segbtn ${st.levels.includes(v)?'on':''}" onclick="_togStudy('levels','${v}')">${l}</button>`).join('')}</div>
@@ -1114,11 +1165,11 @@ async function renderStudyLane(){
     </div>
     <label>Requirements &amp; preferences</label>
     <div class="row seg" style="flex-wrap:wrap">
-      <button class="segbtn ${st.noLang?'on':''}" onclick="window._study.noLang=!window._study.noLang;renderStudyLane()">🗣️ No IELTS/TOEFL</button>
-      <button class="segbtn ${st.stipend?'on':''}" onclick="window._study.stipend=!window._study.stipend;renderStudyLane()">💰 Has stipend</button>
-      <button class="segbtn ${st.scholarshipOnly?'on':''}" onclick="window._study.scholarshipOnly=!window._study.scholarshipOnly;renderStudyLane()">🏅 Scholarship available</button>
-      <button class="segbtn ${st.noFee?'on':''}" onclick="window._study.noFee=!window._study.noFee;renderStudyLane()">🆓 No application fee</button>
-      <button class="segbtn ${st.intakeSoon?'on':''}" onclick="window._study.intakeSoon=!window._study.intakeSoon;renderStudyLane()">⏳ Deadline open</button>
+      <button class="segbtn ${st.noLang?'on':''}" onclick="window._study.noLang=!window._study.noLang;renderStudyLane()">No IELTS/TOEFL</button>
+      <button class="segbtn ${st.stipend?'on':''}" onclick="window._study.stipend=!window._study.stipend;renderStudyLane()">Has stipend</button>
+      <button class="segbtn ${st.scholarshipOnly?'on':''}" onclick="window._study.scholarshipOnly=!window._study.scholarshipOnly;renderStudyLane()">Scholarship available</button>
+      <button class="segbtn ${st.noFee?'on':''}" onclick="window._study.noFee=!window._study.noFee;renderStudyLane()">No application fee</button>
+      <button class="segbtn ${st.intakeSoon?'on':''}" onclick="window._study.intakeSoon=!window._study.intakeSoon;renderStudyLane()">Deadline open</button>
     </div>`:''}
 
   </div>
@@ -1147,7 +1198,9 @@ async function renderStudyLane(){
 /* ---- WORK lane ---- */
 async function renderWorkLane(){
   await ensureCountries();
-  const st=window._work||(window._work={ctry:'',subj:''});
+  const st=window._work||(window._work={ctrys:[],subj:'',ctrySearch:'',ctryOpen:false});
+  if(!Array.isArray(st.ctrys))st.ctrys=st.ctry?[st.ctry]:[];
+  if(st.ctrySearch===undefined){st.ctrySearch='';st.ctryOpen=false}
   $('view').innerHTML=laneBar('work')+`
   <div class="hero" style="background:linear-gradient(135deg,#0E7C66,#0F2748);padding:22px">
     <h1>Work Abroad</h1>
@@ -1155,28 +1208,34 @@ async function renderWorkLane(){
   </div>
   <div class="card" style="padding:12px">
     <div class="row">
-      <select style="width:auto" onchange="window._work.ctry=this.value;renderWorkLane()"><option value="">All countries</option>${(window._countries||[]).map(c=>`<option value="${c.code}" ${st.ctry===c.code?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
+      <div class="ctry-picker" style="flex:0 0 auto;min-width:150px"><div class="ctry-head" onclick="window._work.ctryOpen=!window._work.ctryOpen;renderWorkLane()"><span>${st.ctrys.length?st.ctrys.length+' selected':'All countries'}</span><span>${st.ctryOpen?'▲':'▼'}</span></div></div>
       <input id="work-subj" style="width:auto;flex:1;min-width:150px" placeholder="Role or field, e.g. pharmacist" value="${escAttr(st.subj)}" onkeydown="if(event.key==='Enter'){window._work.subj=this.value;renderWorkLane()}" onchange="window._work.subj=this.value;renderWorkLane()">
       <button class="btn b-gold" onclick="window._work.subj=(document.getElementById('work-subj')||{}).value||'';renderWorkLane()">Search</button>
     </div>
+    ${st.ctryOpen?`<div class="ctry-body" style="margin-top:8px">
+      <input class="ctry-search" placeholder="Search country" value="${escAttr(st.ctrySearch)}" oninput="window._work.ctrySearch=this.value;renderWorkCtryList()" onclick="event.stopPropagation()">
+      ${st.ctrys.length?`<div class="row" style="margin:6px 0"><button class="segbtn" onclick="window._work.ctrys=[];renderWorkLane()">Clear selection</button></div>`:''}
+      <div id="workCtryList" class="ctry-list"></div>
+    </div>`:''}
     <div class="sub" style="margin:8px 0 4px">Quick picks</div>
     <div class="row seg" style="margin-bottom:6px">
-      <button class="segbtn" onclick="window._work.visa=true;renderWorkLane()">🛂 Visa sponsored</button>
-      <button class="segbtn" onclick="window._work.remote=true;renderWorkLane()">🌍 Remote</button>
-      <button class="segbtn" onclick="window._work.jobTypes=['internship'];renderWorkLane()">🎓 Internships</button>
+      <button class="segbtn" onclick="window._work.visa=true;renderWorkLane()">Visa sponsored</button>
+      <button class="segbtn" onclick="window._work.remote=true;renderWorkLane()">Remote</button>
+      <button class="segbtn" onclick="window._work.jobTypes=['internship'];renderWorkLane()">Internships</button>
     </div>
     <div class="sub" style="margin:6px 0 4px">Refine</div>
     <div class="row seg" style="flex-wrap:wrap;margin-top:0">
-      <button class="segbtn ${st.remote?'on':''}" onclick="window._work.remote=!window._work.remote;renderWorkLane()">🌍 Remote</button>
-      <button class="segbtn ${st.visa?'on':''}" onclick="window._work.visa=!window._work.visa;renderWorkLane()">🛂 Visa sponsorship</button>
+      <button class="segbtn ${st.remote?'on':''}" onclick="window._work.remote=!window._work.remote;renderWorkLane()">Remote</button>
+      <button class="segbtn ${st.visa?'on':''}" onclick="window._work.visa=!window._work.visa;renderWorkLane()">Visa sponsorship</button>
       ${[['full_time','Full-time'],['part_time','Part-time'],['contract','Contract'],['internship','Internship']].map(([k,l])=>`<button class="segbtn ${(st.jobTypes||[]).includes(k)?'on':''}" onclick="window._work.jobTypes=window._work.jobTypes||[];const i=window._work.jobTypes.indexOf('${k}');i>=0?window._work.jobTypes.splice(i,1):window._work.jobTypes.push('${k}');renderWorkLane()">${l}</button>`).join('')}
       ${[['entry','Entry'],['mid','Mid'],['senior','Senior']].map(([k,l])=>`<button class="segbtn ${(st.exps||[]).includes(k)?'on':''}" onclick="window._work.exps=window._work.exps||[];const i=window._work.exps.indexOf('${k}');i>=0?window._work.exps.splice(i,1):window._work.exps.push('${k}');renderWorkLane()">${l}</button>`).join('')}
     </div>
   </div>
   <div id="workResults"><div class="empty">Loading verified jobs…</div></div>`;
+  if(st.ctryOpen)renderWorkCtryList();
   let d;
   try{
-    const qs='/api/opportunities?kind=work'+(st.ctry?'&country='+encodeURIComponent(st.ctry):'')+(st.subj?'&q='+encodeURIComponent(st.subj):'')+(st.remote?'&remote=1':'')+(st.visa?'&visa=1':'')+((st.jobTypes||[]).length?'&job_type='+st.jobTypes.join(','):'')+((st.exps||[]).length?'&exp='+st.exps.join(','):'')+(st.sort==='recent'?'&sort=recent':'')+'&match=1';
+    const qs='/api/opportunities?kind=work'+(st.ctrys.length?'&country='+encodeURIComponent(st.ctrys.join(',')):'')+(st.subj?'&q='+encodeURIComponent(st.subj):'')+(st.remote?'&remote=1':'')+(st.visa?'&visa=1':'')+((st.jobTypes||[]).length?'&job_type='+st.jobTypes.join(','):'')+((st.exps||[]).length?'&exp='+st.exps.join(','):'')+(st.sort==='recent'?'&sort=recent':'')+'&match=1';
     d=await api(qs);
   }catch(e){const el=$('workResults');if(el)el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const opps=d.opportunities||[];const el=$('workResults');if(!el)return;
@@ -1185,8 +1244,9 @@ async function renderWorkLane(){
       <button class="btn b-green" onclick="runSearch('work')">Search official sources for me</button><br>
       <span class="sub" style="margin-top:8px;display:inline-block">Set your profession in Profile first so licensing is matched correctly.</span></div>`);
 }
-async function runSearch(kind){
-  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined}})}catch(e){toast(e.message);return}
+async function runSearch(kind,opts){
+  opts=opts||{};
+  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,remote:!!opts.remote}})}catch(e){toast(e.message);return}
   if(!d.ran){toast(d.message);return}
   // Staged progress ring. Stages reflect the real backend pipeline; the timer paces
   // to the ~2-3 min discovery window. It is honest pacing, not a fake 0-100 loop:
@@ -1198,6 +1258,7 @@ async function runSearch(kind){
     <div class="search-ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52"/></svg><div class="ring-pct" id="ringPct" style="color:#00D4FF">0%</div></div>
     <h3 style="margin-top:14px;color:#fff">Give us a few minutes. ForiForeign is working for you.</h3>
     <div class="sub" id="ringStage" style="margin-top:6px;color:#CBD5E1">${stages[0]}</div>
+    <div class="sub" id="ringFound" style="margin-top:4px;color:#7ef0d4"></div>
     <div class="ffrotate sub" id="ringLine" style="margin-top:10px">${FF_LINES[0]}</div>
     <details class="ffstory" style="text-align:left;margin-top:12px"><summary>Why ForiForeign?</summary>
     <div class="sub" style="line-height:1.7;margin-top:8px;color:#CBD5E1">Built by a Pakistani PhD student to make finding opportunities abroad simpler and more affordable. ForiForeign does the hard, repetitive work — you review and press Send yourself.<br><br><b style="color:#fff">Find opportunities. Prepare properly. Apply yourself. Stay in control.</b><br><br><i>Built in Pakistan. For ambitious people everywhere.</i></div></details></div>`;
@@ -1205,6 +1266,14 @@ async function runSearch(kind){
   document.body.appendChild(wrap);
   const circ=2*Math.PI*52;const fg=$('ringFg');if(fg){fg.style.strokeDasharray=circ;fg.style.strokeDashoffset=circ}
   let pct=0,si=0;const total=150000;const start=Date.now();
+  let finished=false;
+  const finish=()=>{
+    if(finished)return;finished=true;
+    clearInterval(tick);clearInterval(poll);clearInterval(_rot);
+    const p=$('ringPct'),f=$('ringFg'),st=$('ringStage');
+    if(p)p.textContent='100%';if(f)f.style.strokeDashoffset=0;if(st)st.textContent='Done — opening your matches';
+    setTimeout(()=>{wrap.remove();showMatches(kind,opts)},700);
+  };
   const tick=setInterval(()=>{
     const elapsed=Date.now()-start;
     pct=Math.min(90,Math.round(90*elapsed/total));
@@ -1213,12 +1282,149 @@ async function runSearch(kind){
     if(p)p.textContent=pct+'%';if(st)st.textContent=stages[si];
     if(f)f.style.strokeDashoffset=circ*(1-pct/100);
   },500);
-  setTimeout(async ()=>{
-    clearInterval(tick);
-    const p=$('ringPct'),f=$('ringFg'),st=$('ringStage');
-    if(p)p.textContent='100%';if(f)f.style.strokeDashoffset=0;if(st)st.textContent='Done';
-    setTimeout(()=>{wrap.remove();if(TAB==='browse')vBrowse();else{toast('New opportunities are ready.');}},700);
-  },total);
+  // Accurate early finish: the server reports real delivery progress (found / target).
+  const poll=setInterval(async()=>{
+    try{const st2=await api('/api/run/status');
+      const fEl=$('ringFound');if(fEl&&st2&&st2.target)fEl.textContent=(st2.found||0)+' of '+st2.target+' verified so far';
+      if(st2&&(st2.status==='done'||((st2.found||0)>=(st2.target||5)&&Date.now()-start>30000)))finish();
+    }catch(e){}
+  },8000);
+  setTimeout(finish,total);
+}
+
+/* ===== Resume a server-side search: the run never depended on this screen ===== */
+async function resumeSearch(kind){
+  kind=kind||undefined;
+  document.querySelectorAll('.ffresume').forEach(x=>x.remove());
+  const wrap=document.createElement('div');wrap.className='ffresume';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML=`<div class="sheet" style="text-align:center;max-width:400px">
+    <div class="search-ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="rsFg" cx="60" cy="60" r="52"/></svg><div class="ring-pct" id="rsPct" style="color:#00D4FF">…</div></div>
+    <h3 style="margin-top:14px;color:#fff">Your search is still running.</h3>
+    <div class="sub" id="rsFound" style="margin-top:6px;color:#7ef0d4"></div>
+    <div class="sub" style="margin-top:8px;color:#CBD5E1">It runs on our servers and finishes even if you leave this page.</div>
+    <button class="btn b-line" style="margin-top:12px" onclick="this.closest('.ffresume').remove()">Hide — keep running</button></div>`;
+  document.body.appendChild(wrap);
+  const circ=2*Math.PI*52;const fg=$('rsFg');if(fg){fg.style.strokeDasharray=circ;fg.style.strokeDashoffset=circ}
+  const step=async()=>{
+    if(!document.querySelector('.ffresume'))return;
+    let st2;try{st2=await api('/api/run/status')}catch(e){st2=null}
+    if(st2&&st2.status!=='idle'){
+      const pct2=st2.status==='done'?100:Math.min(95,Math.round(((st2.found||0)/(st2.target||5))*100));
+      const p=$('rsPct'),f2=$('rsFg'),fd=$('rsFound');
+      if(p)p.textContent=pct2+'%';
+      if(f2)f2.style.strokeDashoffset=circ*(1-pct2/100);
+      if(fd)fd.textContent=(st2.found||0)+' of '+(st2.target||5)+' verified opportunities found';
+      if(st2.status==='done'||st2.status==='error'){setTimeout(()=>{wrap.remove();showMatches(st2.kind||kind,{})},600);return}
+    }
+    setTimeout(step,5000);
+  };
+  step();
+}
+/* ===== Tiered match results: opens automatically when the finder completes ===== */
+async function showMatches(kind,opts){
+  opts=opts||{};
+  const kinds=(!kind||kind==='both')?['study','work']:[kind==='work'?'work':'study'];
+  let list=[];
+  for(const k of kinds){try{const d=await api('/api/opportunities?kind='+k+'&match=1&sort=recent');list=list.concat(d.opportunities||[])}catch(e){}}
+  const seen=new Set();list=list.filter(o=>o.id&&!seen.has(o.id)&&seen.add(o.id));
+  if(opts.remote)list=list.filter(o=>o.remote!==false);
+  const pv=o=>(o.match&&o.match.pct!=null)?o.match.pct:-1;
+  // Ordering: the user's selected countries first, then funded preference, then match %.
+  const sel=new Set(opts.countries||[]);
+  list.sort((a,b)=>{
+    if(sel.size){const ca=sel.has(a.country_code)?0:1,cb=sel.has(b.country_code)?0:1;if(ca!==cb)return ca-cb;}
+    if(opts.fundedOnly){const fa=a.funding_type==='fully'?0:a.funding_type?2:1,fb=b.funding_type==='fully'?0:b.funding_type?2:1;if(fa!==fb)return fa-fb;}
+    return pv(b)-pv(a);
+  });
+  const byC={};list.forEach(o=>{const c=o.country_code;if(!c)return;const p=pv(o);if(!(c in byC)||p>byC[c])byC[c]=p});
+  const strip=Object.entries(byC).sort((a,b)=>b[1]-a[1]).slice(0,8)
+    .map(([c,p])=>`<span class="chip ${p>=90?'c-green':p>=70?'c-gold':'c-blue'}">${esc(c)}${p>=0?' · '+p+'% match':''}</span>`).join('');
+  const tiers=[
+    ['Excellent matches · 90%+',o=>pv(o)>=90],
+    ['Strong matches · 80–89%',o=>pv(o)>=80&&pv(o)<90],
+    ['Good matches · 70–79%',o=>pv(o)>=70&&pv(o)<80],
+    ['Verified · match pending (criteria not fully published)',o=>pv(o)<70]
+  ];
+  const sec=tiers.map(([t,f])=>{const g=list.filter(f);return g.length?`<h3 style="margin:16px 0 8px;color:#fff">${t} <span class="sub">· ${g.length}</span></h3>`+g.map(o=>oppCard(o)).join(''):''}).join('');
+  const wrap=document.createElement('div');wrap.className='ffmatches';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:65;overflow:auto;padding:20px 10px';
+  wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
+  <div class="spread"><h2 style="margin:0">Your matches are ready</h2><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  ${list.length?`<div class="sub" style="margin:8px 0 10px">${list.length} verified opportunities scored against your profile. Your first case is <b style="color:#2dd4bf">free</b> — choose one, and ForiForeign prepares the complete application for you. A package opens every reserved opportunity after that.</div>
+  ${strip?`<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:2px">${strip}</div>`:''}
+  ${(opts.countries||[]).length&&list.some(o=>!sel.has(o.country_code))?`<div class="sub" style="margin-top:6px">Your selected countries are listed first. Comparable nearby destinations complete your package.</div>`:''}${sec}`
+  :`<div class="empty" style="margin-top:12px">The agent searched official sources, but nothing passed the quality bar this round.<br><span class="sub">Only positions confirmed on official university and employer pages enter ForiForeign — never filler. The agent keeps searching in the background; new verified matches appear on your dashboard automatically.</span><br><br><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();openFinder()">Adjust filters &amp; search again</button></div>`}
+  </div>`;
+  document.body.appendChild(wrap);
+}
+
+/* ===== Finder: intent, multi-select filters, multi-country (after CV upload and from the dashboard) ===== */
+function openFinder(afterUpload){
+  document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
+  const m=ME||{};
+  window._finder=window._finder||{kind:m.mode==='work'?'work':'study',funded:!!m.funded_only,remote:false,visa:false,ctrys:[],ctryOpen:false,ctrySearch:''};
+  if(!window._finder._loaded){window._finder._loaded=true;
+    api('/api/prefs').then(d=>{if(d&&d.prefs){Object.assign(window._finder,{kind:d.prefs.kind||window._finder.kind,funded:!!d.prefs.funded,remote:!!d.prefs.remote,visa:!!d.prefs.visa,ctrys:Array.isArray(d.prefs.ctrys)?d.prefs.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
+  }
+  const wrap=document.createElement('div');wrap.className='ff-finder';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;display:flex;align-items:center;justify-content:center;padding:16px';
+  wrap.innerHTML=`<div style="max-width:440px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
+  <div class="spread"><h3 style="margin:0">${afterUpload?'Documents received':'Find my opportunities'}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-finder').remove()">✕</button></div>
+  <div class="sub" style="margin:6px 0 10px">${afterUpload?'What should we find for you?':'Every result is verified on official pages before you see it.'}</div>
+  <div id="ffBody"></div></div>`;
+  document.body.appendChild(wrap);
+  renderFinder();
+  ensureCountries().then(()=>{if(document.querySelector('.ff-finder'))renderFinder()});
+}
+function renderFinder(){
+  const el=$('ffBody');if(!el)return;
+  const f=window._finder;
+  const fl=[];
+  if(f.kind!=='work')fl.push(['funded','Fully funded first']);
+  if(f.kind!=='study'){fl.push(['remote','Remote jobs']);fl.push(['visa','Visa sponsorship'])}
+  el.innerHTML=`
+  <label>I am looking for</label>
+  <select onchange="window._finder.kind=this.value;renderFinder()">
+    <option value="study" ${f.kind==='study'?'selected':''}>Study abroad — BS to Postdoc, scholarships</option>
+    <option value="work" ${f.kind==='work'?'selected':''}>Work abroad — professional jobs</option>
+    <option value="both" ${f.kind==='both'?'selected':''}>Both — study and work</option>
+  </select>
+  <label>Filters — select any</label>
+  <div class="row seg" style="flex-wrap:wrap">
+    ${fl.map(([k,l])=>`<button class="segbtn ${f[k]?'on':''}" onclick="window._finder['${k}']=!window._finder['${k}'];renderFinder()">${l}</button>`).join('')}
+  </div>
+  <label>Countries — select one or more</label>
+  <div class="ctry-picker">
+    <div class="ctry-head" onclick="window._finder.ctryOpen=!window._finder.ctryOpen;renderFinder()">
+      <span>${f.ctrys.length?f.ctrys.length+' selected':'All countries'}</span><span>${f.ctryOpen?'▲':'▼'}</span>
+    </div>
+    ${f.ctryOpen?`<div class="ctry-body">
+      <input class="ctry-search" placeholder="Search country" value="${escAttr(f.ctrySearch)}" oninput="window._finder.ctrySearch=this.value;renderFinderCtryList()" onclick="event.stopPropagation()">
+      ${f.ctrys.length?`<div class="row" style="margin:6px 0"><button class="segbtn" onclick="window._finder.ctrys=[];renderFinder()">Clear selection</button></div>`:''}
+      <div id="ffCtryList" class="ctry-list"></div>
+    </div>`:''}
+  </div>
+  <div class="sub" style="margin-top:8px">Your countries are searched first. If they cannot fill your package, comparable nearby destinations complete it.</div>
+  <button class="btn b-gold" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="launchFinder(this)">Find my opportunities</button>`;
+  if(f.ctryOpen)renderFinderCtryList();
+}
+function renderFinderCtryList(){
+  const el=$('ffCtryList');if(!el)return;
+  const f=window._finder;const q=(f.ctrySearch||'').toLowerCase();
+  const list=(window._countries||[]).filter(c=>!q||c.name.toLowerCase().includes(q));
+  el.innerHTML=list.map(c=>{const on=f.ctrys.includes(c.code);
+    return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder.ctrys;const i=a.indexOf('${c.code}');i>=0?a.splice(i,1):a.push('${c.code}');renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${esc(c.name)}</div>`}).join('')||'<span class="sub">No match</span>';
+}
+async function launchFinder(btn){
+  btn.disabled=true;
+  const f=window._finder||{};
+  const kind=f.kind||'study';
+  const opts={fundedOnly:!!f.funded,remote:!!f.remote,visa:!!f.visa,countries:(f.ctrys||[]).slice()};
+  try{await api('/api/me',{method:'PUT',body:{mode:kind==='both'?'both':kind,funded_only:opts.fundedOnly}});if(ME){ME.mode=kind==='both'?'both':kind;ME.funded_only=opts.fundedOnly}}catch(e){}
+  api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,remote:opts.remote,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
+  document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
+  runSearch(kind==='both'?undefined:kind,opts);
 }
 async function openApp(id){
   // Capture which document kinds the user already has, so we only ask for missing ones.
@@ -1232,7 +1438,7 @@ async function openApp(id){
   <div class="spread"><h2>${esc(opp.institution||'')}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
   <div class="sub">${esc(opp.title||'')} · ${esc(a.case_no)} · <span class="chip c-gold">${esc(a.stage.replace(/_/g,' '))}</span></div>
   ${a.next_action?`<div class="card" style="margin-top:10px;background:var(--gold-soft);border-color:var(--gold)"><b>Next:</b> ${esc(a.next_action)}</div>`:``}
-  <div class="row" style="margin:8px 0"><button class="btn b-line" onclick="shareCard('${a.id}')">🎉 Share card</button><a class="btn b-line" style="text-decoration:none" target="_blank" href="https://wa.me/923455216903?text=${encodeURIComponent('Assalam o Alaikum ForiForeign, my reference is FF-'+String(a.id).slice(0,8).toUpperCase()+'. ')}">📲 WhatsApp support</a></div>
+  <div class="row" style="margin:8px 0"><button class="btn b-line" onclick="shareCard('${a.id}')">Share card</button><a class="btn b-line" style="text-decoration:none" target="_blank" href="https://wa.me/923455216903?text=${encodeURIComponent('Assalam o Alaikum ForiForeign, my reference is FF-'+String(a.id).slice(0,8).toUpperCase()+'. ')}">WhatsApp support</a></div>
   <div class="card"><h3>Full details, before you apply</h3>
   <table style="width:100%;border-collapse:collapse;font-size:13.5px">
   ${[
@@ -1273,7 +1479,7 @@ async function openApp(id){
     if(!missing.length)return '';
     return `<div class="card" style="border-color:var(--gold)"><h3>This opportunity also needs</h3>
     <div class="sub" style="margin:4px 0 8px">Add only what this application requires. Your CV is already on file.</div>
-    ${missing.map(m=>`<div class="docrow"><span>📎 ${esc(m)}</span><button class="btn b-gold" style="padding:4px 12px" onclick="addDocFor('${a.id}',this)">Add</button></div>`).join('')}</div>`;
+    ${missing.map(m=>`<div class="docrow"><span>${esc(m)}</span><button class="btn b-gold" style="padding:4px 12px" onclick="addDocFor('${a.id}',this)">Add</button></div>`).join('')}</div>`;
   })()}
   ${(a.stage==='matched'||a.stage==='preparing')&&!(d.documents||[]).length?`<div class="row" style="margin:10px 0"><button class="btn b-gold" onclick="prepApp('${a.id}',this)">Prepare documents and email now</button></div>`:''}
   ${(()=>{const rq=(a.prep_status||{}).reqs;if(!rq)return'';return`<div class="card"><h3>Documents this application needs</h3>
@@ -1297,7 +1503,7 @@ async function openApp(id){
   <div class="sub" style="margin:6px 0">To: ${msg.to_emails&&msg.to_emails.length?esc(msg.to_emails.join(', ')):'<i>no official email published, portal application</i>'}</div>
   <div style="font-weight:600">${esc(msg.subject)}</div>
   <pre style="white-space:pre-wrap;font:12.5px Inter;color:#333;margin-top:6px">${esc(msg.body)}</pre>
-  ${msg.status==='pending'&&msg.to_emails&&msg.to_emails.length?`<button class="btn b-green" style="margin-top:10px" onclick="authorizeMsg('${msg.id}',this)">Authorize this email</button>`:['approved','ready'].includes(msg.status)?`<span class="chip c-green">Authorized by you</span> <button class="btn b-gold" style="margin-left:8px" onclick="applyNow('${a.id}',this)">🚀 APPLY</button>`:msg.status==='sent'?'<span class="chip c-blue">Applied</span>':''}
+  ${msg.status==='pending'&&msg.to_emails&&msg.to_emails.length?`<button class="btn b-green" style="margin-top:10px" onclick="authorizeMsg('${msg.id}',this)">Authorize this email</button>`:['approved','ready'].includes(msg.status)?`<span class="chip c-green">Authorized by you</span> <button class="btn b-gold" style="margin-left:8px" onclick="applyNow('${a.id}',this)">APPLY</button>`:msg.status==='sent'?'<span class="chip c-blue">Applied</span>':''}
   </div>`:''}
   </div>`;
   document.body.appendChild(wrap);
@@ -1410,13 +1616,13 @@ async function applyNow(appId,btn){
   // Stop-and-ask: if this opportunity requires documents the client has not uploaded,
   // pause and ask before proceeding. Client decides: add now, or continue and send later docs themselves.
   const miss=window._caseMissingDocs&&window._caseMissingDocs[appId];
-  if(miss&&miss.length&&!window._applyAnyway){
+  if(miss&&miss.length&&window._applyAnyway!==appId){
     const w=document.createElement('div');
     w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.75);z-index:70;display:flex;align-items:flex-end;justify-content:center';
     w.innerHTML=`<div class="sheet"><h3 style="margin:0 0 6px">This application also requires</h3>
-    <div class="sub" style="margin-bottom:10px">${miss.map(m=>'📎 '+esc(m)).join('<br>')}</div>
+    <div class="sub" style="margin-bottom:10px">${miss.map(m=>esc(m)).join('<br>')}</div>
     <button class="btn b-gold" style="width:100%;margin-bottom:8px" onclick="this.closest('div[style*=fixed]').remove()">Add documents first (recommended)</button>
-    <button class="btn b-line" style="width:100%" onclick="window._applyAnyway=true;this.closest('div[style*=fixed]').remove();applyNow('${appId}')">Apply anyway — I'll send the rest to the office myself</button></div>`;
+    <button class="btn b-line" style="width:100%" onclick="window._applyAnyway='${appId}';this.closest('div[style*=fixed]').remove();applyNow('${appId}')">Apply anyway — I'll send the rest to the office myself</button></div>`;
     document.body.appendChild(w);if(btn)btn.disabled=false;return;
   }
   if(btn)btn.disabled=true;
@@ -1452,10 +1658,10 @@ function applyFallback(p){
   const yahooUrl='https://compose.mail.yahoo.com/?to='+encodeURIComponent(p.recipient)+'&subject='+encodeURIComponent(p.subject)+'&body='+encodeURIComponent(p.body.slice(0,1800));
   const aa=(SITE&&SITE.apply_assistant)||{};const prov=aa.providers||{};
   wrap.innerHTML=`<div style="max-width:620px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
-  <div class="spread"><h3 style="margin:0">Your application is ready 🚀</h3><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><h3 style="margin:0">Your application is ready</h3><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
   <div class="sub" style="margin:8px 0">To: <b>${esc(p.recipientName||p.recipient)}</b> · ${esc(p.organization)}</div>
   <div class="sub" style="margin:6px 0"><b>Step 1.</b> Download your prepared documents:</div>
-  <div class="row" style="flex-wrap:wrap;gap:6px">${(p.attachments||[]).map(a2=>`<a class="btn b-line" style="text-decoration:none" href="${escAttr(a2.url)}" download>📎 ${esc(a2.filename)}</a>`).join('')||'<span class="sub">No documents in this case.</span>'}</div>
+  <div class="row" style="flex-wrap:wrap;gap:6px">${(p.attachments||[]).map(a2=>`<a class="btn b-line" style="text-decoration:none" href="${escAttr(a2.url)}" download>${esc(a2.filename)}</a>`).join('')||'<span class="sub">No documents in this case.</span>'}</div>
   <div class="sub" style="margin:10px 0 6px"><b>Step 2.</b> Open your email — recipient, subject and your tailored message are pre-filled. Attach the downloaded documents, review, and press <b>Send</b>:</div>
   <div class="row" style="flex-wrap:wrap;gap:6px">
   ${prov.gmail!==false?`<a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(gmailUrl)}">Open in Gmail</a>`:''}
@@ -1463,8 +1669,8 @@ function applyFallback(p){
   </div>
   <div class="sub" style="margin-top:12px">ForiForeign never sends anything itself — you review and press Send in your own email.</div>
   ${(()=>{const su=((SITE&&SITE.apply_assistant&&SITE.apply_assistant.store_urls)||{});const link=su.chrome||su.edge||su.firefox;
-  return link?`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>💡 Make this one-click next time</b><div class="sub" style="margin:4px 0">Apply Assistant opens your email with the documents already attached — install once, use forever.</div><a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(link)}">Enable Apply Assistant</a></div>`
-  :`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>💡 Make this one-click next time</b><div class="sub" style="margin:4px 0">The Apply Assistant fills portals and attaches your documents automatically. One-minute install, guided.</div><button class="btn b-gold" onclick="installGuide()">Install the Apply Assistant</button></div>`})()}
+  return link?`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>Make this one-click next time</b><div class="sub" style="margin:4px 0">Apply Assistant opens your email with the documents already attached — install once, use forever.</div><a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(link)}">Enable Apply Assistant</a></div>`
+  :`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>Make this one-click next time</b><div class="sub" style="margin:4px 0">The Apply Assistant fills portals and attaches your documents automatically. One-minute install, guided.</div><button class="btn b-gold" onclick="installGuide()">Install the Apply Assistant</button></div>`})()}
   <div class="row" style="margin-top:10px"><button class="btn b-green" onclick="markApplied('${p.applicationId}',this)">I pressed Send — mark as applied</button></div>
   </div>`;
   document.body.appendChild(wrap);
@@ -1479,12 +1685,13 @@ async function authorizeMsg(id,btn){btn.disabled=true;
   document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());vApps();
   }catch(e){toast(e.message);btn.disabled=false}}
 async function startApp(id,inst){
-  if(!confirm('Start the application for '+inst+'? Your first case is free; afterwards each case uses 1 credit.'))return;
+  if(!confirm('Start the application for '+inst+'? Your first case is free; afterwards each case uses 1 credit. Only this case is prepared — nothing else is generated until you choose it.'))return;
   try{const d=await api('/api/applications',{method:'POST',body:{opportunityId:id}});
-    if(d.freeCase){toast('🎉 Your free first case: '+d.application.case_no+'. The agent is preparing it now.')}
-    else{toast('Application '+d.application.case_no+' started. The agent is preparing it.')}
+    toast(d.freeCase?('Your free first case: '+d.application.case_no+'. Preparing your documents now.'):('Case '+d.application.case_no+' started. Preparing your documents now.'));
     refreshCredits();
-    go('apps');
+    document.querySelectorAll('.ffmatches,.ff-finder').forEach(x=>x.remove());
+    try{await api('/api/applications/'+d.application.id+'/prepare',{method:'POST'})}catch(e){}
+    ffWait(d.application.id);
   }catch(e){
     toast(e.message);
     if(/free opportunity|Buy a pack|credit package/i.test(e.message))setTimeout(()=>go('buy'),1600);
@@ -1549,8 +1756,8 @@ async function vProfile(){
   <div class="sub" style="margin:6px 0"><b>PDF, Word or image.</b> Your CV is enough — we read it and fill your profile.</div>
   <input id="doc-files" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic" style="display:none" onchange="uploadDocs()">
   <div class="row" style="gap:10px;margin:8px 0">
-    <button class="btn b-gold" onclick="uploadAll()">📤 Upload all documents at once</button>
-    <button class="btn b-line" onclick="toggleDocList()">📁 Upload one by one</button>
+    <button class="btn b-gold" onclick="uploadAll()">Upload all documents at once</button>
+    <button class="btn b-line" onclick="toggleDocList()">Upload one by one</button>
   </div>
   <div id="uploadProgress"></div>
   <div id="docSections" style="display:none"><span class="sub">Loading…</span></div>
@@ -1678,7 +1885,7 @@ async function loadDocs(){
         ${s.required?(rows.length?'<span class="chip c-green" style="margin-left:6px">On file</span>':'<span class="chip c-gold" style="margin-left:6px">Recommended</span>'):(rows.length?`<span class="chip c-gray" style="margin-left:6px">${rows.length}</span>`:'')}</div>
         <button class="btn b-line" style="padding:4px 10px" onclick="sectionUpload('${s.kind}')">+ Add</button></div>
       ${rows.map(x=>`<div class="docrow">
-        <span onclick="viewDoc('${x.id}')" style="cursor:pointer;color:#7ef0d4;font-weight:600">📄 ${esc(x.name)}</span>
+        <span onclick="viewDoc('${x.id}')" style="cursor:pointer;color:#7ef0d4;font-weight:600">${esc(x.name)}</span>
         <span onclick="delDoc('${x.id}')" style="cursor:pointer;color:#fb7185;font-weight:700">✕</span></div>`).join('')}
       </div>`;
     }).join('');
@@ -1694,18 +1901,19 @@ function uploadAll(){
   wrap.innerHTML=`<div style="max-width:440px;background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:22px">
   <h3 style="margin:0 0 8px">Upload all documents at once</h3>
   <div class="sub" style="margin-bottom:6px">The agent will read every file, sort it into the right section, and fill your profile automatically.</div>
-  <div style="background:rgba(22,131,255,.16);border:1px solid #1683FF;border-radius:10px;padding:10px 12px;color:#D6E9FF;font:600 13px Inter;margin:10px 0">💡 At minimum, include your <b>CV</b>. For a stronger case, add your degrees, transcripts and all relevant documents too.</div>
+  <div style="background:rgba(22,131,255,.16);border:1px solid #1683FF;border-radius:10px;padding:10px 12px;color:#D6E9FF;font:600 13px Inter;margin:10px 0">At minimum, include your <b>CV</b>. For a stronger case, add your degrees, transcripts and all relevant documents too.</div>
   <div class="row"><button class="btn b-gold" onclick="window._uploadKind=null;document.getElementById('doc-files').click();this.closest('div[style*=fixed]').remove()">Choose files</button>
   <button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">Cancel</button></div></div>`;
   document.body.appendChild(wrap);
 }
 function toggleDocList(){const el=$('docSections');if(el)el.style.display=el.style.display==='none'?'block':'none';}
 async function uploadDocs(){
+  const upKind=window._uploadKind||null;
   const files=$('doc-files').files;
   if(!files.length){return}
   const prog=$('uploadProgress');
   const items=[...files].map((f,i)=>({name:f.name,id:'up'+i}));
-  if(prog)prog.innerHTML=items.map(it=>`<div class="uprow"><span class="upname">📄 ${esc(it.name)}</span><div class="upbar"><div class="upfill" id="${it.id}"></div></div><span class="uppct" id="${it.id}pct">0%</span></div>`).join('');
+  if(prog)prog.innerHTML=items.map(it=>`<div class="uprow"><span class="upname">${esc(it.name)}</span><div class="upbar"><div class="upfill" id="${it.id}"></div></div><span class="uppct" id="${it.id}pct">0%</span></div>`).join('');
   const fd=new FormData();for(const f of files)fd.append('files',f);
   if(window._uploadKind){fd.append('kind',window._uploadKind);window._uploadKind=null}
   try{
@@ -1726,6 +1934,7 @@ async function uploadDocs(){
       const bad=(d.results||[]).filter(x=>x.error);
       toast(bad.length?('Some failed: '+bad.map(x=>x.name).join(', ')):'✓ Uploaded. The agent is reading your documents — your profile fills itself within a minute.');
       loadDocs();
+      if(!upKind||upKind==='cv')setTimeout(()=>openFinder(true),900);
       setTimeout(async()=>{try{const me=await api('/api/me');ME=me.me;toast('Profile updated from your documents.');vProfile();}catch(e){}},45000);
     });
   }catch(e){toast(e.message);if(prog)prog.innerHTML='<div class="sub" style="color:#fb7185">'+esc(e.message)+'</div>'}
@@ -1928,7 +2137,7 @@ async function shareCard(appId){
   x.font='400 30px Arial';x.fillStyle='#9DB8E4';x.fillText('Quote this reference for any status query.',100,815);
   x.font='700 40px Arial';x.fillStyle='#00E5C0';x.fillText('First case FREE · then just Rs 2,000',70,950);
   x.font='400 32px Arial';x.fillStyle='#CBD5E1';x.fillText('Verified opportunities · You press Send yourself',70,1005);
-  x.font='700 34px Arial';x.fillStyle='#fff';x.fillText('Invite a friend — share this card 🎁',70,1110);
+  x.font='700 34px Arial';x.fillStyle='#fff';x.fillText('Invite a friend — share this card',70,1110);
   x.font='400 32px Arial';x.fillStyle='#9DB8E4';x.fillText('WhatsApp: '+(((SITE||{}).contact||{}).whatsapp||'0345 5216903'),70,1180);
   x.fillText('Email: '+(((SITE||{}).contact||{}).email||'admin@foriforeign.com'),70,1230);
   x.fillStyle='rgba(0,212,255,.1)';x.fillRect(0,1262,1080,88);x.font='600 28px Arial';x.fillStyle='#7BE8FF';x.fillText('🇵🇰 Built in Pakistan · For ambitious people everywhere',70,1316);
