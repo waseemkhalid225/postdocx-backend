@@ -48,7 +48,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2150';
+const FF_BUILD = '2026-08-28-R2180';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Self-diagnosing health: shows WHICH link is broken without exposing any secret. */
@@ -602,7 +602,7 @@ app.post('/api/admin/support/:id/approve-review', auth, perm('reviews.write'), a
   const stars = (String(t.subject).match(/★(\d)/) || [])[1];
   const cfg = await siteSettings.getConfig();
   cfg.reviews = Array.isArray(cfg.reviews) ? cfg.reviews : [];
-  cfg.reviews.unshift({ name: (pr && pr.full_name ? pr.full_name.split(' ')[0] : 'Client'), country: '', stars: Number(stars) || 5, text: String(t.message).slice(0, 200), visible: true });
+  cfg.reviews.unshift({ name: (pr && pr.full_name ? pr.full_name.split(' ')[0] : 'Client'), country: '', stars: Number(stars) || 5, text: String(t.message).slice(0, 200), note: String(req.body && req.body.note || '').slice(0, 60), visible: true });
   cfg.reviews = cfg.reviews.slice(0, 12);
   await admin().from('app_settings').upsert({ key: 'site_config', value: cfg });
   await admin().from('support_tickets').update({ status: 'resolved', reply: t.reply || 'Thank you! Your review is now live on our homepage.', updated_at: new Date().toISOString() }).eq('id', t.id);
@@ -701,7 +701,7 @@ app.get('/api/admin/ai-deepcheck', auth, perm('aicost.read'), async (req, res) =
     const t0 = Date.now();
     const txt = await callAI('search_verify',
       'Find 3 currently-open, fully funded masters or PhD scholarships in Germany or Turkiye for international students. Verify each on its OFFICIAL page. Respond ONLY with a JSON array: [{"title":"","institution":"","country_code":"ISO2","url":"official page url","deadline":"YYYY-MM-DD or empty","funding":"","funding_type":"fully","level":"masters|phd"}]',
-      { search: true, urls: true, maxTokens: 1500, userId: req.userId });
+      { search: true, urls: true, maxTokens: 3000, userId: req.userId });
     let items = parseJSON(txt) || [];
     if (!Array.isArray(items)) items = [items];
     const verdicts = items.map(it => ({
@@ -1742,6 +1742,9 @@ app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').c
       .then(async n => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'done', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: n, prefsHash: prefs.prefsHash } }); } catch (e) {} return n; })
       .catch(async e => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'error', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, message: String(e.message).slice(0, 160), prefsHash: prefs.prefsHash } }); } catch (e2) {} throw e; }),
     { retries: 1, timeoutMs: 600000 });
+  // Real-time Brave assist: right after every user search, harvest fresh leads and
+  // verify one batch immediately - new finds surface on the dashboard within minutes.
+  setTimeout(() => { try { const h = require('./lib/harvest'); h.braveLeads().then(() => setTimeout(() => h.verifyLeads(), 20000)).catch(() => {}); } catch (e) {} }, 5000);
 });
 /* Observability: the admin sees problems before users complain. */
 app.get('/api/admin/metrics', auth, perm('countries.write'), async (req, res) => {
@@ -1883,7 +1886,7 @@ setTimeout(() => selfSeed('boot'), 20000);
    free; only verification and sweeps spend AI - in controlled, capped batches. */
 try {
   const harvest = require('./lib/harvest');
-  require('node-cron').schedule('15 */6 * * *', () => { harvest.rssWatch(); harvest.braveLeads(); });   // gather leads, zero/near-zero cost
+  require('node-cron').schedule('15 */2 * * *', () => { harvest.rssWatch(); harvest.braveLeads(); });   // gather leads every 2h, zero/near-zero cost
   require('node-cron').schedule('45 */2 * * *', () => harvest.verifyLeads());                            // verify up to 6 leads per 2h
   require('node-cron').schedule('0 4 * * *', () => harvest.uniSweep());                                  // 6 priority institutions daily, rotating
   setTimeout(() => { harvest.rssWatch(); harvest.braveLeads(); }, 60000);

@@ -536,6 +536,25 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
 .ffbar{background:rgba(120,180,255,.15);border-radius:99px;overflow:hidden}
 .ffbar-fill{background:linear-gradient(90deg,var(--gold),var(--cy));border-radius:99px;transition:width .5s ease}
 .toast{border-radius:12px!important;font-weight:600!important;backdrop-filter:blur(10px)}
+
+/* Landing compaction: everything essential above the fold, minimal scrolling */
+.auth-screen{min-height:auto;padding-top:14px}
+.auth-hero-copy p{line-height:1.5}
+.mkt{padding:18px 14px 26px}
+.mkt-h{font-size:19px;margin:14px 0 10px}
+.mkt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.mkt-card{padding:14px}
+.mkt-card p{font-size:12.5px;line-height:1.55}
+.mkt-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:6px}
+.mkt-stats>div{padding:10px}
+@media(max-width:640px){
+  .auth-screen{flex-direction:column;gap:12px}
+  .auth-hero-copy{text-align:center}
+  #landRev>div{max-width:100%!important}
+  .mkt{padding:12px 10px 20px}
+  h1{font-size:22px}
+  .mkt-h{font-size:17px}
+}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -643,7 +662,9 @@ function renderAuth(mode){
   <div class="auth-screen auth-over">
     <div class="auth-hero-copy">
       <div class="auth-brand-lg">Fori<b>Foreign</b></div>
-      <p>From <b>🇵🇰 Pakistan</b> to the world. ForiForeign finds verified study, scholarship and work opportunities abroad and prepares every application for you.</p>
+      <p style="margin:6px 0 4px;font-size:15.5px">From <b>🇵🇰 Pakistan</b> to the world. Verified study, scholarship and work opportunities, every application prepared for you.</p>
+      <div style="font:800 15px Inter;color:#B4E4FF;letter-spacing:.01em">We Discover <span style="color:#00D4FF">|</span> We Personalize <span style="color:#00D4FF">|</span> We Prepare <span style="color:#00D4FF">|</span> You Approve</div>
+      <div id="landRev" style="margin-top:10px"></div>
       <div id="globePanel" class="globe-panel-float" style="display:none"></div>
       
     </div>
@@ -698,7 +719,18 @@ function renderAuth(mode){
   renderMktExtras();
   bootGlobe();
 }
+function landingReviews(){
+  const rv=((SITE&&SITE.reviews)||[]).filter(r=>r&&r.text);
+  const el=$('landRev');if(!el||!rv.length)return;
+  const item=r=>`<span style="display:inline-flex;align-items:center;gap:8px;background:rgba(8,22,48,.85);border:1px solid rgba(245,184,65,.45);border-radius:12px;padding:8px 14px;margin-right:10px;white-space:nowrap">
+    <span style="color:#FFD070;letter-spacing:1px">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</span>
+    <span style="font:600 12.5px Inter;color:#EAF2FF">${esc(String(r.text||'').slice(0,90))}</span>
+    <span style="font:600 11px Inter;color:#9DB8E4">— ${esc(r.name||'Client')}${r.note?' · '+esc(String(r.note).slice(0,40)):''}</span></span>`;
+  el.innerHTML=`<div style="overflow:hidden;max-width:560px"><div style="display:inline-block;animation:ffmarq ${Math.max(18,rv.length*9)}s linear infinite;will-change:transform">${rv.map(item).join('')}${rv.map(item).join('')}</div></div>`;
+  if(!document.getElementById('ffmarqcss')){const st=document.createElement('style');st.id='ffmarqcss';st.textContent='@keyframes ffmarq{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}';document.head.appendChild(st)}
+}
 function renderMktExtras(){
+  landingReviews();
   // live total from real counts (never fake): fetched from the public API
   fetch('/api/public/opportunity-counts').then(r=>r.json()).then(d=>{
     const el=$('msOpps');if(!el)return;
@@ -2649,7 +2681,8 @@ async function saveReviews(btn){
   catch(e){toast(e.message);btn.disabled=false}
 }
 async function approveReview(id,btn){btn.disabled=true;
-  try{await api('/api/admin/support/'+id+'/approve-review',{method:'POST'});toast('Review is live on the homepage.');vAdmin();}
+  const note=prompt('Optional admin remark shown with the review (e.g. "Verified client · Germany case"). Leave empty for none:')||'';
+  try{await api('/api/admin/support/'+id+'/approve-review',{method:'POST',body:{note:note.slice(0,60)}});toast('Review is live on the homepage with golden stars.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}}
 async function adminSupport(){
   const st=window._supStatus||'';
