@@ -5,7 +5,9 @@ const g = fs.readFileSync(__dirname + '/../lib/gemini.js', 'utf8');
 const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
 const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
 const checks = [
-  ['multi-model cascade exists', g.includes("'gemini-2.5-flash', 'gemini-2.0-flash'")],
+  ['multi-model cascade reflects live models (3.6 fallback)', g.includes("'gemini-3.6-flash'])")],
+  ['parseJSON ALWAYS returns arrays (wrapper-object killer fixed)', e.includes('const norm = v =>') && e.includes('Object.values(v).find(Array.isArray)')],
+  ['ingest digests any shape without throwing', e.includes('if (!Array.isArray(items)) items =')],
   ['thinkingConfig 400 is survivable', g.includes('_noThinking = true')],
   ['unknown model skips to next in chain', /not found\|not supported\|does not exist/.test(g)],
   ['overload backoff is jittered and long', g.includes('4000 * (attempt + 1)')],

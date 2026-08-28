@@ -48,7 +48,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2140';
+const FF_BUILD = '2026-08-28-R2150';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Self-diagnosing health: shows WHICH link is broken without exposing any secret. */
@@ -663,7 +663,7 @@ app.get('/api/admin/ai-deepcheck', auth, perm('aicost.read'), async (req, res) =
   const out = { build: FF_BUILD, probes: [], discovery: null, recent_errors: [] };
   const key = process.env.GEMINI_API_KEY;
   const { MODEL, FALLBACK } = require('./lib/gemini');
-  const chain = [...new Set([MODEL(), FALLBACK && FALLBACK(), 'gemini-2.5-flash', 'gemini-2.0-flash'].filter(Boolean))];
+  const chain = [...new Set([MODEL(), FALLBACK && FALLBACK(), 'gemini-3.6-flash'].filter(Boolean))];
   // 1) Per-model grounded probe: which models exist, which support search, which are overloaded.
   for (const m of chain) {
     const t0 = Date.now();
@@ -702,7 +702,8 @@ app.get('/api/admin/ai-deepcheck', auth, perm('aicost.read'), async (req, res) =
     const txt = await callAI('search_verify',
       'Find 3 currently-open, fully funded masters or PhD scholarships in Germany or Turkiye for international students. Verify each on its OFFICIAL page. Respond ONLY with a JSON array: [{"title":"","institution":"","country_code":"ISO2","url":"official page url","deadline":"YYYY-MM-DD or empty","funding":"","funding_type":"fully","level":"masters|phd"}]',
       { search: true, urls: true, maxTokens: 1500, userId: req.userId });
-    const items = parseJSON(txt) || [];
+    let items = parseJSON(txt) || [];
+    if (!Array.isArray(items)) items = [items];
     const verdicts = items.map(it => ({
       institution: String(it.institution || '').slice(0, 60),
       url_ok: /^https?:\/\//.test(String(it.url || '')),
