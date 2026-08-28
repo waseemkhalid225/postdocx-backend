@@ -607,6 +607,7 @@ let SITE=null;
 async function loadSiteConfig(){
   try{const rq=new URLSearchParams(location.search).get('ref');if(rq)localStorage.setItem('ffref',rq.toUpperCase())}catch(e){}
   try{SITE=(await (await fetch('/api/site-config')).json()).config||null}catch(e){SITE=null}
+  fetch('/api/version').then(r=>r.json()).then(v=>{window._ffBuild=v.build;const t=document.getElementById('ffBuildTag');if(t)t.textContent='build '+v.build}).catch(()=>{});
   fetch('/api/stats').then(r=>r.json()).then(st=>{
     const f=(id,v)=>{const el=document.getElementById(id);if(el&&v)el.textContent=v};
     if(st.opportunities>=25)f('stOpps',st.opportunities.toLocaleString());
@@ -928,7 +929,7 @@ async function vHome(){
     <button class="btn b-line" style="position:relative" onclick="openSupport()">Ask us${HM&&HM.support&&HM.support.answered?`<span style="position:absolute;top:-5px;right:-5px;background:#fb7185;color:#fff;border-radius:99px;min-width:17px;height:17px;font:700 10px/17px Inter;text-align:center;padding:0 3px">${HM.support.answered}</span>`:''}</button>
   </div>
   <div class="card" style="margin-top:10px;text-align:center">
-    <b>Contact</b>
+    <b>Contact</b><span class="sub" id="ffBuildTag" style="display:block;font-size:10px;opacity:.6"></span>
     <div class="sub" style="margin-top:6px">
       <a href="mailto:${esc(((SITE||{}).contact||{}).email||'admin@foriforeign.com')}" style="color:inherit">${esc(((SITE||{}).contact||{}).email||'admin@foriforeign.com')}</a>
       &nbsp;·&nbsp;

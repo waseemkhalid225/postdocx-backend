@@ -47,6 +47,36 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+/* Build stamp: proves WHICH code is actually running in production. */
+const FF_BUILD = '2026-08-28-R2100';
+console.log('[boot] ForiForeign build ' + FF_BUILD);
+app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
+/* Self-diagnosing health: shows WHICH link is broken without exposing any secret. */
+app.get('/api/health/full', async (req, res) => {
+  const has = k => !!process.env[k];
+  const out = {
+    build: FF_BUILD,
+    env: {
+      SUPABASE_URL: has('SUPABASE_URL'),
+      service_key: has('SUPABASE_SERVICE_KEY') || has('SUPABASE_SERVICE_ROLE_KEY') || has('SUPABASE_SERVICE_ROLE') || has('SUPABASE_SECRET_KEY'),
+      SUPABASE_ANON_KEY: has('SUPABASE_ANON_KEY') || has('SUPABASE_KEY'),
+      GEMINI_API_KEY: has('GEMINI_API_KEY'),
+      OPENAI_API_KEY: has('OPENAI_API_KEY'),
+      BRAVE_API_KEY: has('BRAVE_API_KEY')
+    },
+    db: 'not tested', auth_layer: 'not tested'
+  };
+  try {
+    const { error } = await admin().from('profiles').select('id', { count: 'exact', head: true });
+    out.db = error ? ('ERROR: ' + error.message) : 'OK';
+  } catch (e) { out.db = 'ERROR: ' + String(e.message).slice(0, 160); }
+  try {
+    const t = (req.headers.authorization || '').replace(/^Bearer /, '');
+    if (t) { const u = await require('./lib/supa').userFromToken(t); out.auth_layer = u ? ('OK as ' + (u.email || u.id)) : 'TOKEN REJECTED'; }
+    else out.auth_layer = 'no token sent (open this page while logged in via the app to test)';
+  } catch (e) { out.auth_layer = 'ERROR: ' + String(e.message).slice(0, 160); }
+  res.json(out);
+});
 app.use(express.json({ limit: '2mb' }));
 const multer = require('multer');
 const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 20 } });
