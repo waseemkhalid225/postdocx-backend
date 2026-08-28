@@ -48,7 +48,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2115';
+const FF_BUILD = '2026-08-28-R2130';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Self-diagnosing health: shows WHICH link is broken without exposing any secret. */
@@ -656,6 +656,67 @@ app.get('/api/admin/pnl', auth, perm('aicost.read'), async (req, res) => {
   res.json(out);
 });
 /* One-click AI engine diagnostic: proves key, models, and search grounding live. */
+/* DEEP AI DIAGNOSIS: probes EVERY model in the chain individually with a real
+   grounded call, runs one real discovery-style call end to end, checks ingest
+   verdicts per item, and returns the last error_log rows. One screenshot = truth. */
+app.get('/api/admin/ai-deepcheck', auth, perm('aicost.read'), async (req, res) => {
+  const out = { build: FF_BUILD, probes: [], discovery: null, recent_errors: [] };
+  const key = process.env.GEMINI_API_KEY;
+  const { MODEL, FALLBACK } = require('./lib/gemini');
+  const chain = [...new Set([MODEL(), FALLBACK && FALLBACK(), 'gemini-2.5-flash', 'gemini-2.0-flash'].filter(Boolean))];
+  // 1) Per-model grounded probe: which models exist, which support search, which are overloaded.
+  for (const m of chain) {
+    const t0 = Date.now();
+    try {
+      const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 20000);
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + m + ':generateContent?key=' + key, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with exactly: OK' }] }], tools: [{ google_search: {} }], generationConfig: { maxOutputTokens: 30 } }),
+        signal: ctl.signal });
+      clearTimeout(tm);
+      const d = await r.json().catch(() => ({}));
+      out.probes.push({ model: m, status: r.status, ms: Date.now() - t0,
+        ok: r.ok, error: r.ok ? null : String(d && d.error && d.error.message || '').slice(0, 220),
+        sample: r.ok ? String(((d.candidates || [])[0] || {}).content && d.candidates[0].content.parts && d.candidates[0].content.parts.map(p => p.text || '').join('') || '').slice(0, 40) : null });
+    } catch (e) { out.probes.push({ model: m, ok: false, ms: Date.now() - t0, error: String(e.message).slice(0, 160) }); }
+  }
+  // OpenAI grounded backup probe
+  if (process.env.OPENAI_API_KEY) {
+    const t0 = Date.now(); const bm = process.env.OPENAI_BACKUP_MODEL || 'gpt-5.4-mini';
+    try {
+      const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 25000);
+      const r = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
+        body: JSON.stringify({ model: bm, tools: [{ type: 'web_search' }], input: 'Reply with exactly: OK', max_output_tokens: 30 }), signal: ctl.signal });
+      clearTimeout(tm);
+      const d = await r.json().catch(() => ({}));
+      out.probes.push({ model: 'OPENAI:' + bm, status: r.status, ms: Date.now() - t0, ok: r.ok,
+        error: r.ok ? null : String(d && d.error && d.error.message || '').slice(0, 220) });
+    } catch (e) { out.probes.push({ model: 'OPENAI backup', ok: false, error: String(e.message).slice(0, 160) }); }
+  } else out.probes.push({ model: 'OPENAI backup', ok: false, error: 'OPENAI_API_KEY not set' });
+  // 2) One REAL discovery-style call through the actual pipeline (callAI -> cascade -> backup)
+  try {
+    const { callAI } = require('./lib/router');
+    const { parseJSON, ingestOpps } = require('./lib/engine');
+    const t0 = Date.now();
+    const txt = await callAI('search_verify',
+      'Find 3 currently-open, fully funded masters or PhD scholarships in Germany or Turkiye for international students. Verify each on its OFFICIAL page. Respond ONLY with a JSON array: [{"title":"","institution":"","country_code":"ISO2","url":"official page url","deadline":"YYYY-MM-DD or empty","funding":"","funding_type":"fully","level":"masters|phd"}]',
+      { search: true, urls: true, maxTokens: 1500, userId: req.userId });
+    const items = parseJSON(txt) || [];
+    const verdicts = items.map(it => ({
+      institution: String(it.institution || '').slice(0, 60),
+      url_ok: /^https?:\/\//.test(String(it.url || '')),
+      has_title: !!it.title, has_institution: !!it.institution,
+      deadline: it.deadline || null
+    }));
+    const added = await ingestOpps(items, 'study', req.userId);
+    out.discovery = { ok: true, ms: Date.now() - t0, raw_first_300: String(txt || '').slice(0, 300), parsed: items.length, verdicts, added_to_db: added };
+  } catch (e) { out.discovery = { ok: false, error: String(e.message).slice(0, 300) }; }
+  // 3) Recent pipeline errors
+  try { const { data: errs } = await admin().from('error_log').select('created_at,area,message').order('created_at', { ascending: false }).limit(12);
+    out.recent_errors = (errs || []).map(x => ({ t: String(x.created_at).slice(5, 16), area: x.area, msg: String(x.message || '').slice(0, 140) })); } catch (e) {}
+  res.json(out);
+});
 app.get('/api/admin/ai-selftest', auth, perm('aicost.read'), async (req, res) => {
   const { geminiCall } = require('./lib/gemini');
   const out = { plain: null, grounded: null };

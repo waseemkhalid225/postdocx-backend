@@ -2546,7 +2546,8 @@ async function adminBusiness(){
   try{ex=await api('/api/admin/expenses')}catch(e){}
   try{pnl=await api('/api/admin/pnl?month='+month)}catch(e){}
   window._expenses=(ex.items||[]).slice();
-  return `<div class="card"><div class="spread"><h3>AI engine</h3><button class="btn b-line" onclick="aiSelfTest(this)">Test AI engine</button></div>
+  return `<div class="card"><div class="spread"><h3>AI engine</h3><button class="btn b-line" onclick="aiSelfTest(this)">Test AI engine</button>
+  <button class="btn b-gold" onclick="(async b=>{b.disabled=true;b.textContent='Deep diagnosis (60s)…';try{const d=await api('/api/admin/ai-deepcheck');const P=d.probes.map(p=>(p.ok?'PASS  ':'FAIL  ')+p.model+(p.ok?' ('+p.ms+'ms)':' -> '+(p.error||''))).join('\n');const D=d.discovery&&d.discovery.ok?('PIPELINE OK: parsed '+d.discovery.parsed+', added '+d.discovery.added_to_db+' to DB ('+d.discovery.ms+'ms)'):('PIPELINE FAIL: '+(d.discovery&&d.discovery.error));const E=(d.recent_errors||[]).map(x=>x.t+' '+x.area+': '+x.msg).join('\n')||'none';alert('DEEP AI DIAGNOSIS — '+d.build+'\n\nMODEL PROBES:\n'+P+'\n\n'+D+'\n\nRECENT ERRORS:\n'+E)}catch(e){toast(e.message)}b.disabled=false;b.textContent='Run deep AI diagnosis'})(this)">Run deep AI diagnosis</button></div>
   <div class="sub">One click proves the key, model chain and search grounding are alive. Run it whenever discovery looks weak.</div></div>
   <div class="card"><h3>Business expenses (full control)</h3>
   <div class="sub" style="margin-bottom:6px">Supabase, domain, Railway, marketing, staff, anything. Yearly amounts are divided by 12; USD converts at the admin rate.</div>
