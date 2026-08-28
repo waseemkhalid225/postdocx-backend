@@ -128,8 +128,32 @@ app.get('/api/config', (req, res) => {
 /* ---------- Phase 1: central site configuration ---------- */
 const siteSettings = require('./lib/settings');
 app.get('/api/site-config', async (req, res) => {
-  try { res.json({ config: siteSettings.publicView(await siteSettings.getConfig()) }); }
+  try {
+    const cfg = await siteSettings.getConfig();
+    const pub = siteSettings.publicView(cfg);
+    pub.fx = { usd_to_pkr: Number(cfg.ai && cfg.ai.usd_to_pkr) || 278 };
+    // Real, admin-entered stories only — never fabricated defaults.
+    pub.stories = Array.isArray(cfg.success_stories) ? cfg.success_stories.slice(0, 3).map(x => ({ name: String(x.name || '').slice(0, 40), text: String(x.text || '').slice(0, 140) })).filter(x => x.name && x.text) : [];
+    res.json({ config: pub });
+  }
   catch (e) { res.json({ config: siteSettings.publicView(siteSettings.DEFAULTS) }); }
+});
+/* ---------- Live trust numbers: real counts, cached 10 minutes, never fabricated ---------- */
+let _stats = { at: 0, data: null };
+app.get('/api/stats', async (req, res) => {
+  if (_stats.data && Date.now() - _stats.at < 600e3) return res.json(_stats.data);
+  const out = { opportunities: 0, countries: 0, added7: 0 };
+  try {
+    const { count: n } = await admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified');
+    out.opportunities = n || 0;
+    const { data: cs } = await admin().from('opportunities').select('country_code').eq('status', 'verified').limit(2000);
+    out.countries = new Set((cs || []).map(r => r.country_code).filter(Boolean)).size;
+    const wk = new Date(Date.now() - 7 * 864e5).toISOString();
+    const { count: a7 } = await admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified').gte('created_at', wk);
+    out.added7 = a7 || 0;
+  } catch (e) {}
+  _stats = { at: Date.now(), data: out };
+  res.json(out);
 });
 app.get('/api/admin/settings', auth, perm('settings.read'), async (req, res) => {
   try {
@@ -152,11 +176,83 @@ app.get('/api/admin/audit', auth, perm('audit.read'), async (req, res) => {
   res.json({ entries: data || [], page });
 });
 
+/* ================= PUBLIC SEO LAYER: server-rendered doors into live inventory ================ */
+const SEO_COUNTRIES = { germany:'DE', italy:'IT', finland:'FI', sweden:'SE', norway:'NO', netherlands:'NL', france:'FR', 'united-kingdom':'GB', uk:'GB', 'united-states':'US', usa:'US', canada:'CA', australia:'AU', ireland:'IE', 'saudi-arabia':'SA', uae:'AE', qatar:'QA', china:'CN', japan:'JP', 'south-korea':'KR', malaysia:'MY', turkey:'TR', poland:'PL', hungary:'HU', austria:'AT', denmark:'DK' };
+const SEO_SLUGS = ['fully-funded-masters-germany','fully-funded-phd-germany','fully-funded-masters-italy','fully-funded-scholarships-finland','no-ielts-scholarships','fully-funded-masters-sweden','fully-funded-phd-netherlands','masters-scholarships-china','fully-funded-masters-turkey','pharmacist-jobs-saudi-arabia','nurse-jobs-saudi-arabia','doctor-jobs-uae','pharmacist-jobs-uae','nurse-jobs-qatar','fully-funded-postdoc-germany','masters-scholarships-hungary','fully-funded-phd-australia','engineer-jobs-uae'];
+function pkrText(txt, rate) {
+  const m = String(txt || '').match(/([$€£])\s?([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s?(USD|EUR|GBP)/i);
+  if (!m) return '';
+  const amt = parseFloat((m[2] || m[3] || '').replace(/,/g, '')); if (!isFinite(amt) || amt <= 0) return '';
+  const cur = (m[1] || m[4] || '$').toUpperCase();
+  const mult = cur === '€' || cur === 'EUR' ? 1.08 : cur === '£' || cur === 'GBP' ? 1.27 : 1;
+  const pkr = amt * mult * (rate || 278);
+  const nice = pkr >= 1e7 ? (pkr / 1e7).toFixed(1) + ' crore' : pkr >= 1e5 ? (pkr / 1e5).toFixed(1) + ' lakh' : Math.round(pkr).toLocaleString();
+  return '≈ Rs ' + nice;
+}
+const seoPage = (title, desc, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | ForiForeign</title><meta name="description" content="${desc}"><link rel="canonical" href=""><style>body{margin:0;background:#050d1f;color:#eef4ff;font:15px/1.6 system-ui,Segoe UI,Arial}a{color:#00D4FF}.wrap{max-width:760px;margin:0 auto;padding:28px 16px}h1{font-size:26px;margin:6px 0}h2{font-size:18px;margin:18px 0 6px;color:#fff}.sub{color:#9db8e8;font-size:13px}.card{background:rgba(8,18,40,.92);border:1px solid rgba(140,178,255,.3);border-radius:14px;padding:14px;margin:10px 0}.chip{display:inline-block;border:1px solid rgba(140,178,255,.4);border-radius:999px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0;color:#cfe1ff}.g{color:#2dd4bf;font-weight:700}.cta{display:inline-block;background:linear-gradient(90deg,#1683FF,#00D4FF);color:#04101f;font-weight:800;padding:12px 22px;border-radius:12px;text-decoration:none;margin-top:14px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}</style></head><body><div class="wrap"><div class="top"><a href="/" style="font-weight:800;text-decoration:none;color:#fff">ForiForeign</a><a href="/" class="sub">Open the app →</a></div>${body}<a class="cta" href="/">Find my opportunities — first case free</a><div class="sub" style="margin-top:16px">Every opportunity verified on the official page before you see it. You review, you press Send. Built in Pakistan.</div></div></body></html>`;
+app.get('/s/:slug', async (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+    const parts = slug.split('-');
+    let cc = null; for (const [name, code] of Object.entries(SEO_COUNTRIES)) if (slug.endsWith(name)) { cc = code; break; }
+    const isWork = /jobs/.test(slug);
+    const funded = /fully-funded/.test(slug);
+    const noIelts = /no-ielts/.test(slug);
+    const level = ['bachelors', 'masters', 'phd', 'postdoc'].find(l => parts.includes(l.replace('masters','masters')) || slug.includes(l)) || null;
+    const prof = isWork ? parts[0] : null;
+    let q = admin().from('opportunities').select('*').eq('status', 'verified').order('created_at', { ascending: false }).limit(12);
+    q = isWork ? q.eq('kind', 'work') : q.in('kind', ['study', 'scholarship', 'postdoc']);
+    if (cc) q = q.eq('country_code', cc);
+    if (funded) q = q.eq('funding_type', 'fully');
+    if (level) q = q.eq('level', level);
+    if (prof && prof !== 'jobs') q = q.ilike('title', '%' + prof + '%');
+    let { data: rows } = await q;
+    rows = rows || [];
+    if (!rows.length && cc) { const r2 = await admin().from('opportunities').select('*').eq('status', 'verified').eq('country_code', cc).limit(12); rows = r2.data || []; }
+    const cfg = await siteSettings.getConfig().catch(() => siteSettings.DEFAULTS);
+    const rate = Number(cfg.ai && cfg.ai.usd_to_pkr) || 278;
+    const h = slug.split('-').map(w => w[0] ? w[0].toUpperCase() + w.slice(1) : w).join(' ');
+    const cards = rows.map(o => { const pk = pkrText(o.stipend || o.tuition, rate); return `<div class="card"><span class="chip">${o.country_code || ''}</span>${o.level ? `<span class="chip">${o.level}</span>` : ''}${o.funding_type === 'fully' ? '<span class="chip" style="border-color:#2dd4bf;color:#2dd4bf">Fully funded</span>' : ''}${o.deadline ? `<span class="chip">Deadline ${o.deadline}</span>` : ''}${o.stipend ? `<div class="g" style="margin-top:6px">Stipend: ${String(o.stipend).slice(0, 60)} ${pk ? '<span class="sub">' + pk + '</span>' : ''}</div>` : ''}<div class="sub" style="margin-top:6px">Verified on the official page. Institution and full details open inside ForiForeign — your first case is free.</div></div>`; }).join('');
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.send(seoPage(h, h + ' for Pakistani students and professionals — verified on official pages, matched to your CV, applications prepared for you.', `<h1>${h}</h1><div class="sub">${rows.length ? rows.length + ' verified openings live right now.' : 'The agent searches official sources daily — open the app and it searches for you.'} Matched to your CV. Applications prepared for you.</div>${cards}`));
+  } catch (e) { res.redirect('/'); }
+});
+const SEO_GUIDES = {
+  germany: { cc: 'DE', title: 'Study in Germany from Pakistan', body: '<h2>Why Germany</h2><div>Public universities charge no tuition — you pay only a semester fee of roughly €150–350 (≈ Rs 50,000–1.2 lakh per year). World-class engineering, pharmacy and research, with DAAD scholarships built for international students.</div><h2>Money reality</h2><div>Blocked account requirement ≈ €11,904 (≈ Rs 36 lakh) shown once for the visa. Monthly living ≈ €950.</div><h2>Visa for Pakistanis</h2><div>National (D) visa via the German Embassy Islamabad; APS certificate is now required before application. Plan 3–4 months.</div><h2>Funding names to know</h2><div>DAAD, Deutschlandstipendium, Erasmus Mundus.</div>' },
+  finland: { cc: 'FI', title: 'Study in Finland from Pakistan', body: '<h2>Why Finland</h2><div>One of the world&#39;s best education systems, 400+ English programmes, and generous early-bird tuition waivers — many admits pay 50–100% less.</div><h2>Money reality</h2><div>Tuition €8,000–18,000 before waivers; living ≈ €800/month. Proof of funds ≈ €6,720/year (≈ Rs 21 lakh).</div><h2>Visa for Pakistanis</h2><div>Residence permit online via EnterFinland, biometrics at VFS Islamabad/Karachi.</div><h2>Funding names to know</h2><div>University scholarships (automatic with admission), EDUFI for doctoral research.</div>' },
+  italy: { cc: 'IT', title: 'Study in Italy from Pakistan', body: '<h2>Why Italy</h2><div>Regional grants (DSU) can make study effectively free — many Pakistani students pay near-zero tuition AND receive a yearly grant with free meals and housing support.</div><h2>Money reality</h2><div>Tuition is income-based, often €150–1,000 with ISEE paperwork; DSU grants ≈ €5,000–7,000/year (≈ Rs 15–21 lakh).</div><h2>Visa for Pakistanis</h2><div>Pre-enrolment on Universitaly, then D-visa at the Embassy in Islamabad. Start documents early — attestation takes time.</div><h2>Funding names to know</h2><div>DSU regional scholarships, Invest Your Talent in Italy.</div>' },
+  'saudi-arabia': { cc: 'SA', title: 'Work in Saudi Arabia from Pakistan', body: '<h2>Why Saudi Arabia</h2><div>Tax-free salaries, large Pakistani community, and constant demand for pharmacists, nurses, doctors and engineers under Vision 2030.</div><h2>Licensing reality</h2><div>Healthcare professionals need SCFHS classification via Prometric + DataFlow verification — start DataFlow early, it is the slow step.</div><h2>Money reality</h2><div>Pharmacist salaries commonly SAR 5,000–12,000/month (≈ Rs 3.7–9 lakh) plus housing/transport in many contracts.</div><h2>Funding names to know</h2><div>For study instead: KAUST and Saudi government scholarships are fully funded with stipends.</div>' },
+  'united-kingdom': { cc: 'GB', title: 'Study in the UK from Pakistan', body: '<h2>Why the UK</h2><div>One-year Master&#39;s degrees cut total cost dramatically, and the Graduate Route gives 2 years of post-study work.</div><h2>Money reality</h2><div>Tuition £14,000–28,000; maintenance funds ≈ £1,023/month outside London shown for 9 months (≈ Rs 32 lakh).</div><h2>Visa for Pakistanis</h2><div>Student visa with CAS; IHS surcharge applies. TB test required at approved Pakistani clinics.</div><h2>Funding names to know</h2><div>Chevening (fully funded), Commonwealth Shared Scholarships, GREAT Scholarships.</div>' },
+  australia: { cc: 'AU', title: 'Study in Australia from Pakistan', body: '<h2>Why Australia</h2><div>Strong universities, paid part-time work rights, and 2–4 years of post-study work through the Temporary Graduate visa.</div><h2>Money reality</h2><div>Tuition AUD 30,000–45,000; proof of funds ≈ AUD 29,710/year (≈ Rs 55 lakh). Research degrees are often fully funded with stipends ≈ AUD 32,000.</div><h2>Visa for Pakistanis</h2><div>Subclass 500 with GS statement; strong, honest documentation matters more than agents claim.</div><h2>Funding names to know</h2><div>Australia Awards, RTP (research), Destination Australia.</div>' }
+};
+app.get('/guide/:c', async (req, res) => {
+  const g = SEO_GUIDES[String(req.params.c || '').toLowerCase()];
+  if (!g) return res.redirect('/');
+  res.set('Cache-Control', 'public, max-age=3600');
+  const links = SEO_SLUGS.filter(sl => { for (const [n, c] of Object.entries(SEO_COUNTRIES)) if (sl.endsWith(n) && c === g.cc) return true; return false; }).map(sl => `<a href="/s/${sl}">${sl.replace(/-/g, ' ')}</a>`).join(' · ');
+  res.send(seoPage(g.title, g.title + ' — real costs in PKR, visa steps, licensing and funding names, plus live verified opportunities.', `<h1>${g.title}</h1>${g.body}${links ? '<h2>Live openings</h2><div>' + links + '</div>' : ''}`));
+});
+app.get('/sitemap.xml', (req, res) => {
+  const base = 'https://foriforeign.com';
+  const urls = ['/', ...SEO_SLUGS.map(x => '/s/' + x), ...Object.keys(SEO_GUIDES).map(x => '/guide/' + x)];
+  res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls.map(u => '<url><loc>' + base + u + '</loc></url>').join('') + '</urlset>');
+});
+app.get('/robots.txt', (req, res) => res.type('text/plain').send('User-agent: *\nAllow: /\nSitemap: https://foriforeign.com/sitemap.xml\n'));
 /* ---------- RBAC: my permissions + user role management ---------- */
 /* ---------- Spec 35/36: Complete Opportunity Intelligence report ---------- */
 app.get('/api/opportunities/:id/report', auth, async (req, res) => {
   const { data: o } = await admin().from('opportunities').select('*').eq('id', req.params.id).single();
   if (!o) return res.status(404).json({ error: 'Opportunity not found' });
+  // Paywall: without entitlement, the full report (institution, official page,
+  // verified contacts) stays sealed. The teaser keeps the numbers that sell.
+  if (!(await entitled(req.userId))) {
+    let m = null; try { const { matchOpportunity } = require('./lib/match'); m = await matchOpportunity(req.userId, o.id); } catch (e) {}
+    return res.status(402).json({
+      locked: true,
+      error: 'This opportunity is reserved for package members. Choose a package to open the institution, official page and verified contact — one case or several, your choice.',
+      teaser: { ...lockTease(o), match: m ? { status: m.status, pct: m.pct } : null }
+    });
+  }
   // record 'viewed' (spec 41) — best effort
   admin().from('user_opportunity_history').insert({ user_id: req.userId, opportunity_id: o.id, event: 'viewed' }).then(() => {}, () => {});
   // match + eligibility gaps (spec 13/15)
@@ -202,7 +298,9 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
   const ids = Object.keys(state).filter(id => state[id] === 'saved');
   if (!ids.length) return res.json({ opportunities: [] });
   const { data: opps } = await admin().from('opportunities').select('*').in('id', ids);
-  res.json({ opportunities: opps || [] });
+  let list = opps || [];
+  if (!(await entitled(req.userId))) list = list.map(o => lockTease(o));
+  res.json({ opportunities: list });
 });
 /* ---------- Spec 2: configurable university database (admin) ---------- */
 app.get('/api/admin/universities', auth, perm('countries.read'), async (req, res) => {
@@ -447,9 +545,7 @@ app.get('/api/me', auth, async (req, res) => {
 });
 /* ---------- journey state for the state-driven post-login home (Stage 2) ----------
    Returns ONE state + the single next action the home should show. */
-app.get('/api/me/state', auth, async (req, res) => {
-  try {
-    const uid = req.userId;
+async function computeMeState(uid) {
     const { count: cvCount } = await admin().from('documents').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('kind', 'cv');
     const hasCV = (cvCount || 0) > 0;
     const { data: apps } = await admin().from('applications').select('id,stage,opportunity_id,updated_at').eq('user_id', uid).order('updated_at', { ascending: false }).limit(50);
@@ -480,8 +576,66 @@ app.get('/api/me/state', auth, async (req, res) => {
       deadlineSoon = ds || 0;
       appsReady = list.filter(a => ['awaiting_authorization', 'prepared', 'portal_apply'].includes(a.stage)).length;
     } catch (e) {}
-    res.json({ state, hasCV, appCount: list.length, matches, deadlineSoon, appsReady });
-  } catch (e) { res.json({ state: 'new', hasCV: false, appCount: 0, matches: 0, deadlineSoon: 0, appsReady: 0 }); }
+    return { state, hasCV, appCount: list.length, matches, deadlineSoon, appsReady };
+}
+app.get('/api/me/state', auth, async (req, res) => {
+  try { res.json(await computeMeState(req.userId)); }
+  catch (e) { res.json({ state: 'new', hasCV: false, appCount: 0, matches: 0, deadlineSoon: 0, appsReady: 0 }); }
+});
+/* ---------- consolidated home payload: one call paints the whole dashboard ---------- */
+app.get('/api/home', auth, async (req, res) => {
+  const uid = req.userId;
+  const out = { state: null, credits: null, myMatches: null, discover: null };
+  try { out.state = await computeMeState(uid); } catch (e) {}
+  try {
+    const bal = await balance(uid);
+    const { data: led } = await admin().from('credit_ledger').select('delta').eq('user_id', uid);
+    const { data: pr } = await admin().from('profiles').select('free_case_used').eq('id', uid).single();
+    const purchased = (led || []).filter(l => Number(l.delta) > 0).reduce((sm, l) => sm + Number(l.delta), 0);
+    const { count: casesUsed } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', uid);
+    out.credits = {
+      balance: bal,
+      creditsRemaining: bal + ((pr && pr.free_case_used === false) ? 1 : 0),
+      casesUsed: casesUsed || 0,
+      casesTotal: purchased + 1 // + the free first case
+    };
+  } catch (e) {}
+  try {
+    // Personalized: how many CURRENT verified opportunities score >=70% for THIS user.
+    const { matchMany } = require('./lib/match');
+    const { data: opps } = await admin().from('opportunities').select('*').eq('status', 'verified').order('created_at', { ascending: false }).limit(60);
+    if (opps && opps.length) {
+      const m = await matchMany(uid, opps);
+      const pcts = (m || []).map(x => x.pct).filter(p => p != null);
+      out.myMatches = { count70: pcts.filter(p => p >= 70).length, best: pcts.length ? Math.max(...pcts) : null, scored: pcts.length, live: opps.length };
+    } else out.myMatches = { count70: 0, best: null, scored: 0, live: 0 };
+  } catch (e) {}
+  try {
+    const { data: st } = await admin().from('app_settings').select('value').eq('key', 'discover:' + uid).single();
+    const v = st && st.value;
+    if (v && v.status === 'running' && Date.now() - new Date(v.startedAt || 0).getTime() < 12 * 60000)
+      out.discover = { status: 'running', found: Number(v.found) || 0, target: Number(v.target) || 5, kind: v.kind || null };
+  } catch (e) {}
+  res.json(out);
+});
+/* Live discovery status: survives app close, battery death, page reloads. */
+app.get('/api/run/status', auth, async (req, res) => {
+  try {
+    const { data: st } = await admin().from('app_settings').select('value').eq('key', 'discover:' + req.userId).single();
+    const v = st && st.value;
+    if (!v) return res.json({ status: 'idle' });
+    let found = Number(v.found) || 0;
+    try {
+      // Live accuracy: count what actually landed in the DB since the run started.
+      let q = admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified').gte('created_at', v.startedAt || new Date(0).toISOString());
+      if (v.kind) q = q.eq('kind', v.kind);
+      const { count } = await q; found = Math.max(found, count || 0);
+    } catch (e) {}
+    let status = v.status || 'idle';
+    // Stale guard: a 'running' older than 12 minutes finished or died — report done with what exists.
+    if (status === 'running' && Date.now() - new Date(v.startedAt || 0).getTime() > 12 * 60000) status = 'done';
+    res.json({ status, found, target: Number(v.target) || 5, kind: v.kind || null, startedAt: v.startedAt || null });
+  } catch (e) { res.json({ status: 'idle' }); }
 });
 app.put('/api/me', auth, async (req, res) => {
   const allowed = ['full_name','phone','mode','headline','field','methods','publications','education','experience','licenses','links','send_mode','annual_budget_pkr','funded_only','profession'];
@@ -498,6 +652,27 @@ app.put('/api/me', auth, async (req, res) => {
 async function balance(userId) {
   const { data } = await admin().rpc('credit_balance', { uid: userId });
   return typeof data === 'number' ? data : 0;
+}
+/* Paywall: a user is entitled to full opportunity identity if they are staff,
+   still hold their free first case, or have at least 1 credit. */
+async function entitled(userId) {
+  try {
+    const { data: prof } = await admin().from('profiles').select('role,free_case_used').eq('id', userId).single();
+    if (prof && ['admin', 'staff'].includes(prof.role)) return true;
+    if (prof && prof.free_case_used === false) return true;
+    return (await balance(userId)) >= 1;
+  } catch (e) { return true; } // never lock everyone out on an internal error
+}
+/* Teaser row: everything that sells (match %, funding, stipend figures, country,
+   deadline) — nothing that identifies (no institution, title, url, city, contacts). */
+function lockTease(o) {
+  return {
+    id: o.id, kind: o.kind, country_code: o.country_code, deadline: o.deadline,
+    funding: o.funding || null, funding_type: o.funding_type || null, level: o.level || null,
+    stipend: o.stipend || null, tuition: o.tuition || null, salary_note: o.salary_note || null,
+    created_at: o.created_at || null, verified_at: o.verified_at || null,
+    match: o.match || null, locked: true
+  };
 }
 app.get('/api/credits', auth, async (req, res) => {
   const { data } = await admin().from('credit_ledger').select('*').eq('user_id', req.userId).order('created_at', { ascending: false }).limit(50);
@@ -526,7 +701,9 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
   const { data: p } = await admin().from('payments').select('*').eq('id', req.params.id).single();
   if (!p) return res.status(404).json({ error: 'Not found' });
   if (p.status !== 'pending') return res.status(400).json({ error: 'Already ' + p.status });
-  await admin().from('payments').update({ status: 'confirmed', confirmed_by: req.userId, confirmed_at: new Date().toISOString() }).eq('id', p.id);
+  // Atomic: only the request that flips pending->confirmed may write the credits.
+  const { data: flipped } = await admin().from('payments').update({ status: 'confirmed', confirmed_by: req.userId, confirmed_at: new Date().toISOString() }).eq('id', p.id).eq('status', 'pending').select('id');
+  if (!flipped || !flipped.length) return res.status(400).json({ error: 'Already confirmed' });
   await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: p.credits, reason: 'purchase', payment_id: p.id });
   await admin().from('audit_log').insert({ actor: req.userId, event: 'PAYMENT_CONFIRMED', detail: p.id + ' +' + p.credits + 'cr' });
   res.json({ ok: true });
@@ -617,6 +794,12 @@ app.get('/api/opportunities', auth, async (req, res) => {
       opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct } : null }));
     } catch (e) { /* matching is best-effort; never blocks the list */ }
   }
+  // Mark opportunities this user has already started — one case, one cost, ever.
+  try {
+    const { data: mine } = await admin().from('applications').select('opportunity_id').eq('user_id', req.userId);
+    const mset = new Set((mine || []).map(x => x.opportunity_id));
+    if (mset.size) opportunities = opportunities.map(o => mset.has(o.id) ? { ...o, started: true } : o);
+  } catch (e) {}
   // Free-preview model: after the free case is used and credits are exhausted, the list
   // still shows match strength / funding / deadline, but identity is locked until purchase.
   try {
@@ -625,11 +808,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
     if (!isStaff && prof && prof.free_case_used === true) {
       const bal = await balance(req.userId);
       if (bal < 1) {
-        opportunities = opportunities.map(o => ({
-          id: o.id, kind: o.kind, country_code: o.country_code, deadline: o.deadline,
-          funding: o.funding, funding_type: o.funding_type, level: o.level,
-          match: o.match || null, locked: true
-        }));
+        opportunities = opportunities.map(o => lockTease(o));
       }
     }
   } catch (e) { /* on any error, fall through unlocked rather than break browsing */ }
@@ -665,7 +844,13 @@ app.post('/api/applications', auth, async (req, res) => {
     .select().single();
   if (error) return res.status(400).json({ error: error.message.includes('duplicate') ? 'You already have an application for this opportunity' : error.message });
   if (usingFree) {
-    try { await admin().from('profiles').update({ free_case_used: true, free_case_used_at: new Date().toISOString() }).eq('id', req.userId); } catch (e) {}
+    // Atomic claim: only ONE request can flip free_case_used false->true. A racing
+    // duplicate gets zero rows back, and we roll its application away.
+    const { data: claimed } = await admin().from('profiles').update({ free_case_used: true, free_case_used_at: new Date().toISOString() }).eq('id', req.userId).eq('free_case_used', false).select('id');
+    if (!claimed || !claimed.length) {
+      try { await admin().from('applications').delete().eq('id', appRow.id); } catch (e) {}
+      return res.status(402).json({ error: 'Your free case was already used. Choose a credit package to continue.' });
+    }
     await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 0, reason: 'free_case', application_id: appRow.id, note: opp.institution + ' (free first case)' });
   } else if (!isAdmin) {
     await admin().from('credit_ledger').insert({ user_id: req.userId, delta: -1, reason: 'consume', application_id: appRow.id, note: opp.institution });
@@ -950,16 +1135,53 @@ app.get('/api/admin/overview', auth, perm('overview.read'), async (req, res) => 
     pendingPayments: pend||[], abuseFlags: flags });
 });
 
+/* ---------- saved search preferences: one search remembers the next ---------- */
+app.get('/api/prefs', auth, async (req, res) => {
+  try { const { data } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single(); res.json({ prefs: (data && data.value) || null }); }
+  catch (e) { res.json({ prefs: null }); }
+});
+app.put('/api/prefs', auth, async (req, res) => {
+  const v = (req.body && req.body.prefs) || {};
+  const clean = {
+    kind: ['study', 'work', 'both'].includes(v.kind) ? v.kind : 'study',
+    funded: !!v.funded, remote: !!v.remote, visa: !!v.visa,
+    ctrys: Array.isArray(v.ctrys) ? v.ctrys.filter(c => /^[A-Za-z]{2}$/.test(String(c))).map(c => String(c).toUpperCase()).slice(0, 15) : []
+  };
+  try { await admin().from('app_settings').upsert({ key: 'prefs:' + req.userId, value: clean }); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
 /* ---------- pipeline endpoints ---------- */
 const { discoverForUser, prepareApplication } = require('./lib/engine');
 app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.discovery_enabled===false)return res.status(503).json({error:'Search is briefly paused for maintenance. Please try again soon.'});next();}, async (req, res) => {
-  const { data: st } = await admin().from('app_settings').select('value').eq('key', 'lastRun').single();
+  const { data: st } = await admin().from('app_settings').select('value').eq('key', 'lastRun:' + req.userId).single();
   const last = st ? new Date(st.value.at || 0) : new Date(0);
   const mins = (Date.now() - last.getTime()) / 60000;
   if (mins < 30) return res.json({ ok: true, ran: false, message: 'Searched ' + Math.round(mins) + ' min ago. Next run possible in ' + Math.ceil(30 - mins) + ' min.' });
-  await admin().from('app_settings').upsert({ key: 'lastRun', value: { at: new Date().toISOString() } });
+  await admin().from('app_settings').upsert({ key: 'lastRun:' + req.userId, value: { at: new Date().toISOString() } });
+  // Search preferences + package fulfillment: paid credits define how many verified
+  // opportunities the agent must deliver (min 5, max 20). Priority countries are
+  // searched first; comparable nearby destinations complete the set only if needed.
+  const b = req.body || {};
+  const prefs = {
+    countries: Array.isArray(b.countries) ? b.countries.filter(c => /^[A-Za-z]{2}$/.test(String(c))).map(c => String(c).toUpperCase()).slice(0, 15) : [],
+    fundedOnly: !!b.funded_only, remote: !!b.remote, target: 5
+  };
+  try {
+    const bal = await balance(req.userId);
+    const { data: pr } = await admin().from('profiles').select('free_case_used').eq('id', req.userId).single();
+    prefs.target = Math.min(20, Math.max(5, (bal || 0) + ((pr && pr.free_case_used === false) ? 1 : 0)));
+  } catch (e) {}
+  // Server-side, resumable progress: the run continues even if the phone dies.
+  const progressKey = 'discover:' + req.userId;
+  prefs.progressKey = progressKey;
+  prefs.startedAt = new Date().toISOString();
+  try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'running', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: 0 } }); } catch (e) {}
   res.json({ ok: true, ran: true, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.' });
-  require('./lib/jobs').runJob('discover', 'discover:' + req.userId + ':' + Math.floor(Date.now()/1800e3), req.userId, () => discoverForUser(req.userId, req.body && req.body.kind), { retries: 1 });
+  require('./lib/jobs').runJob('discover', 'discover:' + req.userId + ':' + Math.floor(Date.now()/1800e3), req.userId, () =>
+    discoverForUser(req.userId, b.kind, prefs)
+      .then(async n => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'done', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: n } }); } catch (e) {} return n; })
+      .catch(async e => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'error', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, message: String(e.message).slice(0, 160) } }); } catch (e2) {} throw e; }),
+    { retries: 1, timeoutMs: 600000 });
 });
 /* Observability: the admin sees problems before users complain. */
 app.get('/api/admin/metrics', auth, perm('countries.write'), async (req, res) => {
@@ -988,8 +1210,14 @@ app.get('/api/applications/:id/status', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('id,user_id,stage,next_action,updated_at,prep_progress,prep_started_at').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
   const steps = a.prep_progress || [];
-  const failed = steps.some(st => st.error);
+  let failed = steps.some(st => st.error);
   let eta = 'Usually takes a few minutes.';
+  // Stall guard: preparing for over 9 minutes with no error recorded means the run hung or
+  // timed out. Surface Retry — finished documents are kept, so a retry costs almost nothing.
+  if (!failed && a.stage === 'preparing' && a.prep_started_at && Date.now() - new Date(a.prep_started_at).getTime() > 9 * 60000) {
+    failed = true;
+    eta = 'This took longer than usual. Press Retry — completed documents are kept, nothing is generated twice.';
+  }
   if (a.prep_started_at) {
     const el = (Date.now() - new Date(a.prep_started_at).getTime()) / 1000;
     if (el < 150) eta = 'Estimated time remaining: about 1–2 minutes';
@@ -997,8 +1225,11 @@ app.get('/api/applications/:id/status', auth, async (req, res) => {
   res.json({ stage: a.stage, next_action: a.next_action, steps, failed, eta, ready: ['awaiting_authorization','prepared','portal_apply'].includes(a.stage) });
 });
 app.post('/api/applications/:id/prepare', auth, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.prepare_enabled===false)return res.status(503).json({error:'Case preparation is briefly paused for maintenance. Please try again soon.'});next();}, aiLimit, async (req, res) => {
-  const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
+  const { data: a } = await admin().from('applications').select('id,user_id,stage').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  // Idempotent: a fully prepared case is NEVER re-run — zero extra AI cost, instant answer.
+  if (['awaiting_authorization', 'prepared', 'portal_apply'].includes(a.stage))
+    return res.json({ ok: true, already: true, message: 'This case is already fully prepared.' });
   res.json({ ok: true, message: 'Preparing your documents and email now.' });
   const markFail = async e => {
     try {
@@ -1007,8 +1238,8 @@ app.post('/api/applications/:id/prepare', auth, (req,res,next)=>{const f=(requir
       await admin().from('applications').update({ prep_progress: steps, next_action: 'One step needs attention. Press Retry.' }).eq('id', a.id);
     } catch (e2) {}
   };
-  require('./lib/jobs').runJob('prepare', 'prepare:' + a.id + ':' + Date.now(), req.userId,
-    () => prepareApplication(a.id).catch(async e => { await markFail(e); throw e; }), { retries: 0 });
+  require('./lib/jobs').runJob('prepare', 'prepare:' + a.id + ':' + Math.floor(Date.now() / 300e3), req.userId,
+    () => prepareApplication(a.id).catch(async e => { await markFail(e); throw e; }), { retries: 0, timeoutMs: 480000 });
 });
 app.get('/api/applications/:id', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
@@ -1054,6 +1285,9 @@ app.use((err, req, res, next) => {
 });
 process.on('unhandledRejection', e => console.error('[rejection]', e && e.message));
 try { const { expireAgent } = require('./lib/agents'); setInterval(() => expireAgent().catch(e=>console.error('[expire]',e.message)), 12*3600e3); setTimeout(()=>expireAgent().catch(()=>{}), 60e3); } catch (e) {}
+// Boot sweeper: a restart mid-job leaves rows stuck 'running' forever. Sweep them
+// to 'failed' so retries work and the failed-jobs metric stays truthful.
+(async () => { try { await admin().from('jobs').update({ status: 'failed', last_error: 'server restarted mid-job', updated_at: new Date().toISOString() }).eq('status', 'running'); } catch (e) {} })();
 app.listen(PORT, () => {
   console.log('ForiForeign core on :' + PORT);
   try { require('./lib/agents').startAgents(); } catch (e) { console.error('[agents]', e.message); }
