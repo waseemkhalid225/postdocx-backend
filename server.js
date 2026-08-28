@@ -48,7 +48,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2100';
+const FF_BUILD = '2026-08-28-R2115';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Self-diagnosing health: shows WHICH link is broken without exposing any secret. */
