@@ -4,7 +4,7 @@
 <meta charset="UTF-8"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#1683FF"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#2563EB">
 <link rel="icon" href="/icon-192.png"><link rel="apple-touch-icon" href="/icon-192.png">
-<title>ForiForeign — Study & Work Abroad, Done For You</title>
+<title>ForiForeign, Study & Work Abroad, Done For You</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#0F2748;--gold:#2563EB;--gold-soft:#EAF1FE;--green:#0E7C66;--green-soft:#E6F5F1;--crimson:#C2415A; --crimson-soft:#FBEAEE;
@@ -76,7 +76,7 @@ textarea{min-height:90px}
 .progwrap{height:8px;background:var(--soft);border-radius:99px;overflow:hidden;margin:8px 0}
 .progbar{height:100%;background:var(--green);border-radius:99px;transition:width .3s}
 @media(max-width:640px){main{padding:12px 10px 84px}.lane{min-width:100%}
-/* Bottom navigation — thumb-friendly */
+/* Bottom navigation, thumb-friendly */
 #nav{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:40;display:flex!important;justify-content:space-around;background:rgba(6,14,32,.92);backdrop-filter:blur(10px);border-top:1px solid rgba(150,186,255,.25);padding:8px 4px calc(8px + env(safe-area-inset-bottom))}
 #nav button{font-size:13px;padding:8px 10px;min-height:42px}
 header #nav{position:fixed}
@@ -306,7 +306,7 @@ body.world-on #view>.empty{background:rgba(255,255,255,.95);border-radius:14px;p
 @media(max-width:640px){.pid-card{flex-direction:column;text-align:center}.pid-id .row{justify-content:center}}
 
 /* ============================================================
-   FORIFOREIGN PREMIUM DESIGN SYSTEM — override layer v1.8
+   FORIFOREIGN PREMIUM DESIGN SYSTEM, override layer v1.8
    Minimal · Spatial · Cinematic · Liquid glass (restrained)
    ============================================================ */
 :root{
@@ -403,7 +403,7 @@ table td{border-bottom:1px solid rgba(148,184,255,.08)}
 
 
 
-/* ============ LUXURY DARK CINEMATIC — FINAL v2.1 ============ */
+/* ============ LUXURY DARK CINEMATIC, FINAL v2.1 ============ */
 :root{--gold:#1683FF;--gold-2:#3D9BFF;--gold-soft:rgba(22,131,255,.16);--cy:#00D4FF;
 --line:rgba(120,180,255,.3);--line-hi:rgba(0,212,255,.6);--txt:#FFFFFF;--txt-2:#EAF2FF;--txt-3:#C7D9F6}
 #worldOverlay{background:linear-gradient(180deg,rgba(3,9,22,.42),rgba(3,9,22,.22) 40%,rgba(3,9,22,.5))!important}
@@ -458,7 +458,7 @@ table td{border-bottom:1px solid rgba(120,180,255,.14)!important;color:#E9F1FC}
 .uppct{color:#00D4FF!important}
 
 
-/* v2.2 — fully transparent hero + ghost buttons */
+/* v2.2, fully transparent hero + ghost buttons */
 .home-hero,.dash-hero-float{background:transparent!important;border:0!important;box-shadow:none!important;backdrop-filter:none!important;padding:10px 4px 4px!important}
 .home-hero-h{margin:10px 0 6px!important}
 .home-hero-p{margin-bottom:12px!important}
@@ -493,7 +493,7 @@ table td{border-bottom:1px solid rgba(120,180,255,.14)!important;color:#E9F1FC}
 .vstep .stepnum{flex:0 0 auto}
 .vstep .sub{flex:0 0 auto}
 
-/* Full-brightness pass: same hues, maximum intensity — nothing faded. */
+/* Full-brightness pass: same hues, maximum intensity, nothing faded. */
 body{color:#FFFFFF}
 .sub{color:#D6E6FF}
 label{color:#DCE9FF}
@@ -506,6 +506,36 @@ label{color:#DCE9FF}
 .vstep{color:#FFFFFF}
 h1,h2,h3,b{color:#FFFFFF}
 .chip{font-weight:700}
+
+/* ===== Design system pass: rhythm, hierarchy, craft ===== */
+*{-webkit-tap-highlight-color:transparent}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+h1{font-size:26px;line-height:1.2;letter-spacing:-.02em}
+h2{font-size:19px;line-height:1.25;letter-spacing:-.015em}
+h3{font-size:15.5px;line-height:1.3;letter-spacing:-.01em}
+.card{border-radius:14px;padding:16px}
+.card+.card{margin-top:10px}
+.card h3{margin:0 0 6px}
+.btn{transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease,background .14s ease;min-height:38px;border-radius:11px}
+.btn:active{transform:translateY(1px) scale(.99)}
+.btn:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
+.b-gold{background:linear-gradient(135deg,var(--gold),var(--gold-2));box-shadow:0 4px 16px rgba(22,131,255,.35)}
+.b-gold:hover{box-shadow:0 6px 22px rgba(22,131,255,.5);transform:translateY(-1px)}
+.b-line{background:transparent;border:1px solid rgba(140,190,255,.45)!important;color:#EAF4FF}
+.b-line:hover{border-color:var(--cy)!important;background:rgba(0,212,255,.07)}
+.b-green{background:linear-gradient(135deg,#00B8A9,#00D4B8);box-shadow:0 4px 14px rgba(0,184,169,.3)}
+input,select,textarea{background:rgba(6,14,32,.75);border:1px solid rgba(120,180,255,.32);border-radius:10px;color:#fff;padding:10px 12px;font:500 14px Inter;transition:border-color .14s ease,box-shadow .14s ease;width:100%;box-sizing:border-box}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cy);box-shadow:0 0 0 3px rgba(0,212,255,.14)}
+input::placeholder,textarea::placeholder{color:#93AACB}
+select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2300D4FF' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:rgba(120,180,255,.3);border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:rgba(0,212,255,.5)}
+::-webkit-scrollbar-track{background:transparent}
+.spread b,.card b{letter-spacing:-.005em}
+.ffbar{background:rgba(120,180,255,.15);border-radius:99px;overflow:hidden}
+.ffbar-fill{background:linear-gradient(90deg,var(--gold),var(--cy));border-radius:99px;transition:width .5s ease}
+.toast{border-radius:12px!important;font-weight:600!important;backdrop-filter:blur(10px)}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -514,7 +544,6 @@ h1,h2,h3,b{color:#FFFFFF}
   <span class="brand" style="cursor:pointer" onclick="if(SESSION)go('home')">Fori<b>Foreign</b></span>
   <nav id="nav" style="display:none">
     <button data-t="home">Dashboard</button>
-    <button data-t="browse">Find Opportunities</button>
     <button data-t="profile">Profile</button>
     <button data-t="adminx" id="adminTab" style="display:none">Admin</button>
   </nav>
@@ -564,11 +593,14 @@ async function api(p,o={}){o.headers=Object.assign({'content-type':'application/
 async function afterLogin(){
   document.querySelector('header').style.display='flex';
   $('nav').style.display='flex';$('outBtn').style.display='inline-block';
-  try{const d=await api('/api/me');ME=d.me;CREDITS=d.credits;if(isAdminRole(ME.role))$('adminTab').style.display='inline-block';$('creditPill').style.display='inline-block';$('creditPill').textContent=CREDITS+' credit'+(CREDITS===1?'':'s');}catch(e){toast(e.message)}
+  try{const d=await api('/api/me');ME=d.me;CREDITS=d.credits||0;}catch(e){toast(e.message)}
+  // The Admin tab must NEVER be hidden by an unrelated failure: it is set on its own,
+  // and re-asserted on every render below as a self-healing fallback.
+  try{if(ME&&isAdminRole(ME.role))$('adminTab').style.display='inline-block';}catch(e){}
+  try{$('creditPill').style.display='inline-block';$('creditPill').textContent=CREDITS+' credit'+(CREDITS===1?'':'s');}catch(e){}
   showAnnouncement();
-  // Admin goes straight to the control center; first-time users to Profile; others to Home.
-
-  go((ME && (ME.headline||'').trim()) ? 'home' : 'profile');
+  // Everyone lands on the dashboard; step 1 there handles the CV upload.
+  go('home');
 }
 let SITE=null;
 async function loadSiteConfig(){
@@ -585,7 +617,7 @@ async function loadSiteConfig(){
     if(box&&SITE&&Array.isArray(SITE.stories)&&SITE.stories.length){
       const d=document.createElement('div');
       d.style.cssText='margin:-18px 0 30px;text-align:center';
-      d.innerHTML=SITE.stories.map(x=>`<div style="display:inline-block;max-width:300px;margin:6px 8px;background:rgba(8,22,48,.72);border:1px solid rgba(120,160,255,.25);border-radius:14px;padding:12px 14px;text-align:left"><span style="color:#cfe1ff;font-style:italic">“${esc(x.text)}”</span><div style="color:#00D4FF;font-weight:700;margin-top:4px;font-size:12.5px">— ${esc(x.name)}</div></div>`).join('');
+      d.innerHTML=SITE.stories.map(x=>`<div style="display:inline-block;max-width:300px;margin:6px 8px;background:rgba(8,22,48,.72);border:1px solid rgba(120,160,255,.25);border-radius:14px;padding:12px 14px;text-align:left"><span style="color:#cfe1ff;font-style:italic">“${esc(x.text)}”</span><div style="color:#00D4FF;font-weight:700;margin-top:4px;font-size:12.5px">- ${esc(x.name)}</div></div>`).join('');
       box.parentNode.insertBefore(d,box.nextSibling);
     }
   }catch(e){}},400);
@@ -600,7 +632,7 @@ function showAnnouncement(){
 async function signOut(){window._ffBooted=false;await SB.auth.signOut();location.reload()}
 function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render()}
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b){if(b.dataset.t==='browse')window._lane='';go(b.dataset.t)}});
-function render(){({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(TAB==='buy')setTimeout(loadRefBox,200);if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
+function render(){try{if(ME&&isAdminRole(ME.role)&&$('adminTab'))$('adminTab').style.display='inline-block';}catch(e){}({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(TAB==='buy')setTimeout(loadRefBox,200);if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
 
 /* ---------- auth view ---------- */
 function renderAuth(mode){
@@ -635,23 +667,23 @@ function renderAuth(mode){
       <div><b id="stOpps">Live</b><span>verified opportunities right now</span></div>
       <div><b id="stCtry">50+</b><span>countries covered</span></div>
       <div><b id="stNew">Fresh</b><span>added this week</span></div>
-      <div><b>You</b><span>press Send — from your own email</span></div>
+      <div><b>You</b><span>press Send, from your own email</span></div>
     </div>
     <div class="sub" style="text-align:center;margin-top:10px;opacity:.9">No inbox access · No stored passwords · Confidential documents stay with you · Source link on every opportunity</div>
     <h2 class="mkt-h">How ForiForeign works</h2>
     <div class="mkt-grid">
-      <div class="mkt-card"><div class="mkt-ic">1️⃣</div><h3>Build your real profile</h3><p>Education, experience, publications, documents — once. Our agent works only from your real facts, never inventions.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">2️⃣</div><h3>The agent searches &amp; verifies</h3><p>Study, scholarship and work opportunities from official sources — deadlines, funding and eligibility checked against your profile.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">3️⃣</div><h3>Apply with authority</h3><p>Tailored CV, cover letter and email prepared for each case. Nothing sends until you press Send yourself — from your own email.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">1️⃣</div><h3>Build your real profile</h3><p>Education, experience, publications, documents, once. Our agent works only from your real facts, never inventions.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">2️⃣</div><h3>The agent searches &amp; verifies</h3><p>Study, scholarship and work opportunities from official sources, deadlines, funding and eligibility checked against your profile.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">3️⃣</div><h3>Apply with authority</h3><p>Tailored CV, cover letter and email prepared for each case. Nothing sends until you press Send yourself, from your own email.</p></div>
     </div>
     <h2 class="mkt-h">Why students &amp; professionals choose us</h2>
     <div class="mkt-grid">
       <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Study lane</h3><p>Bachelors to Postdoc with scholarship &amp; funding filters, no-IELTS options, stipend flags.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Work lane</h3><p>Verified jobs with the licensing route named — DHA, SCFHS, NCLEX, PEBC — so you know the real path.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Work lane</h3><p>Verified jobs with the licensing route named, DHA, SCFHS, NCLEX, PEBC, so you know the real path.</p></div>
       <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Complete intelligence</h3><p>Every opportunity gets a full report: why you match, what's missing, costs in USD &amp; PKR, verified contacts.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Case management</h3><p>Each application is a case — editable documents, statuses, notes, and follow-ups in one place.</p></div>
+      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Case management</h3><p>Each application is a case, editable documents, statuses, notes, and follow-ups in one place.</p></div>
       <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Your data, protected</h3><p>Documents are private, used only for your applications. Emails send from your own Gmail, only after you approve.</p></div>
-      <div class="mkt-card" style="border-color:#00D4FF"><div class="mkt-ic">💎</div><h3>Free CV analysis · packages from Rs 2,000</h3><p>Upload CV → see your match scores across countries free → choose a package → complete tailored case → you press Send from your own email. No consultant fees, no guarantees sold — just the work, done properly.</p></div>
+      <div class="mkt-card" style="border-color:#00D4FF"><div class="mkt-ic">💎</div><h3>Free CV analysis · packages from Rs 2,000</h3><p>Upload CV → see your match scores across countries free → choose a package → complete tailored case → you press Send from your own email. No consultant fees, no guarantees sold, just the work, done properly.</p></div>
       <div class="mkt-card"><div class="mkt-ic">🇵🇰</div><h3>Built for Pakistan</h3><p>PKR pricing, JazzCash/Easypaisa/bank transfer, and guidance written for Pakistani applicants.</p></div>
     </div>
     <div id="mktReviews"></div>
@@ -669,7 +701,7 @@ function renderMktExtras(){
   fetch('/api/public/opportunity-counts').then(r=>r.json()).then(d=>{
     const el=$('msOpps');if(!el)return;
     const t=Object.values(d.counts||{}).reduce((s,c)=>s+((c&&c.total)||0),0);
-    el.textContent=t>0?String(t):'—';
+    el.textContent=t>0?String(t):'-';
   }).catch(()=>{});
   const rv=(SITE&&SITE.reviews)||[];
   if(rv.length){$('mktReviews').innerHTML=`<h2 class="mkt-h">What clients say</h2><div class="mkt-grid">${rv.slice(0,3).map(r=>`<div class="mkt-card"><div style="color:var(--gold)">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</div><p>${esc(r.text||'')}</p><div class="sub" style="color:#9db8e8">${esc(r.name||'')}</div></div>`).join('')}</div>`}
@@ -685,7 +717,7 @@ function authGlobeSelect(sel){
   p.style.display='block';
   const d=sel.detail||{};
   p.innerHTML=sel.code==='PK'
-    ?`<b>🇵🇰 Pakistan — your starting point</b><div class="sub" style="color:#cfe1ff">Every route begins here. Create your profile and let the agent map your path.</div>`
+    ?`<b>🇵🇰 Pakistan, your starting point</b><div class="sub" style="color:#cfe1ff">Every route begins here. Create your profile and let the agent map your path.</div>`
     :`<b>${esc(sel.name)}</b><div style="font:700 26px Fraunces,serif;color:#fff">${sel.count}</div><div class="sub" style="color:#cfe1ff">verified ${sel.count===1?'opportunity':'opportunities'} right now</div>
     ${sel.count?`<div class="row" style="gap:5px;margin-top:6px;flex-wrap:wrap">
     ${d.study?`<span class="gchip" style="border-color:#4f8ef7">${d.study} study</span>`:''}
@@ -720,7 +752,7 @@ function onWorldSelect(sel){
 function landingInfo(which){
   const c=(SITE&&SITE.content)||{};
   if(which==='refund'){
-    const body=`<h2>Refunds &amp; fair use</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.refund||'Your CV analysis and match scores are completely free, so you see exactly what ForiForeign found for you before paying anything.\n\nOur requirements promise: every stated requirement of an opportunity is shown to you before your credit is used, and you confirm it. If the official page later shows a requirement we did not list at that moment, the credit for that case is returned.\n\nPaid packages are credits for searches and prepared applications. Unused credits are refundable within 14 days of purchase. Credits already spent on delivered work (a completed search or a prepared application) are not refundable, because the work has been done.\n\nWe never charge for admission outcomes and never guarantee admission, scholarship, or visa results — no honest service can. What we guarantee is the work: verified opportunities from official sources, and complete, tailored application preparation.\n\nTo request a refund, message Support from your account. Refunds are returned by your original payment method within 7 working days.')}</div>`;
+    const body=`<h2>Refunds &amp; fair use</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.refund||'Your CV analysis and match scores are completely free, so you see exactly what ForiForeign found for you before paying anything.\n\nOur requirements promise: every stated requirement of an opportunity is shown to you before your credit is used, and you confirm it. If the official page later shows a requirement we did not list at that moment, the credit for that case is returned.\n\nPaid packages are credits for searches and prepared applications. Unused credits are refundable within 14 days of purchase. Credits already spent on delivered work (a completed search or a prepared application) are not refundable, because the work has been done.\n\nWe never charge for admission outcomes and never guarantee admission, scholarship, or visa results, no honest service can. What we guarantee is the work: verified opportunities from official sources, and complete, tailored application preparation.\n\nTo request a refund, message Support from your account. Refunds are returned by your original payment method within 7 working days.')}</div>`;
     const wrap=document.createElement('div');
     wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
     wrap.innerHTML=`<div class="sheet" style="max-width:560px;margin:0 auto">${body}<div class="row" style="margin-top:12px"><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">Close</button></div></div>`;
@@ -811,7 +843,7 @@ function openReviewForm(){
   wrap.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.95);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
   <div class="spread"><h3 style="margin:0">Share your review</h3><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
   <label>Your rating</label>
-  <select id="rv-stars"><option value="5">★★★★★ Excellent</option><option value="4">★★★★ Very good</option><option value="3">★★★ Good</option></select>
+  <select id="rv-stars"><option value="5">★★★★★ Excellent</option><option value="4">★★★★ Very good</option><option value="3">★★★ Good</option><option value="2">★★ Average</option><option value="1">★ Poor</option></select>
   <label>Your experience</label><textarea id="rv-text" style="min-height:90px" placeholder="What did ForiForeign do for you?"></textarea>
   <button class="btn b-gold" style="width:100%;margin-top:12px" onclick="sendReview(this)">Submit review</button>
   <div class="sub" style="margin-top:6px;text-align:center">Approved reviews appear on our homepage.</div></div>`;
@@ -844,17 +876,17 @@ async function vHome(){
   window._homeState=S.state;
   const heroFor={
     new:{badge:'Welcome',h:'Four steps. You are in control.'},
-    cv_uploaded:{badge:'✓ CV ready',h:'Step 2 — find your matches.'},
-    preparing:{badge:'Working',h:'Step 3 — preparing your case…'},
-    application_ready:{badge:'✓ Ready',h:'Step 4 — review and apply.'},
+    cv_uploaded:{badge:'✓ CV ready',h:'Step 2, find your matches.'},
+    preparing:{badge:'Working',h:'Step 3, preparing your case…'},
+    application_ready:{badge:'✓ Ready',h:'Step 4, review and apply.'},
     application_sent:{badge:'✓ Applied',h:'Sent. Find the next one.'}
   };
   const H=heroFor[S.state]||heroFor.new;
   $('view').innerHTML=`
   <div class="home-hero">
-    <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap"><div class="home-hero-badge">${H.badge}</div>
-    <span class="hero-hello">${ME&&ME.full_name?('Welcome, '+esc(ME.full_name.split(' ')[0])):'Welcome'}</span></div>
-    <h1 class="home-hero-h">${H.h}</h1>
+    <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap"><div class="home-hero-badge">${ME&&ME.full_name?('Welcome, '+esc(ME.full_name.split(' ')[0])):H.badge}</div></div>
+    <h1 class="home-hero-h" style="line-height:1.35">We Discover&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Personalize&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Prepare&nbsp;<span style="color:#00D4FF">|</span>&nbsp;You Approve</h1>
+    <div style="font:700 15px Inter;color:#B4E4FF;margin-top:2px;letter-spacing:.02em">Everything Ready. <span style="background:linear-gradient(90deg,#1683FF,#00D4FF);-webkit-background-clip:text;background-clip:text;color:transparent">Fori 4 Foreign.</span></div>
     <div id="dashGlobePanel" style="display:none;margin-top:10px"></div>
   </div>
   ${ME&&!ME.phone?`<div class="card" style="border-color:#00D4FF;margin-top:12px"><div class="row"><b style="flex:0 0 auto">WhatsApp</b><span class="sub" style="flex:1;min-width:120px">Case updates &amp; deadline reminders</span></div><div class="row" style="margin-top:6px"><input id="waNum" placeholder="+92 3xx xxxxxxx" style="flex:1;min-width:160px"><button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{await api('/api/me',{method:'PUT',body:{phone:document.getElementById('waNum').value.trim()}});ME.phone=1;toast('✓ Saved');vHome()}catch(e){toast(e.message);b.disabled=false}})(this)">Save</button></div></div>`:``}
@@ -865,7 +897,7 @@ async function vHome(){
     ['Upload CV',S.hasCV,'Upload',"window._uploadKind=null;document.getElementById('doc-files').click()"],
     ['Find opportunities'+(MY.count70?' · '+MY.count70+' found':''),MY.count70>0,'Find',"openFinder()"],
     ['We prepare your case',S.appCount>0,'',''],
-    ['Apply from your email',S.state==='application_sent','Apply',"const el=document.getElementById('dashCases');if(el)el.scrollIntoView({behavior:'smooth'})"]
+    ['Approve &amp; Apply',S.state==='application_sent','Approve',"const el=document.getElementById('dashCases');if(el)el.scrollIntoView({behavior:'smooth'})"]
   ];let active=steps.findIndex(x=>!x[1]);if(active<0)active=steps.length-1;
   return steps.map((sp,i)=>`
     <div class="vstep ${sp[1]?'done':i===active?'act':''}">
@@ -881,7 +913,7 @@ async function vHome(){
   ${HM&&HM.discover&&HM.discover.status==='running'?`
   <div class="card" style="border-color:#00D4FF;margin-top:6px">
     <div class="spread"><b>Search in progress</b><span class="sub">${HM.discover.found} of ${HM.discover.target} found</span></div>
-    <div class="sub" style="margin:4px 0 8px">Running on our servers — finishes even if you close the app.</div>
+    <div class="sub" style="margin:4px 0 8px">Running on our servers, finishes even if you close the app.</div>
     <button class="btn b-gold" onclick="resumeSearch('${HM.discover.kind||''}')">View live progress</button>
   </div>`:''}
   <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
@@ -933,7 +965,7 @@ function dashGlobeSelect(sel){
 async function dashLoad(elId,url,n){
   try{const d=await api(url);const el=$(elId);if(!el)return;
     const list=(d.opportunities||[]).slice(0,n);
-    el.innerHTML=list.length?list.map(o=>oppCard(o)).join(''):'<div class="sub">Nothing yet — run a search and the agent will fill this.</div>';
+    el.innerHTML=list.length?list.map(o=>oppCard(o)).join(''):'<div class="sub">Nothing yet, run a search and the agent will fill this.</div>';
   }catch(e){const el=$(elId);if(el)el.innerHTML='<div class="sub">'+esc(e.message)+'</div>'}
 }
 async function dashCases(){
@@ -1008,7 +1040,7 @@ function renderLaneChooser(){
     <div class="lane lane-study" onclick="window._lane='study';vBrowse()">
       
       <h2>Study Abroad</h2>
-      <p class="sub">Bachelors, Masters, PhD and Postdoc — plus scholarships built in. Filter by funding: fully funded, partial, or self-finance.</p>
+      <p class="sub">Bachelors, Masters, PhD and Postdoc, plus scholarships built in. Filter by funding: fully funded, partial, or self-finance.</p>
       <span class="btn b-gold" style="margin-top:12px;pointer-events:none">Explore study routes →</span>
     </div>
     <div class="lane lane-work" onclick="window._lane='work';vBrowse()">
@@ -1068,10 +1100,10 @@ function oppCard(o,ctaColor){
       ${o.tuition?`<div class="sub" style="margin-top:2px">Tuition: ${esc(o.tuition)}${pkrHint(o.tuition)}</div>`:''}
       ${o.funding&&!fundingChip?`<div class="sub" style="margin-top:2px">${esc(o.funding)}</div>`:''}
       <div style="font:600 13px Inter;color:#D6E9FF;margin-top:8px">${consider}</div>
-      <div class="locked-blur" style="margin-top:8px"><b>Reserved for package members</b><div class="sub">Institution, official page and verified contact open with your package — and we prepare the complete application for you, end to end.</div></div>
+      <div class="locked-blur" style="margin-top:8px"><b>Reserved for package members</b><div class="sub">Institution, official page and verified contact open with your package, and we prepare the complete application for you, end to end.</div></div>
       <div class="row" style="margin-top:10px;align-items:center">
       <button class="btn b-gold" onclick="go('buy')">View packages &amp; apply</button>
-      <span class="sub">One case or several — you decide.</span></div></div>`;
+      <span class="sub">One case or several, you decide.</span></div></div>`;
   }
   return `<div class="card">
     <div class="spread"><div style="min-width:0"><b>${esc(o.institution)}</b><div class="sub">${esc(o.title)}</div></div>
@@ -1084,7 +1116,8 @@ function oppCard(o,ctaColor){
     <div class="provrow">${o.freshness==='verified_today'?'✓ Verified today':o.freshness==='verified_recently'?'✓ Recently verified':'Awaiting re-verification'} on the official page${o.url?` · <a href="${escAttr(o.url)}" target="_blank" rel="noopener" style="color:#00D4FF;text-decoration:none">official source ↗</a>`:''}${o.match&&o.match.pct!=null?' · matched on field, level, funding, language':''}</div>
     <div class="row" style="margin-top:10px">
     <button class="btn ${ctaColor||'b-gold'}" onclick="oppReport('${o.id}')">View Complete Intelligence</button>
-    ${o.started?`<button class="btn b-green" onclick="go('apps')">Case started — open</button>`:`<button class="btn b-line" onclick="startApp('${o.id}','${escAttr(o.institution)}','${escAttr([o.req_language&&o.req_language!=='none'?(o.req_language+(o.req_language_min?' '+o.req_language_min:'')):'',o.funding_type==='self'?'Self-financed (bank statement expected)':'',o.funding_type==='partial'?'Partial funding (own funds for the rest)':''].filter(Boolean).join(' · '))}')">Start case</button>`}
+    ${o.started?`<button class="btn b-green" onclick="go('apps')">Case started, open</button>`:`<button class="btn b-line" style="padding:5px 10px" onclick="(async b=>{b.disabled=true;try{await api('/api/opportunities/${o.id}/reject',{method:'POST'});const c=b.closest('.card');if(c)c.remove();toast('Hidden. It will never be shown to you again.')}catch(e){toast(e.message);b.disabled=false}})(this)">Not interested</button>
+      <button class="btn b-line" onclick="startApp('${o.id}','${escAttr(o.institution)}','${escAttr([o.req_language&&o.req_language!=='none'?(o.req_language+(o.req_language_min?' '+o.req_language_min:'')):'',o.funding_type==='self'?'Self-financed (bank statement expected)':'',o.funding_type==='partial'?'Partial funding (own funds for the rest)':''].filter(Boolean).join(' · '))}')">Start case</button>`}
     <button class="btn b-line" onclick="saveOpp('${o.id}',this)">☆ Save</button></div></div>`;
 }
 async function saveOpp(id,btn){
@@ -1119,7 +1152,7 @@ async function oppReport(id){
   ${R('License required',esc(o.req_license||''))}
   ${R('Required documents',(o.req_documents||[]).map(esc).join(', '))}
   ${R('Apply via',esc(o.apply_via||''))}
-  ${R('Verified contact',(o.contact_emails||[]).length?(o.contact_emails||[]).map(esc).join(', '):'No official email published — apply via portal')}
+  ${R('Verified contact',(o.contact_emails||[]).length?(o.contact_emails||[]).map(esc).join(', '):'No official email published, apply via portal')}
   ${R('Freshness',esc(fresh))}
   ${R('Last verified',esc((d.provenance&&d.provenance.last_verified||'').slice(0,10)))}
   </table>
@@ -1301,7 +1334,7 @@ async function renderWorkLane(){
 }
 async function runSearch(kind,opts){
   opts=opts||{};
-  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,licenses:opts.licenses||[],job_types:opts.jobTypes||[],exps:opts.exps||[],field:opts.field||undefined,intake:opts.intake||undefined}})}catch(e){toast(e.message);return}
+  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,licenses:opts.licenses||[],job_types:opts.jobTypes||[],exps:opts.exps||[],program_types:opts.programTypes||[],sectors:opts.sectors||[],field:opts.field||undefined,intake:opts.intake||undefined}})}catch(e){toast(e.message);return}
   if(d&&d.ran===false){toast(d.message||'Your recent matches are still fresh.');showMatches(kind,opts);return}
   if(!d.ran){toast(d.message);return}
   // Staged progress ring. Stages reflect the real backend pipeline; the timer paces
@@ -1317,7 +1350,7 @@ async function runSearch(kind,opts){
     <div class="sub" id="ringFound" style="margin-top:4px;color:#7ef0d4"></div>
     <div class="ffrotate sub" id="ringLine" style="margin-top:10px">${FF_LINES[0]}</div>
     <details class="ffstory" style="text-align:left;margin-top:12px"><summary>Why ForiForeign?</summary>
-    <div class="sub" style="line-height:1.7;margin-top:8px;color:#CBD5E1">Built by a Pakistani PhD student to make finding opportunities abroad simpler and more affordable. ForiForeign does the hard, repetitive work — you review and press Send yourself.<br><br><b style="color:#fff">Find opportunities. Prepare properly. Apply yourself. Stay in control.</b><br><br><i>Built in Pakistan. For ambitious people everywhere.</i></div></details></div>`;
+    <div class="sub" style="line-height:1.7;margin-top:8px;color:#CBD5E1">Built by a Pakistani PhD student to make finding opportunities abroad simpler and more affordable. ForiForeign does the hard, repetitive work, you review and press Send yourself.<br><br><b style="color:#fff">Find opportunities. Prepare properly. Apply yourself. Stay in control.</b><br><br><i>Built in Pakistan. For ambitious people everywhere.</i></div></details></div>`;
   let _rl=0;const _rot=setInterval(()=>{_rl=(_rl+1)%FF_LINES.length;const el=$('ringLine');if(el){el.style.opacity=0;setTimeout(()=>{el.textContent=FF_LINES[_rl];el.style.opacity=.85},350)}else clearInterval(_rot)},7000);
   document.body.appendChild(wrap);
   const circ=2*Math.PI*52;const fg=$('ringFg');if(fg){fg.style.strokeDasharray=circ;fg.style.strokeDashoffset=circ}
@@ -1327,7 +1360,7 @@ async function runSearch(kind,opts){
     if(finished)return;finished=true;
     clearInterval(tick);clearInterval(poll);clearInterval(_rot);
     const p=$('ringPct'),f=$('ringFg'),st=$('ringStage');
-    if(p)p.textContent='100%';if(f)f.style.strokeDashoffset=0;if(st)st.textContent='Done — opening your matches';
+    if(p)p.textContent='100%';if(f)f.style.strokeDashoffset=0;if(st)st.textContent='Done, opening your matches';
     setTimeout(()=>{wrap.remove();showMatches(kind,opts)},700);
   };
   const tick=setInterval(()=>{
@@ -1359,7 +1392,7 @@ async function resumeSearch(kind){
     <h3 style="margin-top:14px;color:#fff">Your search is still running.</h3>
     <div class="sub" id="rsFound" style="margin-top:6px;color:#7ef0d4"></div>
     <div class="sub" style="margin-top:8px;color:#CBD5E1">It runs on our servers and finishes even if you leave this page.</div>
-    <button class="btn b-line" style="margin-top:12px" onclick="this.closest('.ffresume').remove()">Hide — keep running</button></div>`;
+    <button class="btn b-line" style="margin-top:12px" onclick="this.closest('.ffresume').remove()">Hide, keep running</button></div>`;
   document.body.appendChild(wrap);
   const circ=2*Math.PI*52;const fg=$('rsFg');if(fg){fg.style.strokeDasharray=circ;fg.style.strokeDashoffset=circ}
   const step=async()=>{
@@ -1402,7 +1435,9 @@ function matchStatsTable(list,opts){
       <div style="font:800 15px Inter;color:#fff">Your CV Analysis</div>
       <div class="sub" style="margin-top:2px">${best>=0?`Best match <b style="color:#2dd4bf">${best}%</b> · `:''}scored against real verified openings, official sources only</div>
     </div>${rows}</div>
-  <div style="font:600 13.5px Inter;color:#eef4ff;margin:2px 0 8px;text-align:center">Everything is prepared and waiting. Choose your package — your first case begins today.</div>
+  ${(()=>{const openN=list.filter(o=>!o.locked&&o.institution).length;const cr=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
+    return openN&&cr?`<div style="font:700 14px Inter;color:#B4E4FF;margin:2px 0 8px;text-align:center">Choose ${Math.min(cr,openN)} of these ${openN} best matches. Your package covers ${cr} case${cr===1?'':'s'}.</div>`
+    :`<div style="font:600 13.5px Inter;color:#eef4ff;margin:2px 0 8px;text-align:center">Everything is prepared and waiting. Choose your package, and your first case begins today.</div>`})()}
   <div id="ffPkgStrip"></div>`;
 }
 async function loadPkgStrip(){
@@ -1446,7 +1481,7 @@ async function showMatches(kind,opts){
   ${list.length?`${matchStatsTable(list,opts)}
   ${strip?`<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:2px">${strip}</div>`:''}
   ${(opts.countries||[]).length&&list.some(o=>!sel.has(o.country_code))?`<div class="sub" style="margin-top:6px">Your selected countries are listed first. Comparable nearby destinations complete your package.</div>`:''}${sec}`
-  :`<div class="empty" style="margin-top:12px">The agent searched official sources, but nothing passed the quality bar this round.<br><span class="sub">Only positions confirmed on official university and employer pages enter ForiForeign — never filler. The agent keeps searching in the background; new verified matches appear on your dashboard automatically.</span><br><br><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();openFinder()">Adjust filters &amp; search again</button></div>`}
+  :`<div class="empty" style="margin-top:12px">The agent searched official sources, but nothing passed the quality bar this round.<br><span class="sub">Only positions confirmed on official university and employer pages enter ForiForeign, never filler. The agent keeps searching in the background; new verified matches appear on your dashboard automatically.</span><br><br><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();openFinder()">Adjust filters &amp; search again</button></div>`}
   </div>`;
   document.body.appendChild(wrap);
   if(list.some(o=>o.locked))loadPkgStrip();else{const el=$('ffPkgStrip');if(el)el.remove()}
@@ -1458,7 +1493,7 @@ function openFinder(afterUpload){
   const m=ME||{};
   window._finder=window._finder||{kind:m.mode==='work'?'work':'study',funded:!!m.funded_only,remote:false,visa:false,ctrys:[],ctryOpen:false,ctrySearch:''};
   if(!window._finder._loaded){window._finder._loaded=true;
-    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',visaSel:P.visa?'1':'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
+    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],programTypes:Array.isArray(P.programTypes)?P.programTypes:[],sectors:Array.isArray(P.sectors)?P.sectors:[],lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',visaSel:P.visa?'1':'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
   }
   const wrap=document.createElement('div');wrap.className='ff-finder';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;display:flex;align-items:center;justify-content:center;padding:16px';
@@ -1473,14 +1508,14 @@ function openFinder(afterUpload){
 function renderFinder(){
   const el=$('ffBody');if(!el)return;
   const f=window._finder;
-  ['levels','fundings','jobTypes','exps','licenses'].forEach(k=>{if(!Array.isArray(f[k]))f[k]=[]});
+  ['levels','fundings','jobTypes','exps','licenses','programTypes','sectors'].forEach(k=>{if(!Array.isArray(f[k]))f[k]=[]});
   if(f.level&&!f.levels.length)f.levels=[f.level];if(f.funding&&!f.fundings.length)f.fundings=[f.funding];if(f.license&&!f.licenses.length)f.licenses=[f.license];
   f.lang=f.lang||'';f.workmode=f.workmode||'';f.visaSel=f.visaSel||'';f.field=f.field||'';f.intake=f.intake||'';f._open=f._open||{};
   const sel=(key,label2,opts2)=>`<label>${label2}</label><select onchange="window._finder['${key}']=this.value;renderFinder()">${opts2.map(([v,t])=>`<option value="${v}" ${f[key]===v?'selected':''}>${t}</option>`).join('')}</select>`;
   // Generic multi-select picker: tap the head to open, tick any number of options.
   const mp=(key,label2,opts2)=>{
     const cur=f[key]||[],open=!!f._open[key];
-    const head=cur.length?opts2.filter(([v])=>cur.includes(v)).map(([,t])=>t.split(' (')[0]).join(', ').slice(0,34)+(cur.length>2?'…':''):'Any — tap to choose';
+    const head=cur.length?opts2.filter(([v])=>cur.includes(v)).map(([,t])=>t.split(' (')[0]).join(', ').slice(0,34)+(cur.length>2?'…':''):'Any, tap to choose';
     return `<label>${label2}</label><div class="ctry-picker">
     <div class="ctry-head" onclick="window._finder._open['${key}']=!window._finder._open['${key}'];renderFinder()"><span>${esc(head)}</span><span>${open?'▲':'▼'}</span></div>
     ${open?`<div class="ctry-body">${opts2.map(([v,t])=>{const on=cur.includes(v);
@@ -1490,26 +1525,28 @@ function renderFinder(){
   const FIELD_NAMES=['Medicine','Pharmacy','Nursing','Dentistry','Physiotherapy','Allied Health','Public Health','Medical Laboratory','Radiology & Imaging','Veterinary','Psychology','Nutrition & Dietetics','Biotechnology','Microbiology','Biochemistry','Genetics','Life Sciences','Chemistry','Physics','Mathematics','Statistics','Environmental Science','Earth Sciences','Astronomy','Materials Science','IT & Software','Computer Science','Data Science','Artificial Intelligence','Cybersecurity','Networking','Web & App Development','Game Development','Cloud Computing','Electrical Engineering','Mechanical Engineering','Civil Engineering','Chemical Engineering','Petroleum Engineering','Mining Engineering','Industrial Engineering','Aerospace Engineering','Automotive Engineering','Biomedical Engineering','Mechatronics','Telecom Engineering','Architecture','Urban Planning','Construction Management','Business Administration','Management','Marketing','Sales','Accounting','Finance','Banking','Economics','Human Resources','Supply Chain & Logistics','Project Management','Entrepreneurship','International Business','Law','Political Science','International Relations','Public Administration','Sociology','Social Work','Anthropology','History','Philosophy','Islamic Studies','Languages & Linguistics','Literature','Journalism & Media','Communication','Film & Television','Graphic Design','Fashion Design','Interior Design','Fine Arts','Music','Performing Arts','Education & Teaching','Early Childhood Education','Special Education','Sports Science','Hospitality & Tourism','Culinary Arts','Aviation & Piloting','Maritime & Shipping','Agriculture','Food Science','Forestry','Fisheries','Horticulture','Textile Engineering','Energy & Renewables','Nanotechnology','Robotics','Library & Information Science','Criminology','Nursing Midwifery','Paramedical','Occupational Therapy','Speech Therapy','Optometry','Audiology'];
   const FIELDS=[['','Any profession']].concat(FIELD_NAMES.map(n=>[n.toLowerCase().replace(/[^a-z]+/g,'-').replace(/^-|-$/g,''),n]));
   const study=f.kind!=='work'?
-    mp('levels','Programme level — select any',[['bachelors','Undergraduate — Bachelor&#39;s degree'],['masters','Postgraduate — Master&#39;s / MPhil'],['phd','Doctorate — PhD'],['postdoc','Postdoctoral research']])+
-    mp('fundings','Funding preference — select any',[['fully','Fully funded — tuition and living covered'],['partial','Partially funded — scholarships and waivers'],['self','Self-financed — open admissions']])+
+    mp('levels','Programme level, select any',[['bachelors','Undergraduate, Bachelor&#39;s degree'],['masters','Postgraduate, Master&#39;s / MPhil'],['phd','Doctorate, PhD'],['postdoc','Postdoctoral research']])+
+    mp('fundings','Funding preference, select any',[['fully','Fully funded, tuition and living covered'],['partial','Partially funded, scholarships and waivers'],['self','Self-financed, open admissions']])+
     sel('lang','Language requirement',[['','Any'],['none','No IELTS / TOEFL required']])+
-    sel('intake','Intake',[['','Any intake'],['2026','2026 intakes'],['2027','2027 intakes']]):'';
+    sel('intake','Intake',[['','Any intake'],['2026','2026 intakes'],['2027','2027 intakes']])+
+    mp('programTypes','Programme type - select any',[['degree','Full degree programme'],['diploma','Diploma'],['short_course','Short course'],['training','Professional training'],['fellowship','Fellowship'],['exchange','Exchange / semester abroad'],['observership','Clinical observership / rotation']]):'';
   const work=f.kind!=='study'?
-    mp('jobTypes','Job type — select any',[['full_time','Full-time position'],['part_time','Part-time position'],['contract','Contract / locum'],['internship','Internship / trainee']])+
-    mp('exps','Experience level — select any',[['entry','Early career (0–2 years)'],['mid','Established (3–7 years)'],['senior','Senior (8+ years)']])+
-    mp('licenses','Licenses I hold / target — select any',[['DHA','DHA (Dubai)'],['SCFHS','SCFHS (Saudi)'],['MOH','MOH (Gulf)'],['HAAD','HAAD (Abu Dhabi)'],['PLAB','PLAB (UK)'],['PEBC','PEBC (Canada)'],['NCLEX','NCLEX (USA)'],['USMLE','USMLE (USA)']])+
+    mp('jobTypes','Job type, select any',[['full_time','Full-time position'],['part_time','Part-time position'],['contract','Contract / locum'],['internship','Internship / trainee']])+
+    mp('exps','Experience level, select any',[['entry','Early career (0–2 years)'],['mid','Established (3–7 years)'],['senior','Senior (8+ years)']])+
+    mp('licenses','Licenses I hold / target, select any',[['DHA','DHA (Dubai)'],['SCFHS','SCFHS (Saudi)'],['MOH','MOH (Gulf)'],['HAAD','HAAD (Abu Dhabi)'],['PLAB','PLAB (UK)'],['PEBC','PEBC (Canada)'],['NCLEX','NCLEX (USA)'],['USMLE','USMLE (USA)']])+
     sel('workmode','Work mode',[['','Any'],['remote','Remote only'],['onsite','On-site']])+
-    sel('visaSel','Visa sponsorship',[['','Any'],['1','Sponsorship stated']]):'';
+    sel('visaSel','Visa sponsorship',[['','Any'],['1','Sponsorship stated']])+
+    mp('sectors','Employer sector - select any',[['hospital','Hospital / clinical'],['university','University / academia'],['industry','Industry / private sector'],['government','Government'],['ngo','NGO / international bodies'],['remote_company','Remote-first companies']]):'';
   el.innerHTML=`
   <label>I am looking for</label>
   <select onchange="window._finder.kind=this.value;renderFinder()">
-    <option value="study" ${f.kind==='study'?'selected':''}>Higher education abroad — degrees &amp; scholarships</option>
-    <option value="work" ${f.kind==='work'?'selected':''}>International careers — professional positions</option>
-    <option value="both" ${f.kind==='both'?'selected':''}>Both — education and careers</option>
+    <option value="study" ${f.kind==='study'?'selected':''}>Higher education abroad, degrees &amp; scholarships</option>
+    <option value="work" ${f.kind==='work'?'selected':''}>International careers, professional positions</option>
+    <option value="both" ${f.kind==='both'?'selected':''}>Both, education and careers</option>
   </select>
   ${sel('field','Your profession',FIELDS)}
   ${study}${work}
-  <label>Countries — select one or more</label>
+  <label>Countries, select one or more</label>
   <div class="ctry-picker">
     <div class="ctry-head" onclick="window._finder.ctryOpen=!window._finder.ctryOpen;renderFinder()">
       <span>${f.ctrys.length?f.ctrys.length+' selected':'All countries'}</span><span>${f.ctryOpen?'▲':'▼'}</span>
@@ -1535,9 +1572,9 @@ async function launchFinder(btn){
   btn.disabled=true;
   const f=window._finder||{};
   const kind=f.kind||'study';
-  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:f.lang==='none',remote:f.workmode==='remote',visa:f.visaSel==='1',licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
+  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:f.lang==='none',remote:f.workmode==='remote',visa:f.visaSel==='1',licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
   try{await api('/api/me',{method:'PUT',body:{mode:kind==='both'?'both':kind,funded_only:opts.fundedOnly}});if(ME){ME.mode=kind==='both'?'both':kind;ME.funded_only=opts.fundedOnly}}catch(e){}
-  api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,fundings:opts.fundings,levels:opts.levels,lang:opts.noLang?'none':'',workmode:opts.remote?'remote':'',licenses:opts.licenses,jobTypes:opts.jobTypes,exps:opts.exps,field:opts.field,intake:opts.intake,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
+  api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,fundings:opts.fundings,levels:opts.levels,lang:opts.noLang?'none':'',workmode:opts.remote?'remote':'',licenses:opts.licenses,jobTypes:opts.jobTypes,exps:opts.exps,programTypes:opts.programTypes,sectors:opts.sectors,field:opts.field,intake:opts.intake,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
   document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
   runSearch(kind==='both'?undefined:kind,opts);
 }
@@ -1584,7 +1621,7 @@ async function openApp(id){
   </table>
   ${(opp.post_admission_reqs||[]).length?`<div style="margin-top:8px"><b>After admission, the university will ask for:</b><ul style="margin:6px 0 0 18px;padding:0">${opp.post_admission_reqs.map(r=>`<li class="sub" style="margin:3px 0">${esc(r)}</li>`).join('')}</ul></div>`:''}
   ${opp.url?`<div class="sub" style="margin-top:8px">Source: <a href="${escAttr(opp.url)}" target="_blank" style="color:#7ef0d4">official page ↗</a></div>`:''}
-  <div class="sub" style="margin-top:10px;border-top:1px solid rgba(140,178,255,.2);padding-top:8px">📌 After admission, you send any further documents (bank statement, passport, visa papers) <b>yourself, directly to the admission office</b>. ForiForeign never stores confidential documents, passwords, or handles visa processing — we find, verify, and prepare; you stay in control.</div>
+  <div class="sub" style="margin-top:10px;border-top:1px solid rgba(140,178,255,.2);padding-top:8px">📌 After admission, you send any further documents (bank statement, passport, visa papers) <b>yourself, directly to the admission office</b>. ForiForeign never stores confidential documents, passwords, or handles visa processing, we find, verify, and prepare; you stay in control.</div>
   </div>
   ${(()=>{
     // Progressive document collection (spec #9): only ask for what THIS opportunity requires
@@ -1633,7 +1670,7 @@ async function openApp(id){
   <div class="sub" style="margin:6px 0">To: ${msg.to_emails&&msg.to_emails.length?esc(msg.to_emails.join(', ')):'<i>no official email published, portal application</i>'}</div>
   <div style="font-weight:600">${esc(msg.subject)}</div>
   <pre style="white-space:pre-wrap;font:12.5px Inter;color:#333;margin-top:6px">${esc(msg.body)}</pre>
-  ${msg.status==='pending'&&msg.to_emails&&msg.to_emails.length?`<button class="btn b-green" style="margin-top:10px" onclick="authorizeMsg('${msg.id}',this)">Authorize this email</button>`:['approved','ready'].includes(msg.status)?`<span class="chip c-green">Authorized by you</span> <button class="btn b-gold" style="margin-left:8px" onclick="applyNow('${a.id}',this)">APPLY</button>`:msg.status==='sent'?'<span class="chip c-blue">Applied</span>':''}
+  ${msg.status==='pending'&&msg.to_emails&&msg.to_emails.length?`<button class="btn b-green" style="margin-top:10px" onclick="authorizeMsg('${msg.id}',this)">Authorize this email</button>`:['approved','ready'].includes(msg.status)?`<span class="chip c-green">Authorized by you</span> <button class="btn b-gold" style="margin-left:8px" onclick="applyNow('${a.id}',this)">Approve &amp; APPLY</button>`:msg.status==='sent'?'<span class="chip c-blue">Applied</span>':''}
   </div>`:''}
   </div>`;
   document.body.appendChild(wrap);
@@ -1704,8 +1741,8 @@ function ffWait(appId){
   document.querySelectorAll('.ffwait,.ffpill').forEach(x=>x.remove());
   const w=document.createElement('div');w.className='ffwait';
   w.innerHTML=`<div class="ffwait-card">
-    <div class="ffwait-head"><div><div class="ffwait-title">Give us a few minutes.</div><div class="ffwait-sub">ForiForeign is working for you — our research and application teams are searching, checking and preparing everything in the background.</div></div>
-    <button class="ffmin" title="Minimize">—</button></div>
+    <div class="ffwait-head"><div><div class="ffwait-title">Give us a few minutes.</div><div class="ffwait-sub">ForiForeign is working for you, our research and application teams are searching, checking and preparing everything in the background.</div></div>
+    <button class="ffmin" title="Minimize">-</button></div>
     <div class="ffwait-pct"><span id="ffPct">0%</span><span class="ffwait-count" id="ffCount"></span></div>
     <div class="ffbar"><div class="ffbar-fill" id="ffFill"></div></div>
     <div class="ffeta sub" id="ffEta">Usually takes a few minutes.</div>
@@ -1741,7 +1778,7 @@ async function ffTick(appId,w,poll,rot){
       dn.innerHTML=`<div class="ffcomplete">100% COMPLETE</div><div style="font:600 15px Inter;margin:4px 0 10px">Your case is ready.</div>
       <button class="btn b-gold" style="width:100%;font-size:16px;padding:13px" onclick="document.querySelectorAll('.ffwait,.ffpill').forEach(x=>x.remove());openApp('${appId}')">REVIEW CASE</button>`;}
     const hd=w.querySelector('.ffwait-sub');if(hd)hd.textContent='Everything is prepared and checked. Review it whenever you are ready.';
-    const pl=document.querySelector('.ffpill');if(pl){pl.textContent='✓ Case ready — tap to review';pl.onclick=()=>{document.querySelectorAll('.ffwait,.ffpill').forEach(x=>x.remove());openApp(appId)};}
+    const pl=document.querySelector('.ffpill');if(pl){pl.textContent='✓ Case ready, tap to review';pl.onclick=()=>{document.querySelectorAll('.ffwait,.ffpill').forEach(x=>x.remove());openApp(appId)};}
   }
   if(st.failed){clearInterval(poll);clearInterval(rot);
     const dn=$('ffDone');if(dn){dn.style.display='block';
@@ -1772,7 +1809,20 @@ function addDocFor(appId,btn){
 let FF_ASSIST=false;
 window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.data.type==='FF_ASSIST_HELLO'){FF_ASSIST=true}});
 setTimeout(()=>{try{window.postMessage({type:'FF_ASSIST_PING'},location.origin)}catch(e){}},1200);
-async function applyNow(appId,btn){
+function showThanks(appId){
+  const w=document.createElement('div');
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:70;display:flex;align-items:center;justify-content:center;padding:18px';
+  w.innerHTML=`<div style="max-width:430px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(0,212,255,.5);color:#eef4ff;border-radius:16px;padding:22px;text-align:center">
+  <div style="font:800 20px Inter;background:linear-gradient(90deg,#1683FF,#00D4FF);-webkit-background-clip:text;background-clip:text;color:transparent">Application on its way</div>
+  <div class="sub" style="margin-top:8px;line-height:1.6">Thank you for trusting ForiForeign. Check your Sent folder, your application, documents and email were sent from your own address.</div>
+  <div style="border:1px solid rgba(245,184,65,.5);background:rgba(245,184,65,.08);border-radius:12px;padding:12px;margin-top:12px">
+  <b style="color:#FFD070">A gift for you</b>
+  <div class="sub" style="margin-top:4px">Your complete Future Path Guide: what to expect next, attestations, embassy and visa steps, bank statement, Pakistan office locations, everything until you land.</div>
+  <button class="btn b-gold" style="width:100%;margin-top:10px" onclick="downloadGuide('${appId}',this)">Download my guide (PDF)</button></div>
+  <button class="btn b-line" style="width:100%;margin-top:10px" onclick="this.closest('div[style*=fixed]').remove()">Close</button></div>`;
+  document.body.appendChild(w);
+}
+async function applyNow(appId,btn){window._thanksFor=appId;
   if(SITE&&SITE.apply_assistant&&SITE.apply_assistant.enabled===false){toast('Online application assistance is temporarily unavailable.');return}
   // Stop-and-ask: if this opportunity requires documents the client has not uploaded,
   // pause and ask before proceeding. Client decides: add now, or continue and send later docs themselves.
@@ -1783,18 +1833,18 @@ async function applyNow(appId,btn){
     w.innerHTML=`<div class="sheet"><h3 style="margin:0 0 6px">This application also requires</h3>
     <div class="sub" style="margin-bottom:10px">${miss.map(m=>esc(m)).join('<br>')}</div>
     <button class="btn b-gold" style="width:100%;margin-bottom:8px" onclick="this.closest('div[style*=fixed]').remove()">Add documents first (recommended)</button>
-    <button class="btn b-line" style="width:100%" onclick="window._applyAnyway='${appId}';this.closest('div[style*=fixed]').remove();applyNow('${appId}')">Apply anyway — I'll send the rest to the office myself</button></div>`;
+    <button class="btn b-line" style="width:100%" onclick="window._applyAnyway='${appId}';this.closest('div[style*=fixed]').remove();applyNow('${appId}')">Apply anyway, I'll send the rest to the office myself</button></div>`;
     document.body.appendChild(w);if(btn)btn.disabled=false;return;
   }
   if(btn)btn.disabled=true;
   let d;
   try{d=await api('/api/applications/'+appId+'/package');if(d&&d.profile)window.postMessage({type:'FF_PROFILE',profile:d.profile},'*')}
   catch(e){
-    // Portal-only opportunity: no email recipient — offer the official portal, never a blank compose.
+    // Portal-only opportunity: no email recipient, offer the official portal, never a blank compose.
     let pe;try{pe=JSON.parse(e.message)}catch(_){}
     if(e.message&&e.message.indexOf('portal_only')>=0){
       const url=(pe&&pe.portal_url)||'';
-      toast(url?'This opportunity applies on its official portal.':'This opportunity has no email — your documents are saved and ready.');
+      toast(url?'This opportunity applies on its official portal.':'This opportunity has no email, your documents are saved and ready.');
       if(url)window.open(url,'_blank');
       if(btn)btn.disabled=false;return;
     }
@@ -1804,10 +1854,12 @@ async function applyNow(appId,btn){
   if(FF_ASSIST){
     window.postMessage({type:'FF_APPLY',pkg:p,sig:d.sig},location.origin);
     toast('Opening your email with everything prepared…');
+    setTimeout(()=>showThanks(appId),2500);
     if(btn)btn.disabled=false;
     return;
   }
   applyFallback(p);
+  setTimeout(()=>showThanks(appId),2500);
   if(btn)btn.disabled=false;
 }
 function applyFallback(p){
@@ -1823,16 +1875,16 @@ function applyFallback(p){
   <div class="sub" style="margin:8px 0">To: <b>${esc(p.recipientName||p.recipient)}</b> · ${esc(p.organization)}</div>
   <div class="sub" style="margin:6px 0"><b>Step 1.</b> Download your prepared documents:</div>
   <div class="row" style="flex-wrap:wrap;gap:6px">${(p.attachments||[]).map(a2=>`<a class="btn b-line" style="text-decoration:none" href="${escAttr(a2.url)}" download>${esc(a2.filename)}</a>`).join('')||'<span class="sub">No documents in this case.</span>'}</div>
-  <div class="sub" style="margin:10px 0 6px"><b>Step 2.</b> Open your email — recipient, subject and your tailored message are pre-filled. Attach the downloaded documents, review, and press <b>Send</b>:</div>
+  <div class="sub" style="margin:10px 0 6px"><b>Step 2.</b> Open your email, recipient, subject and your tailored message are pre-filled. Attach the downloaded documents, review, and press <b>Send</b>:</div>
   <div class="row" style="flex-wrap:wrap;gap:6px">
   ${prov.gmail!==false?`<a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(gmailUrl)}">Open in Gmail</a>`:''}
   ${prov.outlook!==false?`<a class="btn b-line" style="text-decoration:none" target="_blank" href="${escAttr(outlookUrl)}">Open in Outlook</a>`:''}
   </div>
-  <div class="sub" style="margin-top:12px">ForiForeign never sends anything itself — you review and press Send in your own email.</div>
+  <div class="sub" style="margin-top:12px">ForiForeign never sends anything itself, you review and press Send in your own email.</div>
   ${(()=>{const su=((SITE&&SITE.apply_assistant&&SITE.apply_assistant.store_urls)||{});const link=su.chrome||su.edge||su.firefox;
-  return link?`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>Make this one-click next time</b><div class="sub" style="margin:4px 0">Apply Assistant opens your email with the documents already attached — install once, use forever.</div><a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(link)}">Enable Apply Assistant</a></div>`
+  return link?`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>Make this one-click next time</b><div class="sub" style="margin:4px 0">Apply Assistant opens your email with the documents already attached, install once, use forever.</div><a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(link)}">Enable Apply Assistant</a></div>`
   :`<div class="card" style="margin-top:10px;border-color:#1683FF"><b>Make this one-click next time</b><div class="sub" style="margin:4px 0">The Apply Assistant fills portals and attaches your documents automatically. One-minute install, guided.</div><button class="btn b-gold" onclick="installGuide()">Install the Apply Assistant</button></div>`})()}
-  <div class="row" style="margin-top:10px"><button class="btn b-green" onclick="markApplied('${p.applicationId}',this)">I pressed Send — mark as applied</button></div>
+  <div class="row" style="margin-top:10px"><button class="btn b-green" onclick="markApplied('${p.applicationId}',this)">I pressed Send, mark as applied</button></div>
   </div>`;
   document.body.appendChild(wrap);
 }
@@ -1853,9 +1905,9 @@ function startApp(id,inst,reqs){
   <h3 style="margin:0 0 6px">Before your case begins</h3>
   <div class="sub" style="margin-bottom:8px">${esc(inst)}</div>
   ${reqs?`<div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.35);border-radius:10px;padding:10px;font-size:13px"><b style="color:#F5B841">Stated requirements:</b> ${esc(reqs)}</div>`:`<div class="sub">No special requirements are stated on the official page beyond standard documents.</div>`}
-  <div class="sub" style="margin-top:8px">Documents are collected step by step — only what each stage needs, never everything at once. If the official page later shows a requirement we did not list here, your credit is returned.</div>
+  <div class="sub" style="margin-top:8px">Documents are collected step by step, only what each stage needs, never everything at once. If the official page later shows a requirement we did not list here, your credit is returned.</div>
   <div class="sub" style="margin-top:6px">Each case uses 1 credit and is prepared completely, end to end. Only this case is prepared.</div>
-  <button class="btn b-gold" style="width:100%;margin-top:12px" onclick="this.disabled=true;doStartApp('${id}',this)">I understand — start my case</button>
+  <button class="btn b-gold" style="width:100%;margin-top:12px" onclick="this.disabled=true;doStartApp('${id}',this)">I understand, start my case</button>
   <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-ack').remove()">Choose another opportunity</button></div>`;
   document.body.appendChild(w);
 }
@@ -1899,7 +1951,7 @@ async function vProfile(){
   const isNew=!(m.headline||'').trim()&&!(m.education||[]).length;
   $('view').innerHTML=`
   ${isNew?`<div class="card" style="border-color:var(--gold);background:var(--gold-soft);margin-bottom:12px"><b>Welcome! Here's how to start:</b>
-  <div class="sub" style="margin-top:6px;line-height:1.7">1. Upload your <b>CV</b> below — the agent reads it and fills your profile automatically.<br>2. Add degrees and transcripts when you have them; every document makes your applications stronger.<br>3. Then go to <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="go('browse')">Opportunities</a> — see your match scores free, then choose a package.</div></div>`:''}`+`
+  <div class="sub" style="margin-top:6px;line-height:1.7">1. Upload your <b>CV</b> below, the agent reads it and fills your profile automatically.<br>2. Add degrees and transcripts when you have them; every document makes your applications stronger.<br>3. Then go to <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="go('browse')">Opportunities</a>, see your match scores free, then choose a package.</div></div>`:''}`+`
   <div class="pid-card">
     <div class="pid-avatar" id="avatarBox" onclick="document.getElementById('avatar-file').click()" title="Change photo">
       <span id="avatarInitials">${esc(initials)}</span>
@@ -1928,32 +1980,23 @@ async function vProfile(){
   ${(m.publications||[]).map(p=>`<div class="sub" style="padding:4px 0;border-bottom:1px solid var(--line)">${esc(typeof p==='string'?p:(p.title||''))}</div>`).join('')}</div>`:''}
 
   <div class="card" style="border-color:var(--gold)"><h3>My documents</h3>
-  <div class="sub" style="margin:6px 0"><b>PDF, Word or image.</b> Your CV is enough — we read it and fill your profile.</div>
-  <input id="doc-files" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic" style="display:none" onchange="uploadDocs()">
-  <div class="row" style="gap:10px;margin:8px 0">
-    <button class="btn b-gold" onclick="uploadAll()">Upload all documents at once</button>
-    <button class="btn b-line" onclick="toggleDocList()">Upload one by one</button>
-  </div>
-  <div id="uploadProgress"></div>
-  <div id="docSections" style="display:none"><span class="sub">Loading…</span></div>
-  <div class="row" style="margin-top:10px">
-  <button class="btn b-line" onclick="reviewExtraction()">Review extracted info</button>
-  <button class="btn b-line" onclick="refillProfile()">Re-read my documents</button></div></div>
+  <div class="sub" style="margin:4px 0 10px;line-height:1.6">A detailed CV is all we need to begin. Adding degrees, transcripts or certificates further sharpens your matches, and you can always provide them later, during the application itself. Entirely up to you.</div>
+  <button class="btn b-gold" onclick="window._uploadKind=null;document.getElementById('doc-files').click()">Upload documents (select up to 20)</button>
+  <div class="sub" style="margin-top:8px">The agent reads every upload automatically and keeps your profile updated. No extra steps needed. Generally useful: CV, degrees, transcripts, experience letters, license, passport.</div>
+  <div id="uploadProgress" style="margin-top:8px"></div>
+  <div id="docList" style="margin-top:8px"></div></div>
 
   <div class="card" id="verifyCard"><div class="spread"><h3>Verified information</h3><button class="btn b-line" style="padding:5px 10px" onclick="runVerify(this)">Cross-check my documents</button></div>
-  <div class="sub" style="margin:6px 0">The agent reads each document separately and cross-checks the facts. Matching facts become verified; disagreements are flagged for you to resolve.</div>
-  <div id="verifyList"><span class="sub">Press cross-check, or upload more documents first.</span></div></div>
+  <div class="sub" style="margin:6px 0">Every document you upload is read automatically and its facts are cross-checked against each other. Agreeing facts become verified; any disagreement is flagged for you.</div>
+  <div id="verifyList"><span class="sub">Runs automatically after every upload.</span></div></div>
 
-  <div class="card"><h3>Applying: from your own email</h3>
-  <div class="sub" style="margin:6px 0">Press APPLY and everything opens in your own email — you review and press Send. We never access your inbox.</div></div>
+  <div class="card"><h3>Approve &amp; Apply, your way</h3>
+  <div class="sub" style="margin:6px 0">By email: with our free extension, every draft and attachment is prepared in your own inbox, you review and press Send. By portal: the Apply Assistant fills the official website for you. Your credentials always remain yours; we never access them.</div></div>
 
   <div class="card"><h3>Edit details</h3>
   <label>Full name</label><input id="p-name" value="${esc(m.full_name)}">
   <label>Phone</label><input id="p-phone" value="${esc(m.phone)}">
-  <label>I am looking for</label>
-  <select id="p-mode"><option value="study" ${m.mode==='study'?'selected':''}>Study abroad (BS to Postdoc, scholarships)</option>
-  <option value="work" ${m.mode==='work'?'selected':''}>Work abroad (medical professions)</option>
-  <option value="both" ${m.mode==='both'?'selected':''}>Both</option></select>
+  window._pmode='${m.mode||'study'}'
   <label>Headline</label><input id="p-head" value="${esc(m.headline)}" placeholder="e.g. PhD Pharmacology or Registered Nurse, 5 years ICU">
   <label>Field</label><input id="p-field" value="${esc(m.field)}">
   <label>Skills and methods</label><textarea id="p-methods">${esc(m.methods)}</textarea>
@@ -2082,7 +2125,7 @@ function uploadAll(){
   document.body.appendChild(wrap);
 }
 function toggleDocList(){const el=$('docSections');if(el)el.style.display=el.style.display==='none'?'block':'none';}
-async function uploadDocs(){
+async function uploadDocs(){window._afterUpload=()=>{toast('Uploaded. Your profile is updating automatically in the background.');setTimeout(()=>{if(TAB==='home')vHome();if(typeof loadDocs==='function'&&TAB==='profile')loadDocs()},700)};
   const upKind=window._uploadKind||null;
   const files=$('doc-files').files;
   if(!files.length){return}
@@ -2107,7 +2150,7 @@ async function uploadDocs(){
     }).then(d=>{
       items.forEach(it=>{const bar=$(it.id),pc=$(it.id+'pct');if(bar){bar.style.width='100%';bar.style.background='linear-gradient(90deg,#16a085,#2dd4bf)'}if(pc){pc.textContent='✓';pc.style.color='#2dd4bf'}});
       const bad=(d.results||[]).filter(x=>x.error);
-      toast(bad.length?('Some failed: '+bad.map(x=>x.name).join(', ')):'✓ Uploaded. The agent is reading your documents — your profile fills itself within a minute.');
+      toast(bad.length?('Some failed: '+bad.map(x=>x.name).join(', ')):'✓ Uploaded. The agent is reading your documents, your profile fills itself within a minute.');
       loadDocs();
       if(!upKind||upKind==='cv')setTimeout(()=>openFinder(true),900);
       setTimeout(async()=>{try{const me=await api('/api/me');ME=me.me;toast('Profile updated from your documents.');vProfile();}catch(e){}},45000);
@@ -2160,9 +2203,10 @@ async function delDoc(id){
   if(!confirm('Delete this document? This cannot be undone.'))return;
   try{await api('/api/documents/'+id,{method:'DELETE'});toast('Deleted.');loadDocs();}catch(e){toast(e.message)}}
 async function saveProfile(){
+  if(!window._pmode)window._pmode=(ME&&ME.mode)||'study';
   const lines=id=>$(id).value.split('\n').map(x=>x.trim()).filter(Boolean);
   try{const d=await api('/api/me',{method:'PUT',body:{
-    full_name:$('p-name').value,phone:$('p-phone').value,mode:$('p-mode').value,
+    full_name:$('p-name').value,phone:$('p-phone').value,mode:(window._pmode||'study'),
     headline:$('p-head').value,field:$('p-field').value,methods:$('p-methods').value,annual_budget_pkr:Number($('p-budget').value||0),funded_only:$('p-funded').checked,profession:$('p-prof').value||null,
     education:lines('p-edu').map(l=>{const p=l.split(',').map(x=>x.trim());return{degree:p[0]||'',institution:p[1]||'',year:p[2]||''}}),
     publications:lines('p-pubs'),
@@ -2219,7 +2263,7 @@ async function adminOverview(){
   <button class="btn b-green" onclick="confirmPay('${p.id}',this)">Confirm</button></div>`).join('')
   :'<div class="sub">No pending payments.</div>'}</div>
   <div class="card" style="border-color:var(--crimson)"><h3>Duplicate-CV flags</h3>
-  <div class="sub" style="margin:4px 0">Accounts that uploaded a CV identical to one from an account that already used its free case. Advisory only — review before acting.</div>
+  <div class="sub" style="margin:4px 0">Accounts that uploaded a CV identical to one from an account that already used its free case. Advisory only, review before acting.</div>
   ${(d.abuseFlags||[]).length?d.abuseFlags.map(f=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)">
   <span class="chip c-red">${esc(f.reason.replace(/_/g,' '))}</span> <span class="sub">user ${esc((f.user_id||'').slice(0,8))}… matches ${esc((f.matched_user_id||'').slice(0,8))}… · ${esc((f.created_at||'').slice(0,16).replace('T',' '))}</span>
   <div class="sub">${esc(f.detail||'')}</div></div>`).join('')
@@ -2252,7 +2296,7 @@ async function adminSettings(){
   <label>Emergency switches</label><div class="row" style="margin-bottom:10px;flex-wrap:wrap">
   ${[['discovery_enabled','Search'],['prepare_enabled','Case preparation'],['signup_enabled','New signups']].map(([k,l])=>`<button class="segbtn ${((window._cfg||{}).features||{})[k]===false?'':'on'}" onclick="window._cfg.features=window._cfg.features||{};window._cfg.features['${k}']=window._cfg.features['${k}']===false?true:false;adminSettings()">${l}: ${((window._cfg||{}).features||{})[k]===false?'OFF':'ON'}</button>`).join('')}</div>
 <label>Manual WhatsApp to client</label><div class="row" style="margin-bottom:10px"><input data-wanum placeholder="Client number e.g. 03451234567" style="flex:1;min-width:140px"><select data-watpl style="width:auto"><option value="Assalam o Alaikum! Your ForiForeign case is ready. Log in at foriforeign.com to review and apply. Reference: ">Case ready</option><option value="Reminder from ForiForeign: your saved opportunity deadline is approaching. Log in to apply: foriforeign.com ">Deadline reminder</option><option value="Welcome to ForiForeign! Your first case is completely FREE. Upload your CV at foriforeign.com and we do the hard work. ">Welcome</option></select><button class="btn b-gold" onclick="const n=document.querySelector('[data-wanum]').value,t=document.querySelector('[data-watpl]').value;if(n)window.open(waLink(n,t),'_blank')">Open chat</button></div>
-  <div class="sub" style="margin:4px 0 8px">Fill real verified inventory before launch. Same quality bar as user discovery — official pages only.</div>
+  <div class="sub" style="margin:4px 0 8px">Fill real verified inventory before launch. Same quality bar as user discovery, official pages only.</div>
   <div class="row"><select id="seedKind" style="width:auto"><option value="masters">Study: Masters</option><option value="phd">Study: PhD</option><option value="postdoc">Postdoc</option><option value="work">Work</option></select>
   <input id="seedQ" style="flex:1;min-width:160px" placeholder='e.g. fully funded masters Germany'>
   <button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{const d=await api('/api/admin/seed',{method:'POST',body:{kind:$('seedKind').value,query:$('seedQ').value}});toast(d.message)}catch(e){toast(e.message)}b.disabled=false})(this)">Seed now</button></div></div>
@@ -2312,28 +2356,28 @@ async function shareCard(appId){
   x.font='400 30px Arial';x.fillStyle='#9DB8E4';x.fillText('Quote this reference for any status query.',100,815);
   x.font='700 40px Arial';x.fillStyle='#00E5C0';x.fillText('First case FREE · then just Rs 2,000',70,950);
   x.font='400 32px Arial';x.fillStyle='#CBD5E1';x.fillText('Verified opportunities · You press Send yourself',70,1005);
-  x.font='700 34px Arial';x.fillStyle='#fff';x.fillText('Invite a friend — share this card',70,1110);
+  x.font='700 34px Arial';x.fillStyle='#fff';x.fillText('Invite a friend, share this card',70,1110);
   x.font='400 32px Arial';x.fillStyle='#9DB8E4';x.fillText('WhatsApp: '+(((SITE||{}).contact||{}).whatsapp||'0345 5216903'),70,1180);
   x.fillText('Email: '+(((SITE||{}).contact||{}).email||'admin@foriforeign.com'),70,1230);
   x.fillStyle='rgba(0,212,255,.1)';x.fillRect(0,1262,1080,88);x.font='600 28px Arial';x.fillStyle='#7BE8FF';x.fillText('🇵🇰 Built in Pakistan · For ambitious people everywhere',70,1316);
   c.toBlob(async b=>{const f=new File([b],'foriforeign-card.png',{type:'image/png'});
     if(navigator.share&&navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:'ForiForeign'});return}catch(e){}}
-    const u=URL.createObjectURL(b);const l=document.createElement('a');l.href=u;l.download='foriforeign-card.png';l.click();toast('✓ Card downloaded — share it on WhatsApp');});
+    const u=URL.createObjectURL(b);const l=document.createElement('a');l.href=u;l.download='foriforeign-card.png';l.click();toast('✓ Card downloaded, share it on WhatsApp');});
 }
 function installGuide(){
   const w=document.createElement('div');w.style.cssText='position:fixed;inset:0;background:rgba(3,9,22,.8);z-index:85;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto';
   const store=(SITE&&SITE.apply_assistant&&SITE.apply_assistant.store_url)||'';
   w.innerHTML=`<div class="sheet" style="max-width:430px"><h3 style="color:#fff;margin:0 0 4px">Install the Apply Assistant</h3>
-  <div class="sub" style="margin-bottom:10px">One-time setup, under a minute. It only helps fill forms and attach your prepared files — it never reads your inbox and never sends anything itself.</div>
+  <div class="sub" style="margin-bottom:10px">One-time setup, under a minute. It only helps fill forms and attach your prepared files, it never reads your inbox and never sends anything itself.</div>
   ${store?`<button class="btn b-gold" style="width:100%;margin-bottom:8px" onclick="window.open('${store}','_blank')">① Open Chrome Web Store → click "Add to Chrome"</button>
-  <div class="sub" style="text-align:center;margin-bottom:8px">That's it — two clicks, done.</div>`
+  <div class="sub" style="text-align:center;margin-bottom:8px">That's it, two clicks, done.</div>`
   :`<div class="sub" style="margin-bottom:6px"><b style="color:#fff">Step 1.</b> Download the assistant:</div>
   <button class="btn b-gold" style="width:100%;margin-bottom:8px" onclick="window.open('/foriforeign-apply-assistant.zip','_blank')">⬇ Download (small zip file)</button>
   <div class="sub" style="margin-bottom:6px"><b style="color:#fff">Step 2.</b> Unzip it (right-click → Extract All).</div>
-  <div class="sub" style="margin-bottom:6px"><b style="color:#fff">Step 3.</b> In Chrome, open <b style="color:#00D4FF">chrome://extensions</b> <button class="btn b-line" style="padding:2px 10px;font-size:12px" onclick="navigator.clipboard.writeText('chrome://extensions');toast('✓ Copied — paste in your address bar')">copy</button></div>
+  <div class="sub" style="margin-bottom:6px"><b style="color:#fff">Step 3.</b> In Chrome, open <b style="color:#00D4FF">chrome://extensions</b> <button class="btn b-line" style="padding:2px 10px;font-size:12px" onclick="navigator.clipboard.writeText('chrome://extensions');toast('✓ Copied, paste in your address bar')">copy</button></div>
   <div class="sub" style="margin-bottom:6px"><b style="color:#fff">Step 4.</b> Turn ON <b>Developer mode</b> (top-right switch).</div>
   <div class="sub" style="margin-bottom:10px"><b style="color:#fff">Step 5.</b> Click <b>Load unpacked</b> → select the unzipped folder. Done ✓</div>`}
-  <div class="sub" style="border-top:1px solid rgba(120,180,255,.2);padding-top:8px">Why it asks for permissions: opening your Gmail/Outlook compose and filling the page you are viewing — nothing more. You always press Send and Submit yourself.</div>
+  <div class="sub" style="border-top:1px solid rgba(120,180,255,.2);padding-top:8px">Why it asks for permissions: opening your Gmail/Outlook compose and filling the page you are viewing, nothing more. You always press Send and Submit yourself.</div>
   <button class="btn b-line" style="width:100%;margin-top:10px" onclick="this.closest('div[style*=fixed]').remove()">Close</button></div>`;
   document.body.appendChild(w);
 }
@@ -2342,7 +2386,7 @@ function applyAssistCard(){
   const isSuper=(ME&&ME.role)==='super_admin';
   const prov=aa.providers||{};
   return `<div class="card"><h3>ForiForeign Apply Assistant</h3>
-  <div class="sub" style="margin-bottom:6px">Applications open in the client's own email for review — ForiForeign never sends automatically and never accesses inboxes.</div>
+  <div class="sub" style="margin-bottom:6px">Applications open in the client's own email for review, ForiForeign never sends automatically and never accesses inboxes.</div>
   <div class="row" style="margin-top:6px"><label style="margin:0"><input type="checkbox" data-aa="enabled" ${aa.enabled!==false?'checked':''} ${isSuper?'':'disabled'} style="width:auto"> Enabled ${isSuper?'':'<span class="sub">(super admin only)</span>'}</label></div>
   <div class="row" style="margin-top:6px"><label style="margin:0"><input type="checkbox" data-aa="apply_button" ${aa.apply_button!==false?'checked':''} style="width:auto"> APPLY button visible to clients</label></div>
   <div class="sub" style="margin-top:8px">Email providers offered:</div>
@@ -2397,7 +2441,7 @@ async function adminPackages(){
 }
 function renderPacks(){
   const packs=window._packs||[];
-  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Edit packages without code. Saving affects only future purchases — past payments keep their original price.</div>
+  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Edit packages without code. Saving affects only future purchases, past payments keep their original price.</div>
   ${packs.map((p,i)=>`<div class="card"><div class="spread"><b>Package ${i+1}</b><button class="btn b-line" style="padding:3px 10px" onclick="window._packs.splice(${i},1);renderPacks()">Remove</button></div>
   <label>Name</label><input value="${esc(p.name||'')}" onchange="window._packs[${i}].name=this.value">
   <label>Cases (credits)</label><input type="number" value="${esc(p.credits)}" onchange="window._packs[${i}].credits=parseInt(this.value)">
@@ -2443,9 +2487,9 @@ async function toggleCountry(code,btn){
 async function aiSelfTest(btn){
   btn.disabled=true;btn.textContent='Testing…';
   try{const d=await api('/api/admin/ai-selftest');
-    const f=x=>x?(x.ok?`OK · ${x.ms}ms${x.model?' · '+esc(x.model):''}`:`FAILED · ${esc(x.error||'')}`):'—';
+    const f=x=>x?(x.ok?`OK · ${x.ms}ms${x.model?' · '+esc(x.model):''}`:`FAILED · ${esc(x.error||'')}`):'-';
     toast('Plain: '+(d.plain&&d.plain.ok?'OK':'FAIL')+' · Search: '+(d.grounded&&d.grounded.ok?'OK':'FAIL'));
-    alert('AI ENGINE SELF-TEST\n\nPlain call: '+f(d.plain)+'\n\nSearch-grounded call: '+f(d.grounded)+'\n\nOpenAI backup: '+(d.backup&&d.backup.configured?('ARMED · '+esc(d.backup.model)):'NOT CONFIGURED — add OPENAI_API_KEY in Railway')+'\n\nIf search fails while plain passes, the issue is grounding/tools or model overload, not your key. With the backup armed, discovery survives even a full Gemini outage.');
+    alert('AI ENGINE SELF-TEST\n\nPlain call: '+f(d.plain)+'\n\nSearch-grounded call: '+f(d.grounded)+'\n\nOpenAI backup: '+(d.backup&&d.backup.configured?('ARMED · '+esc(d.backup.model)):'NOT CONFIGURED, add OPENAI_API_KEY in Railway')+'\n\nIf search fails while plain passes, the issue is grounding/tools or model overload, not your key. With the backup armed, discovery survives even a full Gemini outage.');
   }catch(e){toast(e.message)}
   btn.disabled=false;btn.textContent='Test AI engine';
 }
@@ -2457,7 +2501,7 @@ async function adminBusiness(){
   return `<div class="card"><div class="spread"><h3>AI engine</h3><button class="btn b-line" onclick="aiSelfTest(this)">Test AI engine</button></div>
   <div class="sub">One click proves the key, model chain and search grounding are alive. Run it whenever discovery looks weak.</div></div>
   <div class="card"><h3>Business expenses (full control)</h3>
-  <div class="sub" style="margin-bottom:6px">Supabase, domain, Railway, marketing, staff — anything. Yearly amounts are divided by 12; USD converts at the admin rate.</div>
+  <div class="sub" style="margin-bottom:6px">Supabase, domain, Railway, marketing, staff, anything. Yearly amounts are divided by 12; USD converts at the admin rate.</div>
   <div id="expRows">${window._expenses.map((x,i)=>`<div class="row" style="margin-top:6px">
     <input value="${escAttr(x.name)}" placeholder="Name" style="flex:2;min-width:110px" onchange="window._expenses[${i}].name=this.value">
     <input type="number" value="${x.amount}" style="flex:1;min-width:70px" onchange="window._expenses[${i}].amount=parseFloat(this.value)||0">
@@ -2467,10 +2511,10 @@ async function adminBusiness(){
   <div class="row" style="margin-top:10px">
     <button class="btn b-line" onclick="window._expenses.push({name:'',amount:0,currency:'PKR',period:'monthly'});refreshBiz()">Add expense</button>
     <button class="btn b-gold" onclick="saveExpenses(this)">Save expenses</button></div>
-  <div class="sub" style="margin-top:8px">Live billing links to Railway / Supabase / registrar need their API tokens — planned; enter amounts manually for now.</div></div>
+  <div class="sub" style="margin-top:8px">Live billing links to Railway / Supabase / registrar need their API tokens, planned; enter amounts manually for now.</div></div>
   ${pnl?`<div class="card"><div class="spread"><h3>Profit &amp; loss</h3><input type="month" value="${month}" style="width:auto" onchange="window._pnlMonth=this.value;vAdmin()"></div>
   <table style="width:100%;font-size:13px;border-collapse:collapse">
-  <tr><td style="padding:4px 0">Income — confirmed payments</td><td style="text-align:right;color:#2dd4bf;font-weight:700">Rs ${pnl.income_pkr.toLocaleString()}</td></tr>
+  <tr><td style="padding:4px 0">Income, confirmed payments</td><td style="text-align:right;color:#2dd4bf;font-weight:700">Rs ${pnl.income_pkr.toLocaleString()}</td></tr>
   <tr><td style="padding:4px 0">AI cost (this month)</td><td style="text-align:right">Rs ${pnl.ai_cost_pkr.toLocaleString()}</td></tr>
   ${(pnl.items||[]).map(x=>`<tr><td style="padding:2px 0" class="sub">${esc(x.name)} <span class="sub">(${x.period}, ${x.currency})</span></td><td style="text-align:right" class="sub">Rs ${x.monthly_pkr.toLocaleString()}</td></tr>`).join('')}
   <tr style="border-top:1px solid var(--line)"><td style="padding:6px 0"><b>Total expense</b></td><td style="text-align:right;font-weight:700">Rs ${pnl.total_expense_pkr.toLocaleString()}</td></tr>
@@ -2595,7 +2639,7 @@ async function adminPayments(){
   const chip=s=>({pending:'c-gold',paid:'c-green',confirmed:'c-green',failed:'c-red'}[s]||'c-gray');
   $('adminBody').innerHTML=`<div class="row seg" style="margin-bottom:10px">${['','pending','paid','failed'].map(s=>`<button class="segbtn ${st===s?'on':''}" onclick="window._payStatus='${s}';vAdmin()">${s||'All'}</button>`).join('')}</div>
   ${(d.payments||[]).map(p=>`<div class="card"><div class="spread"><div><b>PKR ${Number(p.amount_pkr||0).toLocaleString()}</b> · ${esc(String(p.credits))} credit${p.credits===1?'':'s'}
-  <div class="sub">${esc(p.user_name||String(p.user_id).slice(0,8))} · ref: ${esc(p.reference||'—')} · ${esc((p.created_at||'').slice(0,16).replace('T',' '))}</div></div>
+  <div class="sub">${esc(p.user_name||String(p.user_id).slice(0,8))} · ref: ${esc(p.reference||'-')} · ${esc((p.created_at||'').slice(0,16).replace('T',' '))}</div></div>
   <div class="row"><span class="chip ${chip(p.status)}">${esc(p.status)}</span>
   ${p.status==='pending'?`<button class="btn b-green" style="padding:4px 12px" onclick="confirmPay('${p.id}',this)">Confirm</button>`:''}</div></div></div>`).join('')||'<div class="empty">No payments.</div>'}`;
 }
@@ -2609,10 +2653,10 @@ async function adminUniversities(){
   const us=d.universities||[];
   await ensureCountries();
   const byC={};us.forEach(u=>{(byC[u.country_code]=byC[u.country_code]||[]).push(u)});
-  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Priority institutions guide the discovery agent per country — searched first, never limited to them. Saving a country's list replaces its previous list.</div>
+  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Priority institutions guide the discovery agent per country, searched first, never limited to them. Saving a country's list replaces its previous list.</div>
   <div class="card"><h3>Country institution list</h3>
   <label>Country</label><select id="ub-cc">${(window._countries||[]).map(c=>`<option value="${c.code}">${esc(c.name)} (${c.code})</option>`).join('')}</select>
-  <label>Universities / labs / research institutes — one per line, top priority first</label>
+  <label>Universities / labs / research institutes, one per line, top priority first</label>
   <textarea id="ub-list" rows="8" placeholder="Technical University of Munich&#10;Heidelberg University&#10;Max Planck Institute for..."></textarea>
   <div class="row" style="margin-top:10px"><button class="btn b-gold" onclick="saveUniBulk(this)">Save country list</button>
   <button class="btn b-line" onclick="loadUniBulk()">Load current list into editor</button></div>
@@ -2691,7 +2735,7 @@ async function loadRefBox(){
   try{const d=await api('/api/home');const r=d&&d.referral;if(!r)return;const el=$('refBox');if(!el)return;
     const link=location.origin+'/?ref='+r.code;
     el.innerHTML=`<div style="border:1px solid rgba(0,212,255,.45);background:rgba(0,212,255,.06);border-radius:12px;padding:10px 14px;margin-bottom:10px;font-size:13px">
-    ${r.balance_pkr>0?`<b style="color:#3BF0D2">Referral discount: Rs ${r.balance_pkr.toLocaleString()}</b> — applied automatically at checkout (up to Rs 500 per case).<br>`:''}
+    ${r.balance_pkr>0?`<b style="color:#3BF0D2">Referral discount: Rs ${r.balance_pkr.toLocaleString()}</b>, applied automatically at checkout (up to Rs 500 per case).<br>`:''}
     <b>Invite &amp; earn:</b> every friend whose first purchase completes earns you <b style="color:#FFD070">Rs 500 per case</b> off your next package.
     <div class="row" style="margin-top:6px"><input value="${link}" readonly style="flex:1;min-width:150px" onclick="this.select()"><button class="btn b-line" style="padding:6px 12px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${link}');toast('Invite link copied.')">Copy link</button></div></div>`;
   }catch(e){}
@@ -2705,7 +2749,8 @@ async function vBuy(){
   <div id="refBox"></div>
   <div style="border:1px solid rgba(245,184,65,.4);background:rgba(245,184,65,.07);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px">
   A typical consultant in Pakistan charges <b>Rs 50,000–150,000</b> per application, verifies nothing, and you still write your own documents.
-  <b style="color:#F5B841">ForiForeign: from Rs 2,000</b> — verified from official pages, every document prepared, you press Send.</div>
+  <span class="sub" style="display:block;margin-top:6px">Premium members: choose up to 10 from your 15 best matches, and re-search with new filters anytime for 6 months. Previously chosen or dismissed opportunities are never repeated.</span>
+  <b style="color:#F5B841">ForiForeign: from Rs 2,000</b>, verified from official pages, every document prepared, you press Send.</div>
   <div class="row">${packs.map(p=>`<div class="pack" onclick="buyPack(${p.credits})"><b>${p.credits}</b><div class="sub">credit${p.credits===1?'':'s'}</div>
   <div style="margin-top:6px;font-weight:700">${p.pkr>0?'PKR '+p.pkr.toLocaleString():'Pricing soon'}</div></div>`).join('')}</div>
   <div class="card" style="margin-top:14px"><h3>How to pay</h3>

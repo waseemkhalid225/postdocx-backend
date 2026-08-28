@@ -46,6 +46,11 @@ const checks = [
   ['multer is defined BEFORE any route uses it (boot-order)', sv.indexOf('const up = multer(') < sv.indexOf("up.single('file')")],
   ['locked teaser carries requirement fields for the dispute shield', sv.includes('req_language: o.req_language || null')],
   ['package strip reads the real pricing endpoint', fs.readFileSync(__dirname + '/../public/index.html', 'utf8').includes("api('/api/pricing');const ps=(((d||{}).pricing||{}).packs||[])")],
+  ['parseJSON has a string-aware bracket walker preferring object arrays', e.includes('primitiveFallback') && e.includes("typeof arr[0] === 'object'")],
+  ['each discovery pass rotates its source angle', e.includes('ANGLES[pi % ANGLES.length]')],
+  ['coverage memory excludes already-known institutions', e.includes('do NOT repeat these')],
+  ['design system pass is in place', fs.readFileSync(__dirname + '/../public/index.html', 'utf8').includes('Design system pass: rhythm, hierarchy, craft')],
+  ['admin tab is self-healing on every render', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes("isAdminRole(ME.role)&&$('adminTab')") && f.includes('adminTab').valueOf; })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
 let fail = 0;

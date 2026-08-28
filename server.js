@@ -1,4 +1,4 @@
-// ForiForeign server core v0.1 — auth (Supabase), credits, payments, pricing, opportunities
+// ForiForeign server core v0.1 - auth (Supabase), credits, payments, pricing, opportunities
 require('dotenv').config();
 const express = require('express');
 const { admin, userFromToken } = require('./lib/supa');
@@ -18,7 +18,7 @@ app.use((req, res, next) => {
   });
   next();
 });
-/* Crash-proofing: unexpected errors are logged and survived — the platform never
+/* Crash-proofing: unexpected errors are logged and survived - the platform never
    dies over one bad request or one rejected promise. */
 process.on('unhandledRejection', err => { try { require('./lib/oblog').errlog('process:unhandledRejection', err instanceof Error ? err : new Error(String(err)), {}); } catch (e) {} });
 process.on('uncaughtException', err => { try { require('./lib/oblog').errlog('process:uncaughtException', err, {}); } catch (e) {} console.error('[uncaught]', err && err.message); });
@@ -49,7 +49,7 @@ app.use('/api', (req, res, next) => {
 
 app.use(express.json({ limit: '2mb' }));
 const multer = require('multer');
-const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 12 } });
+const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 20 } });
 // Long-cache heavy static assets (video/icons); HTML always fresh.
 app.use(express.static('public', { maxAge: '7d', setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
 app.get('/health', (req, res) => res.json({ ok: true, up: process.uptime() | 0 }));
@@ -120,7 +120,7 @@ async function policyPage(res, title, text) {
   const escH = s => String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escH(title)} — ForiForeign</title>
+<title>${escH(title)} - ForiForeign</title>
 <style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;padding:0 20px;color:#1F2937;line-height:1.8}
 h1{color:#2563EB}a{color:#2563EB}</style></head>
 <body><h1>${escH(title)}</h1><div style="white-space:pre-wrap">${escH(text)}</div>
@@ -163,7 +163,7 @@ app.get('/api/site-config', async (req, res) => {
     const cfg = await siteSettings.getConfig();
     const pub = siteSettings.publicView(cfg);
     pub.fx = { usd_to_pkr: Number(cfg.ai && cfg.ai.usd_to_pkr) || 278 };
-    // Real, admin-entered stories only — never fabricated defaults.
+    // Real, admin-entered stories only - never fabricated defaults.
     pub.stories = Array.isArray(cfg.success_stories) ? cfg.success_stories.slice(0, 3).map(x => ({ name: String(x.name || '').slice(0, 40), text: String(x.text || '').slice(0, 140) })).filter(x => x.name && x.text) : [];
     res.json({ config: pub });
   }
@@ -220,7 +220,7 @@ function pkrText(txt, rate) {
   const nice = pkr >= 1e7 ? (pkr / 1e7).toFixed(1) + ' crore' : pkr >= 1e5 ? (pkr / 1e5).toFixed(1) + ' lakh' : Math.round(pkr).toLocaleString();
   return '≈ Rs ' + nice;
 }
-const seoPage = (title, desc, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | ForiForeign</title><meta name="description" content="${desc}"><link rel="canonical" href=""><style>body{margin:0;background:#050d1f;color:#eef4ff;font:15px/1.6 system-ui,Segoe UI,Arial}a{color:#00D4FF}.wrap{max-width:760px;margin:0 auto;padding:28px 16px}h1{font-size:26px;margin:6px 0}h2{font-size:18px;margin:18px 0 6px;color:#fff}.sub{color:#9db8e8;font-size:13px}.card{background:rgba(8,18,40,.92);border:1px solid rgba(140,178,255,.3);border-radius:14px;padding:14px;margin:10px 0}.chip{display:inline-block;border:1px solid rgba(140,178,255,.4);border-radius:999px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0;color:#cfe1ff}.g{color:#2dd4bf;font-weight:700}.cta{display:inline-block;background:linear-gradient(90deg,#1683FF,#00D4FF);color:#04101f;font-weight:800;padding:12px 22px;border-radius:12px;text-decoration:none;margin-top:14px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}</style></head><body><div class="wrap"><div class="top"><a href="/" style="font-weight:800;text-decoration:none;color:#fff">ForiForeign</a><a href="/" class="sub">Open the app →</a></div>${body}<a class="cta" href="/">See my matches — free CV analysis</a><div class="sub" style="margin-top:16px">Every opportunity verified on the official page before you see it. You review, you press Send. Built in Pakistan.</div></div></body></html>`;
+const seoPage = (title, desc, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | ForiForeign</title><meta name="description" content="${desc}"><link rel="canonical" href=""><style>body{margin:0;background:#050d1f;color:#eef4ff;font:15px/1.6 system-ui,Segoe UI,Arial}a{color:#00D4FF}.wrap{max-width:760px;margin:0 auto;padding:28px 16px}h1{font-size:26px;margin:6px 0}h2{font-size:18px;margin:18px 0 6px;color:#fff}.sub{color:#9db8e8;font-size:13px}.card{background:rgba(8,18,40,.92);border:1px solid rgba(140,178,255,.3);border-radius:14px;padding:14px;margin:10px 0}.chip{display:inline-block;border:1px solid rgba(140,178,255,.4);border-radius:999px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0;color:#cfe1ff}.g{color:#2dd4bf;font-weight:700}.cta{display:inline-block;background:linear-gradient(90deg,#1683FF,#00D4FF);color:#04101f;font-weight:800;padding:12px 22px;border-radius:12px;text-decoration:none;margin-top:14px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}</style></head><body><div class="wrap"><div class="top"><a href="/" style="font-weight:800;text-decoration:none;color:#fff">ForiForeign</a><a href="/" class="sub">Open the app →</a></div>${body}<a class="cta" href="/">See my matches - free CV analysis</a><div class="sub" style="margin-top:16px">Every opportunity verified on the official page before you see it. You review, you press Send. Built in Pakistan.</div></div></body></html>`;
 app.get('/s/:slug', async (req, res) => {
   try {
     const slug = String(req.params.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
@@ -245,14 +245,14 @@ app.get('/s/:slug', async (req, res) => {
     const h = slug.split('-').map(w => w[0] ? w[0].toUpperCase() + w.slice(1) : w).join(' ');
     const cards = rows.map(o => { const pk = pkrText(o.stipend || o.tuition, rate); return `<div class="card"><span class="chip">${o.country_code || ''}</span>${o.level ? `<span class="chip">${o.level}</span>` : ''}${o.funding_type === 'fully' ? '<span class="chip" style="border-color:#2dd4bf;color:#2dd4bf">Fully funded</span>' : ''}${o.deadline ? `<span class="chip">Deadline ${o.deadline}</span>` : ''}${o.stipend ? `<div class="g" style="margin-top:6px">Stipend: ${String(o.stipend).slice(0, 60)} ${pk ? '<span class="sub">' + pk + '</span>' : ''}</div>` : ''}<div class="sub" style="margin-top:6px">Verified on the official page. Institution and full details open with your ForiForeign package. Uploading your CV and seeing your match scores is free.</div></div>`; }).join('');
     res.set('Cache-Control', 'public, max-age=3600');
-    res.send(seoPage(h, h + ' for Pakistani students and professionals — verified on official pages, matched to your CV, applications prepared for you.', `<h1>${h}</h1><div class="sub">${rows.length ? rows.length + ' verified openings live right now.' : 'The agent searches official sources daily — open the app and it searches for you.'} Matched to your CV. Applications prepared for you.</div>${cards}`));
+    res.send(seoPage(h, h + ' for Pakistani students and professionals - verified on official pages, matched to your CV, applications prepared for you.', `<h1>${h}</h1><div class="sub">${rows.length ? rows.length + ' verified openings live right now.' : 'The agent searches official sources daily - open the app and it searches for you.'} Matched to your CV. Applications prepared for you.</div>${cards}`));
   } catch (e) { res.redirect('/'); }
 });
 const SEO_GUIDES = {
-  germany: { cc: 'DE', title: 'Study in Germany from Pakistan', body: '<h2>Why Germany</h2><div>Public universities charge no tuition — you pay only a semester fee of roughly €150–350 (≈ Rs 50,000–1.2 lakh per year). World-class engineering, pharmacy and research, with DAAD scholarships built for international students.</div><h2>Money reality</h2><div>Blocked account requirement ≈ €11,904 (≈ Rs 36 lakh) shown once for the visa. Monthly living ≈ €950.</div><h2>Visa for Pakistanis</h2><div>National (D) visa via the German Embassy Islamabad; APS certificate is now required before application. Plan 3–4 months.</div><h2>Funding names to know</h2><div>DAAD, Deutschlandstipendium, Erasmus Mundus.</div>' },
-  finland: { cc: 'FI', title: 'Study in Finland from Pakistan', body: '<h2>Why Finland</h2><div>One of the world&#39;s best education systems, 400+ English programmes, and generous early-bird tuition waivers — many admits pay 50–100% less.</div><h2>Money reality</h2><div>Tuition €8,000–18,000 before waivers; living ≈ €800/month. Proof of funds ≈ €6,720/year (≈ Rs 21 lakh).</div><h2>Visa for Pakistanis</h2><div>Residence permit online via EnterFinland, biometrics at VFS Islamabad/Karachi.</div><h2>Funding names to know</h2><div>University scholarships (automatic with admission), EDUFI for doctoral research.</div>' },
-  italy: { cc: 'IT', title: 'Study in Italy from Pakistan', body: '<h2>Why Italy</h2><div>Regional grants (DSU) can make study effectively free — many Pakistani students pay near-zero tuition AND receive a yearly grant with free meals and housing support.</div><h2>Money reality</h2><div>Tuition is income-based, often €150–1,000 with ISEE paperwork; DSU grants ≈ €5,000–7,000/year (≈ Rs 15–21 lakh).</div><h2>Visa for Pakistanis</h2><div>Pre-enrolment on Universitaly, then D-visa at the Embassy in Islamabad. Start documents early — attestation takes time.</div><h2>Funding names to know</h2><div>DSU regional scholarships, Invest Your Talent in Italy.</div>' },
-  'saudi-arabia': { cc: 'SA', title: 'Work in Saudi Arabia from Pakistan', body: '<h2>Why Saudi Arabia</h2><div>Tax-free salaries, large Pakistani community, and constant demand for pharmacists, nurses, doctors and engineers under Vision 2030.</div><h2>Licensing reality</h2><div>Healthcare professionals need SCFHS classification via Prometric + DataFlow verification — start DataFlow early, it is the slow step.</div><h2>Money reality</h2><div>Pharmacist salaries commonly SAR 5,000–12,000/month (≈ Rs 3.7–9 lakh) plus housing/transport in many contracts.</div><h2>Funding names to know</h2><div>For study instead: KAUST and Saudi government scholarships are fully funded with stipends.</div>' },
+  germany: { cc: 'DE', title: 'Study in Germany from Pakistan', body: '<h2>Why Germany</h2><div>Public universities charge no tuition - you pay only a semester fee of roughly €150–350 (≈ Rs 50,000–1.2 lakh per year). World-class engineering, pharmacy and research, with DAAD scholarships built for international students.</div><h2>Money reality</h2><div>Blocked account requirement ≈ €11,904 (≈ Rs 36 lakh) shown once for the visa. Monthly living ≈ €950.</div><h2>Visa for Pakistanis</h2><div>National (D) visa via the German Embassy Islamabad; APS certificate is now required before application. Plan 3–4 months.</div><h2>Funding names to know</h2><div>DAAD, Deutschlandstipendium, Erasmus Mundus.</div>' },
+  finland: { cc: 'FI', title: 'Study in Finland from Pakistan', body: '<h2>Why Finland</h2><div>One of the world&#39;s best education systems, 400+ English programmes, and generous early-bird tuition waivers - many admits pay 50–100% less.</div><h2>Money reality</h2><div>Tuition €8,000–18,000 before waivers; living ≈ €800/month. Proof of funds ≈ €6,720/year (≈ Rs 21 lakh).</div><h2>Visa for Pakistanis</h2><div>Residence permit online via EnterFinland, biometrics at VFS Islamabad/Karachi.</div><h2>Funding names to know</h2><div>University scholarships (automatic with admission), EDUFI for doctoral research.</div>' },
+  italy: { cc: 'IT', title: 'Study in Italy from Pakistan', body: '<h2>Why Italy</h2><div>Regional grants (DSU) can make study effectively free - many Pakistani students pay near-zero tuition AND receive a yearly grant with free meals and housing support.</div><h2>Money reality</h2><div>Tuition is income-based, often €150–1,000 with ISEE paperwork; DSU grants ≈ €5,000–7,000/year (≈ Rs 15–21 lakh).</div><h2>Visa for Pakistanis</h2><div>Pre-enrolment on Universitaly, then D-visa at the Embassy in Islamabad. Start documents early - attestation takes time.</div><h2>Funding names to know</h2><div>DSU regional scholarships, Invest Your Talent in Italy.</div>' },
+  'saudi-arabia': { cc: 'SA', title: 'Work in Saudi Arabia from Pakistan', body: '<h2>Why Saudi Arabia</h2><div>Tax-free salaries, large Pakistani community, and constant demand for pharmacists, nurses, doctors and engineers under Vision 2030.</div><h2>Licensing reality</h2><div>Healthcare professionals need SCFHS classification via Prometric + DataFlow verification - start DataFlow early, it is the slow step.</div><h2>Money reality</h2><div>Pharmacist salaries commonly SAR 5,000–12,000/month (≈ Rs 3.7–9 lakh) plus housing/transport in many contracts.</div><h2>Funding names to know</h2><div>For study instead: KAUST and Saudi government scholarships are fully funded with stipends.</div>' },
   'united-kingdom': { cc: 'GB', title: 'Study in the UK from Pakistan', body: '<h2>Why the UK</h2><div>One-year Master&#39;s degrees cut total cost dramatically, and the Graduate Route gives 2 years of post-study work.</div><h2>Money reality</h2><div>Tuition £14,000–28,000; maintenance funds ≈ £1,023/month outside London shown for 9 months (≈ Rs 32 lakh).</div><h2>Visa for Pakistanis</h2><div>Student visa with CAS; IHS surcharge applies. TB test required at approved Pakistani clinics.</div><h2>Funding names to know</h2><div>Chevening (fully funded), Commonwealth Shared Scholarships, GREAT Scholarships.</div>' },
   australia: { cc: 'AU', title: 'Study in Australia from Pakistan', body: '<h2>Why Australia</h2><div>Strong universities, paid part-time work rights, and 2–4 years of post-study work through the Temporary Graduate visa.</div><h2>Money reality</h2><div>Tuition AUD 30,000–45,000; proof of funds ≈ AUD 29,710/year (≈ Rs 55 lakh). Research degrees are often fully funded with stipends ≈ AUD 32,000.</div><h2>Visa for Pakistanis</h2><div>Subclass 500 with GS statement; strong, honest documentation matters more than agents claim.</div><h2>Funding names to know</h2><div>Australia Awards, RTP (research), Destination Australia.</div>' }
 };
@@ -261,7 +261,7 @@ app.get('/guide/:c', async (req, res) => {
   if (!g) return res.redirect('/');
   res.set('Cache-Control', 'public, max-age=3600');
   const links = SEO_SLUGS.filter(sl => { for (const [n, c] of Object.entries(SEO_COUNTRIES)) if (sl.endsWith(n) && c === g.cc) return true; return false; }).map(sl => `<a href="/s/${sl}">${sl.replace(/-/g, ' ')}</a>`).join(' · ');
-  res.send(seoPage(g.title, g.title + ' — real costs in PKR, visa steps, licensing and funding names, plus live verified opportunities.', `<h1>${g.title}</h1>${g.body}${links ? '<h2>Live openings</h2><div>' + links + '</div>' : ''}`));
+  res.send(seoPage(g.title, g.title + ' - real costs in PKR, visa steps, licensing and funding names, plus live verified opportunities.', `<h1>${g.title}</h1>${g.body}${links ? '<h2>Live openings</h2><div>' + links + '</div>' : ''}`));
 });
 app.get('/sitemap.xml', (req, res) => {
   const base = 'https://foriforeign.com';
@@ -280,11 +280,11 @@ app.get('/api/opportunities/:id/report', auth, async (req, res) => {
     let m = null; try { const { matchOpportunity } = require('./lib/match'); m = await matchOpportunity(req.userId, o.id); } catch (e) {}
     return res.status(402).json({
       locked: true,
-      error: 'This opportunity is reserved for package members. Choose a package to open the institution, official page and verified contact — one case or several, your choice.',
+      error: 'This opportunity is reserved for package members. Choose a package to open the institution, official page and verified contact - one case or several, your choice.',
       teaser: { ...lockTease(o), match: m ? { status: m.status, pct: m.pct } : null }
     });
   }
-  // record 'viewed' (spec 41) — best effort
+  // record 'viewed' (spec 41) - best effort
   admin().from('user_opportunity_history').insert({ user_id: req.userId, opportunity_id: o.id, event: 'viewed' }).then(() => {}, () => {});
   // match + eligibility gaps (spec 13/15)
   let match = null;
@@ -330,7 +330,36 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
   if (!ids.length) return res.json({ opportunities: [] });
   const { data: opps } = await admin().from('opportunities').select('*').in('id', ids);
   let list = opps || [];
-  if (!(await entitled(req.userId))) list = list.map(o => lockTease(o));
+  if (String(req.query.match) === '1') {
+    // Never re-show what this user already chose or dismissed. Paid users keep the
+    // right to fresh matches every time (premium: re-search anytime for 6 months).
+    try {
+      const { data: myApps } = await admin().from('applications').select('opportunity_id').eq('user_id', req.userId);
+      const used = new Set((myApps || []).map(x => x.opportunity_id));
+      let rej = [];
+      try { const { data: rv } = await admin().from('app_settings').select('value').eq('key', 'rejected:' + req.userId).single(); rej = (rv && rv.value && rv.value.ids) || []; } catch (e) {}
+      const rset = new Set(rej);
+      list = list.filter(o => !used.has(o.id) && !rset.has(o.id));
+    } catch (e) {}
+  }
+  const entOk = await entitled(req.userId);
+  if (!entOk) list = list.map(o => lockTease(o));
+  else if (String(req.query.match) === '1') {
+    // Package choice model: solo sees its 2 best matches, smart 8, premium 15 -
+    // choose freely among them; the rest stay reserved. Staff see everything.
+    try {
+      const { data: prf } = await admin().from('profiles').select('role').eq('id', req.userId).single();
+      if (!(prf && ['admin', 'staff'].includes(prf.role))) {
+        let tier = 0;
+        try { const { data: pays } = await admin().from('payments').select('credits').eq('user_id', req.userId).eq('status', 'confirmed').order('credits', { ascending: false }).limit(1); tier = Number(pays && pays[0] && pays[0].credits) || 0; } catch (e) {}
+        if (tier < 1) tier = 1;
+        const visible = tier >= 10 ? 15 : tier >= 5 ? 8 : 2;
+        const pv2 = o => (o.match && o.match.pct != null) ? o.match.pct : -1;
+        const open = new Set([...list].sort((x, y) => pv2(y) - pv2(x)).slice(0, visible).map(o => o.id));
+        list = list.map(o => open.has(o.id) ? o : lockTease(o));
+      }
+    } catch (e) {}
+  }
   res.json({ opportunities: list });
 });
 /* ---------- Spec 2: configurable university database (admin) ---------- */
@@ -840,7 +869,7 @@ app.get('/api/run/status', auth, async (req, res) => {
       const { count } = await q; found = Math.max(found, count || 0);
     } catch (e) {}
     let status = v.status || 'idle';
-    // Stale guard: a 'running' older than 12 minutes finished or died — report done with what exists.
+    // Stale guard: a 'running' older than 12 minutes finished or died - report done with what exists.
     if (status === 'running' && Date.now() - new Date(v.startedAt || 0).getTime() > 12 * 60000) status = 'done';
     res.json({ status, found, target: Number(v.target) || 5, kind: v.kind || null, startedAt: v.startedAt || null });
   } catch (e) { res.json({ status: 'idle' }); }
@@ -870,7 +899,7 @@ async function entitled(userId) {
   } catch (e) { return true; } // never lock everyone out on an internal error
 }
 /* Teaser row: everything that sells (match %, funding, stipend figures, country,
-   deadline) — nothing that identifies (no institution, title, url, city, contacts). */
+   deadline) - nothing that identifies (no institution, title, url, city, contacts). */
 function lockTease(o) {
   return {
     id: o.id, kind: o.kind, country_code: o.country_code, deadline: o.deadline,
@@ -933,7 +962,7 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
         const { data: refr } = await admin().from('profiles').select('referral_balance_pkr').eq('id', buyer.referred_by).single();
         await admin().from('profiles').update({ referral_balance_pkr: (Number(refr && refr.referral_balance_pkr) || 0) + bonus }).eq('id', buyer.referred_by);
         admin().from('audit_log').insert({ actor: p.user_id, event: 'REFERRAL_BONUS', detail: 'Rs ' + bonus + ' credited to referrer for first confirmed payment' }).then(() => {}, () => {});
-        admin().from('support_tickets').insert({ user_id: buyer.referred_by, subject: 'Referral reward earned', message: 'A friend you invited completed their first purchase.', reply: 'Congratulations — Rs ' + bonus + ' referral discount is now in your account, applied automatically on your next package.', status: 'answered' }).then(() => {}, () => {});
+        admin().from('support_tickets').insert({ user_id: buyer.referred_by, subject: 'Referral reward earned', message: 'A friend you invited completed their first purchase.', reply: 'Congratulations - Rs ' + bonus + ' referral discount is now in your account, applied automatically on your next package.', status: 'answered' }).then(() => {}, () => {});
       }
     }
   } catch (e) {}
@@ -942,7 +971,7 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
   // this same confirm path runs automatically with zero admin involvement.
   admin().from('support_tickets').insert({
     user_id: p.user_id, subject: 'Payment confirmed',
-    message: 'Package purchase — ' + p.credits + ' case credit' + (p.credits === 1 ? '' : 's'),
+    message: 'Package purchase - ' + p.credits + ' case credit' + (p.credits === 1 ? '' : 's'),
     reply: 'Your payment is verified and ' + p.credits + ' case credit' + (p.credits === 1 ? ' is' : 's are') + ' now active. Open Find Opportunities, pick your best match, and your first case begins immediately.',
     status: 'answered'
   }).then(() => {}, () => {});
@@ -950,7 +979,7 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
   res.json({ ok: true });
 });
 
-/* ---------- Phase 5: payment gateways (SKELETON — inert until credentials set) ---------- */
+/* ---------- Phase 5: payment gateways (SKELETON - inert until credentials set) ---------- */
 const paymentGateways = require('./lib/payments');
 app.get('/api/payment-gateways', (req, res) => {
   // Public: which automated gateways are live. Empty until you configure a merchant.
@@ -1035,7 +1064,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
       opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct } : null }));
     } catch (e) { /* matching is best-effort; never blocks the list */ }
   }
-  // Mark opportunities this user has already started — one case, one cost, ever.
+  // Mark opportunities this user has already started - one case, one cost, ever.
   try {
     const { data: mine } = await admin().from('applications').select('opportunity_id').eq('user_id', req.userId);
     const mset = new Set((mine || []).map(x => x.opportunity_id));
@@ -1068,7 +1097,7 @@ app.post('/api/applications', auth, async (req, res) => {
   }
   const bal = await balance(req.userId);
   if (!isAdmin && bal < 1) {
-    return res.status(402).json({ error: 'Your matches are ready. Choose a package to start this case — every case is prepared completely, end to end.' });
+    return res.status(402).json({ error: 'Your matches are ready. Choose a package to start this case - every case is prepared completely, end to end.' });
   }
   const { data: opp } = await admin().from('opportunities').select('id,institution').eq('id', opportunityId).single();
   if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
@@ -1099,7 +1128,7 @@ app.get('/api/applications', auth, async (req, res) => {
 /* ---------- documents: upload, read, view, delete + auto profile fill ---------- */
 // (multer defined near the top so every upload route can use it)
 const { saveUpload, signedUrl, extractProfile } = require('./lib/docs');
-app.post('/api/documents', auth, up.array('files', 12), async (req, res) => {
+app.post('/api/documents', auth, up.array('files', 20), async (req, res) => {
   try {
     // Optional section override: when the user adds files from a specific profile
     // section, that section's kind wins over filename-based classification.
@@ -1144,7 +1173,7 @@ app.get('/api/documents', auth, async (req, res) => {
   const { data } = await admin().from('documents').select('id,kind,name,mime,size_bytes,created_at').eq('user_id', req.userId).eq('generated', false).order('created_at', { ascending: false });
   res.json({ documents: data || [] });
 });
-// Canonical document checklist — what strengthens a client's study/work case.
+// Canonical document checklist - what strengthens a client's study/work case.
 // Maps uploaded documents (by their classified `kind`) onto a fixed list so the
 // Profile page can show a clear "have / still needed" checklist.
 const DOC_CHECKLIST = [
@@ -1152,7 +1181,7 @@ const DOC_CHECKLIST = [
   { key: 'transcript',   label: 'Academic transcripts',        required: true,  match: ['transcript'] },
   { key: 'degree',       label: 'Degree certificates',         required: true,  match: ['degree'] },
   { key: 'english_test', label: 'English test (IELTS/TOEFL/PTE)', required: true, match: ['english_test'] },
-  { key: 'passport',     label: 'Passport (photo page) — optional, not needed to start', required: false, match: ['passport'] },
+  { key: 'passport',     label: 'Passport (photo page) - optional, not needed to start', required: false, match: ['passport'] },
   { key: 'license',      label: 'Professional license/registration (work)', required: false, match: ['license'] },
   { key: 'reference_letter', label: 'Reference / recommendation letters', required: false, match: ['reference_letter'] },
   { key: 'publication',  label: 'Publications / research papers', required: false, match: ['publication'] },
@@ -1221,7 +1250,7 @@ app.post('/api/profile/autofill/apply', auth, async (req, res) => {
   await admin().from('audit_log').insert({ actor: req.userId, event: 'AUTOFILL_APPLIED', detail: Object.keys(clean).join(',') + (refsAdded ? ' +' + refsAdded + ' referees' : '') });
   res.json({ ok: true, applied: Object.keys(clean), refsAdded });
 });
-// Profile readiness — computed from real profile fields + document checklist.
+// Profile readiness - computed from real profile fields + document checklist.
 // Honest by construction: a section is 'complete' only if the underlying data
 // actually exists. Nothing here infers or invents.
 app.get('/api/profile/readiness', auth, async (req, res) => {
@@ -1318,7 +1347,7 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
   const recipientEmail = (msg.to_emails || [])[0] || '';
   if (!recipientEmail) {
     // Safety net: an email package must never have a blank recipient. If we reach here, the
-    // opportunity is portal-only — tell the client to use the official portal instead.
+    // opportunity is portal-only - tell the client to use the official portal instead.
     const o0 = a.opportunities || {};
     return res.status(409).json({ error: 'portal_only', portal_url: o0.url || a.portal_url || '', message: 'This opportunity applies through its official portal. Your documents are ready to attach there.' });
   }
@@ -1331,7 +1360,7 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
     attachments: (docs || []).map(d => ({ id: d.id, filename: applyLib.niceName(d), url: '/api/apply/doc/' + d.id + '?' + applyLib.docQuery(d.id, req.userId) }))
   });
   await admin().from('audit_log').insert({ actor: req.userId, event: 'APPLY_PACKAGE', detail: a.id });
-  // Safe profile subset for the extension form-filler (Phase 2) — never documents, never credentials.
+  // Safe profile subset for the extension form-filler (Phase 2) - never documents, never credentials.
   let pr = {}; try { const { data: prof } = await admin().from('profiles').select('full_name,email,phone,city,address,last_institution,degree_level,field,cgpa,experience_years,language_scores,linkedin').eq('id', req.userId).single(); pr = prof || {}; } catch (e) {}
   pkg.profile = { full_name: pr.full_name, email: pr.email, phone: pr.phone, city: pr.city, address: pr.address,
     last_institution: pr.last_institution, degree_level: pr.degree_level, field: pr.field, cgpa: pr.cgpa,
@@ -1366,6 +1395,17 @@ app.get('/api/admin/overview', auth, perm('overview.read'), async (req, res) => 
     pendingPayments: pend||[], abuseFlags: flags });
 });
 
+/* Not interested: hide an opportunity from this user permanently (never re-shown). */
+app.post('/api/opportunities/:id/reject', auth, async (req, res) => {
+  try {
+    const key = 'rejected:' + req.userId;
+    let ids = [];
+    try { const { data } = await admin().from('app_settings').select('value').eq('key', key).single(); ids = (data && data.value && data.value.ids) || []; } catch (e) {}
+    if (!ids.includes(req.params.id)) ids.push(req.params.id);
+    await admin().from('app_settings').upsert({ key, value: { ids: ids.slice(-500) } });
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 /* Referral claim: a new user attaches to the friend whose link brought them. */
 app.post('/api/referral/claim', auth, async (req, res) => {
   const code = String(req.body && req.body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
@@ -1422,21 +1462,21 @@ app.put('/api/prefs', auth, async (req, res) => {
 /* ---------- Future Path Guide: individualized post-acceptance roadmap PDF ---------- */
 const FUTURE_PATH = {
   DE: { name: 'Germany', embassy: 'German Embassy Islamabad, Ramna 5, Diplomatic Enclave', portal: 'https://videx.diplo.de (VIDEX form) + appointment via the embassy website', funds: 'Blocked account approx. EUR 11,904 (Rs ~36 lakh) via Expatrio/Fintiba/Coracle, opened online', extra: 'APS certificate (aps-pakistan.pk) is required BEFORE the visa application.' },
-  FI: { name: 'Finland', embassy: 'VFS Global Islamabad / Karachi (Finland residence permits)', portal: 'https://enterfinland.fi — apply online, then biometrics at VFS', funds: 'Approx. EUR 6,720/year (Rs ~21 lakh) in your own account', extra: 'Early tuition-waiver deadlines matter; accept your offer fast.' },
+  FI: { name: 'Finland', embassy: 'VFS Global Islamabad / Karachi (Finland residence permits)', portal: 'https://enterfinland.fi - apply online, then biometrics at VFS', funds: 'Approx. EUR 6,720/year (Rs ~21 lakh) in your own account', extra: 'Early tuition-waiver deadlines matter; accept your offer fast.' },
   IT: { name: 'Italy', embassy: 'Embassy of Italy Islamabad, Diplomatic Enclave', portal: 'Pre-enrolment on https://universitaly.it, then D-visa at the embassy', funds: 'Approx. EUR 6,000/year, plus DSU grant award letter if you have one', extra: 'Start degree attestation early; Italian pre-enrolment paperwork takes time.' },
-  GB: { name: 'United Kingdom', embassy: 'VFS Global UK Visa Application Centres, Islamabad / Lahore / Karachi', portal: 'https://gov.uk/student-visa — apply online with your CAS', funds: 'GBP 1,023/month for 9 months outside London (Rs ~32 lakh), held 28 days', extra: 'IHS health surcharge is paid during the application; TB test at an approved clinic.' },
-  AU: { name: 'Australia', embassy: 'Australian High Commission Islamabad (visas processed online)', portal: 'https://immi.homeaffairs.gov.au — Subclass 500 via ImmiAccount', funds: 'Approx. AUD 29,710/year (Rs ~55 lakh) evidence', extra: 'The GS (Genuine Student) statement matters most; write it yourself, honestly.' },
+  GB: { name: 'United Kingdom', embassy: 'VFS Global UK Visa Application Centres, Islamabad / Lahore / Karachi', portal: 'https://gov.uk/student-visa - apply online with your CAS', funds: 'GBP 1,023/month for 9 months outside London (Rs ~32 lakh), held 28 days', extra: 'IHS health surcharge is paid during the application; TB test at an approved clinic.' },
+  AU: { name: 'Australia', embassy: 'Australian High Commission Islamabad (visas processed online)', portal: 'https://immi.homeaffairs.gov.au - Subclass 500 via ImmiAccount', funds: 'Approx. AUD 29,710/year (Rs ~55 lakh) evidence', extra: 'The GS (Genuine Student) statement matters most; write it yourself, honestly.' },
   SA: { name: 'Saudi Arabia', embassy: 'Royal Embassy of Saudi Arabia Islamabad; work visas via Enjaz/Musaned through your employer', portal: 'Your employer initiates the work visa; you complete biometrics at Etimad centres', funds: 'Employer-sponsored; no personal bank statement normally required for work visas', extra: 'SCFHS classification (via DataFlow + Prometric) must be complete for healthcare roles.' },
   AE: { name: 'United Arab Emirates', embassy: 'Employer processes the work permit; entry visa issued electronically', portal: 'Employer-driven via MOHRE/ICP; you provide attested documents', funds: 'Employer-sponsored', extra: 'DHA/HAAD/MOH licensing via DataFlow verification must be complete.' },
-  CA: { name: 'Canada', embassy: 'VFS Global Canada Visa Application Centres, Islamabad / Lahore / Karachi', portal: 'https://ircc.canada.ca — study permit online (SDS closed; regular stream)', funds: 'CAD 20,635/year + first-year tuition (GIC where applicable)', extra: 'Provincial attestation letter (PAL) is required with most study permits.' },
-  US: { name: 'United States', embassy: 'US Embassy Islamabad / Consulate Karachi — F-1 interview', portal: 'Pay SEVIS fee (fmjfee.com), complete DS-160, book the interview', funds: 'Evidence covering I-20 first-year amount', extra: 'Carry original documents to the interview; answer plainly and honestly.' },
+  CA: { name: 'Canada', embassy: 'VFS Global Canada Visa Application Centres, Islamabad / Lahore / Karachi', portal: 'https://ircc.canada.ca - study permit online (SDS closed; regular stream)', funds: 'CAD 20,635/year + first-year tuition (GIC where applicable)', extra: 'Provincial attestation letter (PAL) is required with most study permits.' },
+  US: { name: 'United States', embassy: 'US Embassy Islamabad / Consulate Karachi - F-1 interview', portal: 'Pay SEVIS fee (fmjfee.com), complete DS-160, book the interview', funds: 'Evidence covering I-20 first-year amount', extra: 'Carry original documents to the interview; answer plainly and honestly.' },
   KR: { name: 'South Korea', embassy: 'Embassy of the Republic of Korea, Islamabad (Diplomatic Enclave)', portal: 'D-2 student visa at the embassy with your Certificate of Admission; GKS awardees follow NIIED instructions', funds: 'Approx. USD 20,000 bank balance certificate for self-financed; GKS is fully covered', extra: 'TOPIK improves both admission and GKS scoring; apply via embassy OR university track.' },
   JP: { name: 'Japan', embassy: 'Embassy of Japan Islamabad; visa via designated agencies after CoE', portal: 'University obtains your Certificate of Eligibility (CoE), then you apply for the student visa', funds: 'MEXT is fully funded; self-financed need approx. JPY 2M/year evidence', extra: 'MEXT embassy-track opens April-May yearly at the embassy website.' },
   CN: { name: 'China', embassy: 'Embassy of China Islamabad / consulates Karachi, Lahore', portal: 'X1 visa with JW201/JW202 form + admission letter; CSC awardees get JW201', funds: 'CSC is fully funded (tuition, dorm, stipend); self-financed approx. USD 4,000-8,000/year', extra: 'CSC applications run November-March via csc.edu.cn and university portals.' },
-  TR: { name: 'Turkiye', embassy: 'Embassy of Turkiye Islamabad; e-visa/education visa after acceptance', portal: 'Turkiye Burslari (turkiyeburslari.gov.tr) covers everything; visa with acceptance letter', funds: 'Burslari is fully funded incl. flight; self-financed approx. USD 3,000-6,000/year', extra: 'Burslari window is typically January-February — one application, all universities.' },
+  TR: { name: 'Turkiye', embassy: 'Embassy of Turkiye Islamabad; e-visa/education visa after acceptance', portal: 'Turkiye Burslari (turkiyeburslari.gov.tr) covers everything; visa with acceptance letter', funds: 'Burslari is fully funded incl. flight; self-financed approx. USD 3,000-6,000/year', extra: 'Burslari window is typically January-February - one application, all universities.' },
   IE: { name: 'Ireland', embassy: 'Embassy of Ireland Islamabad (visa via VFS)', portal: 'Study visa online at irishimmigration.ie, then VFS biometrics', funds: 'EUR 10,000 evidence plus first-year fees paid', extra: 'Government of Ireland International Education Scholarship pays EUR 10,000 + full fee waiver.' },
   NL: { name: 'Netherlands', embassy: 'Netherlands embassy route is handled BY the university (TEV procedure)', portal: 'The university applies for your MVV/residence permit; you attend biometrics when called', funds: 'Approx. EUR 13,000/year transferred to the university before arrival', extra: 'Orange Knowledge and university excellence scholarships stack with this route.' },
-  HU: { name: 'Hungary', embassy: 'Embassy of Hungary Islamabad', portal: 'Stipendium Hungaricum via apply.stipendiumhungaricum.hu (deadline mid-January), then D visa', funds: 'Stipendium is fully funded: tuition, stipend, housing allowance, insurance', extra: 'HEC Pakistan co-nominates — watch hec.gov.pk for the parallel window.' },
+  HU: { name: 'Hungary', embassy: 'Embassy of Hungary Islamabad', portal: 'Stipendium Hungaricum via apply.stipendiumhungaricum.hu (deadline mid-January), then D visa', funds: 'Stipendium is fully funded: tuition, stipend, housing allowance, insurance', extra: 'HEC Pakistan co-nominates - watch hec.gov.pk for the parallel window.' },
   NZ: { name: 'New Zealand', embassy: 'New Zealand visas are processed online (no local embassy visit needed)', portal: 'Student visa via immigration.govt.nz with offer of place', funds: 'NZD 20,000/year evidence plus tuition', extra: 'Post-study work rights up to 3 years; Manaaki New Zealand Scholarships are fully funded.' }
 };
 app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
@@ -1455,15 +1495,15 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   const P = t => pdf.font('Times-Roman').fontSize(11.5).fillColor('#000').text(clean(t), { align: 'justify' });
   const B = t => pdf.font('Times-Roman').fontSize(11.5).text('•  ' + clean(t), { indent: 12 });
   pdf.font('Times-Bold').fontSize(17).text('Your Future Path', { align: 'center' });
-  pdf.font('Times-Roman').fontSize(11.5).text(clean((opp.institution || '') + (g ? ' · ' + g.name : '')) + ((pr && pr.full_name) ? '  —  prepared for ' + pr.full_name : ''), { align: 'center' });
+  pdf.font('Times-Roman').fontSize(11.5).text(clean((opp.institution || '') + (g ? ' · ' + g.name : '')) + ((pr && pr.full_name) ? '  -  prepared for ' + pr.full_name : ''), { align: 'center' });
   pdf.moveDown(0.5);
-  P('Congratulations on reaching this stage. The distance between you and ' + clean(g ? g.name : 'your destination') + ' is now a checklist, not a dream' + (opp.funding_type === 'fully' ? ' — and this position is fully funded, so the numbers are already on your side' : '') + (opp.stipend ? '. Your stated stipend: ' + clean(String(opp.stipend).slice(0, 40)) + '.' : '.'));
+  P('Congratulations on reaching this stage. The distance between you and ' + clean(g ? g.name : 'your destination') + ' is now a checklist, not a dream' + (opp.funding_type === 'fully' ? ' - and this position is fully funded, so the numbers are already on your side' : '') + (opp.stipend ? '. Your stated stipend: ' + clean(String(opp.stipend).slice(0, 40)) + '.' : '.'));
   P('This guide covers what happens after you are accepted, step by step, until you land and secure your position. ForiForeign does not provide visa or document-processing services, and you do not need any agent: every step below is designed for you to do yourself, easily and officially. Thousands of Pakistani students and professionals complete these exact steps every year. So will you.');
   H('1. After acceptance');
   B('You may be invited to an online interview. Prepare with your CV and the documents ForiForeign drafted; answer plainly.');
   B('Degree attestation: first HEC (eservices.hec.gov.pk, online account, courier both ways), then MOFA (mofa.gov.pk attestation, online appointment or Qousia counters). Attest degree + transcripts.');
   B('Institutions often ask for attested hard copies by courier later; keep two attested sets ready.');
-  H('2. Visa, done by yourself' + (g ? ' — ' + g.name : ''));
+  H('2. Visa, done by yourself' + (g ? ' - ' + g.name : ''));
   if (g) {
     B('Where: ' + g.embassy + '.');
     B('How: ' + g.portal + '.');
@@ -1474,15 +1514,20 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   B('Book the appointment yourself, pay the official fee only, and submit your own file. No agent adds anything a careful applicant cannot do.');
   H('3. Financial evidence');
   P(g && g.funds ? g.funds + '. Keep the funds seasoned in your own or an immediate family member\'s account, with a clean 6-month statement and a maintenance letter from the bank.' : 'Follow the exact amount stated in your offer or the embassy checklist; keep a clean 6-month bank statement and a bank maintenance letter.');
-  H('4. Before you fly');
+  H('4. Pakistan offices, province wise');
+  B('HEC degree attestation (start online at eservices.hec.gov.pk, then walk-in or courier): Islamabad H-9 HQ; Regional Centres: Lahore (Punjab), Karachi (Sindh), Peshawar (KP), Quetta (Balochistan), Multan, Faisalabad, D.I. Khan, Gilgit (GB), Muzaffarabad (AJK). Mon-Fri office hours; nominal per-document fee.');
+  B('MOFA attestation (after HEC): Islamabad Mauve Area HQ plus Camp Offices in Karachi, Lahore, Peshawar, Quetta, Multan, Faisalabad, Sialkot and Gujranwala. Book via mofa.gov.pk; take HEC-attested originals and CNIC.');
+  B('Police character certificate: your district police office or online via the provincial police portal (Punjab: police.punjab.gov.pk; Sindh: sindhpolice.gov.pk; KP: kppolice.gov.pk; Balochistan: balochistanpolice.gov.pk).');
+  B('Exact addresses, timings and fees change; always confirm on the official page the same week you visit.');
+  H('5. Before you fly');
   B('Verify your offer, CAS/admission letter, visa, passport validity (18+ months), and attested originals in hand luggage.');
   B('Arrange accommodation for the first weeks through the institution where possible.');
   B('Inform the institution of your arrival date; register on arrival as instructed (city registration / police / university enrolment).');
-  H('5. Your first weeks — securing the position');
+  H('6. Your first weeks, securing the position');
   B('Open a local bank account in week one (your admission letter and passport are enough almost everywhere).');
   B('Complete enrolment/joining formalities and collect your student or employee ID; this activates insurance and access.');
   B('Learn the part-time work rules of your visa before accepting any work; keep every payslip and document.');
-  B('Stay in touch with your department or HR in the first month — early visibility becomes references, assistantships and renewals.');
+  B('Stay in touch with your department or HR in the first month - early visibility becomes references, assistantships and renewals.');
   pdf.moveDown(0.5);
   pdf.font('Times-Bold').fontSize(12).text('You have done the hardest part already. Follow the list, keep your documents tidy, and go claim it.', { align: 'center' });
   pdf.moveDown(0.8);
@@ -1539,6 +1584,8 @@ app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').c
     jobTypes: arr(b.job_types, ['full_time', 'part_time', 'contract', 'internship']),
     exps: arr(b.exps, ['entry', 'mid', 'senior']),
     licenses: Array.isArray(b.licenses) ? b.licenses.map(x => String(x).toUpperCase()).filter(x => LIC.includes(x)).slice(0, 8) : [],
+    programTypes: arr(b.program_types, ['degree', 'diploma', 'short_course', 'training', 'fellowship', 'exchange', 'observership']),
+    sectors: arr(b.sectors, ['hospital', 'university', 'industry', 'government', 'ngo', 'remote_company']),
     field: /^[a-z][a-z-]{1,40}$/.test(String(b.field || '')) ? String(b.field) : null,
     intake: ['2026', '2027'].includes(String(b.intake || '')) ? String(b.intake) : null,
     noLang: !!b.no_lang, remote: !!b.remote,
@@ -1563,7 +1610,7 @@ app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').c
       const v = ds && ds.value;
       if (!v || Number(v.found) === 0 || (v.prefsHash && v.prefsHash !== prefs.prefsHash)) waive = true;
     } catch (e) { waive = true; }
-    if (!waive) return res.json({ ok: true, ran: false, cooldown: Math.ceil(30 - mins), message: 'Your matches from ' + Math.round(mins) + ' min ago are still fresh — opening them now. A new search is available in ' + Math.ceil(30 - mins) + ' min, or immediately if you change your filters.' });
+    if (!waive) return res.json({ ok: true, ran: false, cooldown: Math.ceil(30 - mins), message: 'Your matches from ' + Math.round(mins) + ' min ago are still fresh - opening them now. A new search is available in ' + Math.ceil(30 - mins) + ' min, or immediately if you change your filters.' });
   }
   await admin().from('app_settings').upsert({ key: 'lastRun:' + req.userId, value: { at: new Date().toISOString() } });
   try {
@@ -1596,7 +1643,7 @@ app.get('/api/admin/metrics', auth, perm('countries.write'), async (req, res) =>
   const { data: recent } = await admin().from('error_log').select('at,area,message').order('at', { ascending: false }).limit(8);
   res.json({ errors24, aiErr24, jobsFailed, opps24, cost24: +cost24.toFixed(4), p95ms: p95, requests: _ops.req, recent: recent || [] });
 });
-/* Admin corridor seeding — weakness #1: fill real inventory before launch. */
+/* Admin corridor seeding - weakness #1: fill real inventory before launch. */
 app.post('/api/admin/seed', auth, perm('countries.write'), aiLimit, async (req, res) => {
   const { kind, query } = req.body || {};
   if (!query || String(query).length < 8) return res.status(400).json({ error: 'Give a corridor query, e.g. "fully funded masters Germany"' });
@@ -1604,7 +1651,7 @@ app.post('/api/admin/seed', auth, perm('countries.write'), aiLimit, async (req, 
   const { seedDiscovery } = require('./lib/engine');
   seedDiscovery(String(kind || ''), String(query).slice(0, 200), req.userId).then(n => console.log('[seed]', n, 'added')).catch(e => console.error('[seed]', e.message));
 });
-/* Real job status — weakness #3: the UI polls this until preparation truly finishes. */
+/* Real job status - weakness #3: the UI polls this until preparation truly finishes. */
 app.get('/api/applications/:id/status', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('id,user_id,stage,next_action,updated_at,prep_progress,prep_started_at').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
@@ -1612,10 +1659,10 @@ app.get('/api/applications/:id/status', auth, async (req, res) => {
   let failed = steps.some(st => st.error);
   let eta = 'Usually takes a few minutes.';
   // Stall guard: preparing for over 9 minutes with no error recorded means the run hung or
-  // timed out. Surface Retry — finished documents are kept, so a retry costs almost nothing.
+  // timed out. Surface Retry - finished documents are kept, so a retry costs almost nothing.
   if (!failed && a.stage === 'preparing' && a.prep_started_at && Date.now() - new Date(a.prep_started_at).getTime() > 9 * 60000) {
     failed = true;
-    eta = 'This took longer than usual. Press Retry — completed documents are kept, nothing is generated twice.';
+    eta = 'This took longer than usual. Press Retry - completed documents are kept, nothing is generated twice.';
   }
   if (a.prep_started_at) {
     const el = (Date.now() - new Date(a.prep_started_at).getTime()) / 1000;
@@ -1626,7 +1673,7 @@ app.get('/api/applications/:id/status', auth, async (req, res) => {
 app.post('/api/applications/:id/prepare', auth, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.prepare_enabled===false)return res.status(503).json({error:'Case preparation is briefly paused for maintenance. Please try again soon.'});next();}, aiLimit, async (req, res) => {
   const { data: a } = await admin().from('applications').select('id,user_id,stage').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
-  // Idempotent: a fully prepared case is NEVER re-run — zero extra AI cost, instant answer.
+  // Idempotent: a fully prepared case is NEVER re-run - zero extra AI cost, instant answer.
   if (['awaiting_authorization', 'prepared', 'portal_apply'].includes(a.stage))
     return res.json({ ok: true, already: true, message: 'This case is already fully prepared.' });
   res.json({ ok: true, message: 'Preparing your documents and email now.' });
@@ -1647,7 +1694,7 @@ app.get('/api/applications/:id', auth, async (req, res) => {
   const { data: msgs } = await admin().from('messages').select('*').eq('application_id', a.id).order('created_at', { ascending: false });
   res.json({ application: a, documents: docs || [], messages: msgs || [] });
 });
-/* ---------- Spec 27: case editor — edit/rename/approve documents, case notes ---------- */
+/* ---------- Spec 27: case editor - edit/rename/approve documents, case notes ---------- */
 app.post('/api/applications/:id/documents/:docId', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
@@ -1674,13 +1721,13 @@ app.post('/api/messages/:id/authorize', auth, async (req, res) => {
   await admin().from('messages').update({ status: 'approved' }).eq('id', m.id);
   await admin().from('applications').update({ stage: 'prepared', authorized_at: new Date().toISOString(), authorized_by: req.userId, next_action: 'Authorized. Press APPLY to open it in your own email, review, and send.' }).eq('id', m.application_id);
   await admin().from('audit_log').insert({ actor: req.userId, event: 'AUTHORIZED', detail: m.id });
-  res.json({ ok: true, note: 'Authorized. Press APPLY to open it in your own email — you review and press Send.' });
+  res.json({ ok: true, note: 'Authorized. Press APPLY to open it in your own email - you review and press Send.' });
 });
 
 const PORT = process.env.PORT || 3000;
 app.use((err, req, res, next) => {
   errlog('http', err, { requestId: req.reqId, userId: req.userId });
-  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. Our team has been notified — please try again.', ref: req.reqId });
+  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. Our team has been notified - please try again.', ref: req.reqId });
 });
 process.on('unhandledRejection', e => console.error('[rejection]', e && e.message));
 try { const { expireAgent } = require('./lib/agents'); setInterval(() => expireAgent().catch(e=>console.error('[expire]',e.message)), 12*3600e3); setTimeout(()=>expireAgent().catch(()=>{}), 60e3); } catch (e) {}
@@ -1719,7 +1766,7 @@ try { require('node-cron').schedule('0 3 * * *', () => selfSeed('daily')); } cat
 setTimeout(() => selfSeed('boot'), 20000);
 /* Harvest pipeline: RSS + Brave leads flow into a queue; AI verifies queued URLs in
    small batches; priority institutions are swept on rotation. Feeds and Brave are
-   free; only verification and sweeps spend AI — in controlled, capped batches. */
+   free; only verification and sweeps spend AI - in controlled, capped batches. */
 try {
   const harvest = require('./lib/harvest');
   require('node-cron').schedule('15 */6 * * *', () => { harvest.rssWatch(); harvest.braveLeads(); });   // gather leads, zero/near-zero cost
@@ -1734,7 +1781,7 @@ app.use((err, req, res, next) => {
   if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. It has been logged and the self-healer is on it.' });
 });
 /* Self-healing supervisor: every 10 minutes, detect and repair known failure
-   patterns automatically — stalled jobs, stuck preparations, zero-result runs. */
+   patterns automatically - stalled jobs, stuck preparations, zero-result runs. */
 try {
   const { runHealer } = require('./lib/healer');
   require('node-cron').schedule('*/10 * * * *', runHealer);
