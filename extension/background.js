@@ -6,6 +6,12 @@ const COMPOSE = {
   yahoo: (p) => 'https://compose.mail.yahoo.com/?to=' + encodeURIComponent(p.recipient) + '&subject=' + encodeURIComponent(p.subject) + '&body=' + encodeURIComponent((p.body || '').slice(0, 1800))
 };
 chrome.runtime.onMessage.addListener((msg, sender) => {
+  // "Fill next page" from the overlay: re-inject the filler into the SAME tab the
+  // user is on. Same activeTab-granted tab only — no new permissions, no navigation.
+  if (msg && msg.type === 'FFX_REFILL' && sender.tab && sender.tab.id != null) {
+    setTimeout(() => chrome.scripting.executeScript({ target: { tabId: sender.tab.id }, files: ['filler.js'] }).catch(() => {}), 400);
+    return;
+  }
   if (!msg || msg.type !== 'FF_APPLY' || !msg.pkg) return;
   // origin validation: only accept packages from foriforeign.com pages
   const okOrigin = sender.url && /^https:\/\/(www\.)?foriforeign\.com\//.test(sender.url);
