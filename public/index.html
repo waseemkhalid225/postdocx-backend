@@ -405,7 +405,7 @@ table td{border-bottom:1px solid rgba(148,184,255,.08)}
 
 /* ============ LUXURY DARK CINEMATIC — FINAL v2.1 ============ */
 :root{--gold:#1683FF;--gold-2:#3D9BFF;--gold-soft:rgba(22,131,255,.16);--cy:#00D4FF;
---line:rgba(120,180,255,.22);--line-hi:rgba(0,212,255,.45);--txt:#FFFFFF;--txt-2:#CBD5E1;--txt-3:#94A6BD}
+--line:rgba(120,180,255,.3);--line-hi:rgba(0,212,255,.6);--txt:#FFFFFF;--txt-2:#EAF2FF;--txt-3:#C7D9F6}
 #worldOverlay{background:linear-gradient(180deg,rgba(3,9,22,.42),rgba(3,9,22,.22) 40%,rgba(3,9,22,.5))!important}
 body.world-on .card,body.world-on .dash-head,body.world-on .lane,body.world-on .mkt-card,.ctry-body{
   background:rgba(8,18,35,.82)!important;border:1px solid var(--line)!important;
@@ -492,6 +492,20 @@ table td{border-bottom:1px solid rgba(120,180,255,.14)!important;color:#E9F1FC}
 .vstep-btn{padding:8px 18px;flex:0 0 auto;min-height:34px;min-width:84px}
 .vstep .stepnum{flex:0 0 auto}
 .vstep .sub{flex:0 0 auto}
+
+/* Full-brightness pass: same hues, maximum intensity — nothing faded. */
+body{color:#FFFFFF}
+.sub{color:#D6E6FF}
+label{color:#DCE9FF}
+.provrow{color:#C9DDFC}
+.c-gray{color:#CFE0FB!important;border-color:rgba(160,195,250,.6)!important}
+.c-blue{color:#B4D6FF!important;border-color:#5FA4FF!important}
+.c-green{color:#3BF0D2!important;border-color:#2AE8C8!important}
+.c-gold{color:#FFD070!important;border-color:#FFC24D!important}
+.c-red{color:#FF8FA0!important;border-color:#FF7A90!important}
+.vstep{color:#FFFFFF}
+h1,h2,h3,b{color:#FFFFFF}
+.chip{font-weight:700}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -553,11 +567,12 @@ async function afterLogin(){
   try{const d=await api('/api/me');ME=d.me;CREDITS=d.credits;if(isAdminRole(ME.role))$('adminTab').style.display='inline-block';$('creditPill').style.display='inline-block';$('creditPill').textContent=CREDITS+' credit'+(CREDITS===1?'':'s');}catch(e){toast(e.message)}
   showAnnouncement();
   // Admin goes straight to the control center; first-time users to Profile; others to Home.
-  if(ME&&isAdminRole(ME.role)){go('adminx');return}
+
   go((ME && (ME.headline||'').trim()) ? 'home' : 'profile');
 }
 let SITE=null;
 async function loadSiteConfig(){
+  try{const rq=new URLSearchParams(location.search).get('ref');if(rq)localStorage.setItem('ffref',rq.toUpperCase())}catch(e){}
   try{SITE=(await (await fetch('/api/site-config')).json()).config||null}catch(e){SITE=null}
   fetch('/api/stats').then(r=>r.json()).then(st=>{
     const f=(id,v)=>{const el=document.getElementById(id);if(el&&v)el.textContent=v};
@@ -585,7 +600,7 @@ function showAnnouncement(){
 async function signOut(){window._ffBooted=false;await SB.auth.signOut();location.reload()}
 function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render()}
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b){if(b.dataset.t==='browse')window._lane='';go(b.dataset.t)}});
-function render(){({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
+function render(){({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(TAB==='buy')setTimeout(loadRefBox,200);if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
 
 /* ---------- auth view ---------- */
 function renderAuth(mode){
@@ -823,6 +838,7 @@ async function vHome(){
   // Fetch journey state so the home shows ONE clear next action (spec #4).
   let S={state:'new',hasCV:false,appCount:0},HM=null;
   try{HM=await api('/api/home');if(HM&&HM.state)S=HM.state}catch(e){}
+  try{const rc=localStorage.getItem('ffref');if(rc&&HM){api('/api/referral/claim',{method:'POST',body:{code:rc}}).then(()=>localStorage.removeItem('ffref')).catch(()=>localStorage.removeItem('ffref'))}}catch(e){}
   if(!HM){try{S=await api('/api/me/state')}catch(e){}}
   const MY=(HM&&HM.myMatches)||{count70:0};
   window._homeState=S.state;
@@ -1266,7 +1282,7 @@ async function renderWorkLane(){
     <div class="row seg" style="flex-wrap:wrap;margin-top:0">
       <button class="segbtn ${st.remote?'on':''}" onclick="window._work.remote=!window._work.remote;renderWorkLane()">Remote</button>
       <button class="segbtn ${st.visa?'on':''}" onclick="window._work.visa=!window._work.visa;renderWorkLane()">Visa sponsorship</button>
-      ${[['full_time','Full-time'],['part_time','Part-time'],['contract','Contract'],['internship','Internship']].map(([k,l])=>`<button class="segbtn ${(st.jobTypes||[]).includes(k)?'on':''}" onclick="window._work.jobTypes=window._work.jobTypes||[];const i=window._work.jobTypes.indexOf('${k}');i>=0?window._work.jobTypes.splice(i,1):window._work.jobTypes.push('${k}');renderWorkLane()">${l}</button>`).join('')}
+      ${[['full_time','Full-time position'],['part_time','Part-time position'],['contract','Contract / locum'],['internship','Internship / trainee']].map(([k,l])=>`<button class="segbtn ${(st.jobTypes||[]).includes(k)?'on':''}" onclick="window._work.jobTypes=window._work.jobTypes||[];const i=window._work.jobTypes.indexOf('${k}');i>=0?window._work.jobTypes.splice(i,1):window._work.jobTypes.push('${k}');renderWorkLane()">${l}</button>`).join('')}
       ${[['entry','Entry'],['mid','Mid'],['senior','Senior']].map(([k,l])=>`<button class="segbtn ${(st.exps||[]).includes(k)?'on':''}" onclick="window._work.exps=window._work.exps||[];const i=window._work.exps.indexOf('${k}');i>=0?window._work.exps.splice(i,1):window._work.exps.push('${k}');renderWorkLane()">${l}</button>`).join('')}
     </div>
   </div>
@@ -1391,8 +1407,8 @@ function matchStatsTable(list,opts){
 }
 async function loadPkgStrip(){
   const el=$('ffPkgStrip');if(!el)return;
-  try{const d=await api('/api/packages');const ps=(d.packages||[]).slice(0,3);
-    if(ps.length)el.innerHTML=`<div class="row" style="gap:8px;margin-bottom:10px">${ps.map(p=>`<button class="btn b-gold" style="flex:1;min-width:100px;flex-direction:column;padding:9px 6px" onclick="go('buy')"><span style="font-size:14px">${esc(p.name||p.credits+' cases')}</span><span style="font:600 12px Inter;opacity:.9">Rs ${(p.price_pkr||p.price||0).toLocaleString()}</span></button>`).join('')}</div>`;
+  try{const d=await api('/api/pricing');const ps=(((d||{}).pricing||{}).packs||[]).slice(0,3);
+    if(ps.length)el.innerHTML=`<div class="row" style="gap:8px;margin-bottom:10px">${ps.map(p=>`<button class="btn b-gold" style="flex:1;min-width:100px;flex-direction:column;padding:9px 6px" onclick="go('buy')"><span style="font-size:14px">${esc(p.label||p.name||(p.credits+' case'+(p.credits===1?'':'s')))}</span><span style="font:600 12px Inter;opacity:.9">Rs ${Number(p.pkr||0).toLocaleString()}</span></button>`).join('')}</div>`;
   }catch(e){}
 }
 /* ===== Tiered match results: opens automatically when the finder completes ===== */
@@ -1471,26 +1487,27 @@ function renderFinder(){
       return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder['${key}'];const i=a.indexOf('${v}');i>=0?a.splice(i,1):a.push('${v}');renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${t}</div>`}).join('')}
     ${cur.length?`<div class="row" style="margin-top:6px"><button class="segbtn" onclick="window._finder['${key}']=[];renderFinder()">Clear</button></div>`:''}</div>`:''}</div>`;
   };
-  const FIELDS=[['','Any field'],['pharmacy','Pharmacy & Pharmacology'],['medicine','Medicine & Health'],['nursing','Nursing'],['biotech','Biotechnology & Life Sciences'],['chemistry','Chemistry'],['engineering','Engineering'],['cs','Computer Science & IT'],['business','Business & Management'],['social','Social Sciences'],['education','Education'],['agriculture','Agriculture & Food']];
+  const FIELD_NAMES=['Medicine','Pharmacy','Nursing','Dentistry','Physiotherapy','Allied Health','Public Health','Medical Laboratory','Radiology & Imaging','Veterinary','Psychology','Nutrition & Dietetics','Biotechnology','Microbiology','Biochemistry','Genetics','Life Sciences','Chemistry','Physics','Mathematics','Statistics','Environmental Science','Earth Sciences','Astronomy','Materials Science','IT & Software','Computer Science','Data Science','Artificial Intelligence','Cybersecurity','Networking','Web & App Development','Game Development','Cloud Computing','Electrical Engineering','Mechanical Engineering','Civil Engineering','Chemical Engineering','Petroleum Engineering','Mining Engineering','Industrial Engineering','Aerospace Engineering','Automotive Engineering','Biomedical Engineering','Mechatronics','Telecom Engineering','Architecture','Urban Planning','Construction Management','Business Administration','Management','Marketing','Sales','Accounting','Finance','Banking','Economics','Human Resources','Supply Chain & Logistics','Project Management','Entrepreneurship','International Business','Law','Political Science','International Relations','Public Administration','Sociology','Social Work','Anthropology','History','Philosophy','Islamic Studies','Languages & Linguistics','Literature','Journalism & Media','Communication','Film & Television','Graphic Design','Fashion Design','Interior Design','Fine Arts','Music','Performing Arts','Education & Teaching','Early Childhood Education','Special Education','Sports Science','Hospitality & Tourism','Culinary Arts','Aviation & Piloting','Maritime & Shipping','Agriculture','Food Science','Forestry','Fisheries','Horticulture','Textile Engineering','Energy & Renewables','Nanotechnology','Robotics','Library & Information Science','Criminology','Nursing Midwifery','Paramedical','Occupational Therapy','Speech Therapy','Optometry','Audiology'];
+  const FIELDS=[['','Any profession']].concat(FIELD_NAMES.map(n=>[n.toLowerCase().replace(/[^a-z]+/g,'-').replace(/^-|-$/g,''),n]));
   const study=f.kind!=='work'?
-    mp('levels','Study level — select any',[['bachelors','Bachelors (BS)'],['masters','Masters (MS / MPhil)'],['phd','PhD'],['postdoc','Postdoc']])+
-    mp('fundings','Funding — select any',[['fully','Fully funded'],['partial','Partial funding'],['self','Self-finance welcome']])+
+    mp('levels','Programme level — select any',[['bachelors','Undergraduate — Bachelor&#39;s degree'],['masters','Postgraduate — Master&#39;s / MPhil'],['phd','Doctorate — PhD'],['postdoc','Postdoctoral research']])+
+    mp('fundings','Funding preference — select any',[['fully','Fully funded — tuition and living covered'],['partial','Partially funded — scholarships and waivers'],['self','Self-financed — open admissions']])+
     sel('lang','Language requirement',[['','Any'],['none','No IELTS / TOEFL required']])+
     sel('intake','Intake',[['','Any intake'],['2026','2026 intakes'],['2027','2027 intakes']]):'';
   const work=f.kind!=='study'?
-    mp('jobTypes','Job type — select any',[['full_time','Full-time'],['part_time','Part-time'],['contract','Contract'],['internship','Internship']])+
-    mp('exps','Experience level — select any',[['entry','Entry level'],['mid','Mid-career'],['senior','Senior']])+
+    mp('jobTypes','Job type — select any',[['full_time','Full-time position'],['part_time','Part-time position'],['contract','Contract / locum'],['internship','Internship / trainee']])+
+    mp('exps','Experience level — select any',[['entry','Early career (0–2 years)'],['mid','Established (3–7 years)'],['senior','Senior (8+ years)']])+
     mp('licenses','Licenses I hold / target — select any',[['DHA','DHA (Dubai)'],['SCFHS','SCFHS (Saudi)'],['MOH','MOH (Gulf)'],['HAAD','HAAD (Abu Dhabi)'],['PLAB','PLAB (UK)'],['PEBC','PEBC (Canada)'],['NCLEX','NCLEX (USA)'],['USMLE','USMLE (USA)']])+
     sel('workmode','Work mode',[['','Any'],['remote','Remote only'],['onsite','On-site']])+
     sel('visaSel','Visa sponsorship',[['','Any'],['1','Sponsorship stated']]):'';
   el.innerHTML=`
   <label>I am looking for</label>
   <select onchange="window._finder.kind=this.value;renderFinder()">
-    <option value="study" ${f.kind==='study'?'selected':''}>Study abroad — BS to Postdoc, scholarships</option>
-    <option value="work" ${f.kind==='work'?'selected':''}>Work abroad — professional jobs</option>
-    <option value="both" ${f.kind==='both'?'selected':''}>Both — study and work</option>
+    <option value="study" ${f.kind==='study'?'selected':''}>Higher education abroad — degrees &amp; scholarships</option>
+    <option value="work" ${f.kind==='work'?'selected':''}>International careers — professional positions</option>
+    <option value="both" ${f.kind==='both'?'selected':''}>Both — education and careers</option>
   </select>
-  ${sel('field','Field / profession',FIELDS)}
+  ${sel('field','Your profession',FIELDS)}
   ${study}${work}
   <label>Countries — select one or more</label>
   <div class="ctry-picker">
@@ -2423,12 +2440,23 @@ async function toggleCountry(code,btn){
   try{const d=await api('/api/admin/countries/'+code+'/toggle',{method:'POST'});toast(code+' '+(d.enabled?'enabled':'disabled')+'.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}
 }
+async function aiSelfTest(btn){
+  btn.disabled=true;btn.textContent='Testing…';
+  try{const d=await api('/api/admin/ai-selftest');
+    const f=x=>x?(x.ok?`OK · ${x.ms}ms${x.model?' · '+esc(x.model):''}`:`FAILED · ${esc(x.error||'')}`):'—';
+    toast('Plain: '+(d.plain&&d.plain.ok?'OK':'FAIL')+' · Search: '+(d.grounded&&d.grounded.ok?'OK':'FAIL'));
+    alert('AI ENGINE SELF-TEST\n\nPlain call: '+f(d.plain)+'\n\nSearch-grounded call: '+f(d.grounded)+'\n\nOpenAI backup: '+(d.backup&&d.backup.configured?('ARMED · '+esc(d.backup.model)):'NOT CONFIGURED — add OPENAI_API_KEY in Railway')+'\n\nIf search fails while plain passes, the issue is grounding/tools or model overload, not your key. With the backup armed, discovery survives even a full Gemini outage.');
+  }catch(e){toast(e.message)}
+  btn.disabled=false;btn.textContent='Test AI engine';
+}
 async function adminBusiness(){
   let ex={items:[]},pnl=null;const month=(window._pnlMonth||new Date().toISOString().slice(0,7));
   try{ex=await api('/api/admin/expenses')}catch(e){}
   try{pnl=await api('/api/admin/pnl?month='+month)}catch(e){}
   window._expenses=(ex.items||[]).slice();
-  return `<div class="card"><h3>Business expenses (full control)</h3>
+  return `<div class="card"><div class="spread"><h3>AI engine</h3><button class="btn b-line" onclick="aiSelfTest(this)">Test AI engine</button></div>
+  <div class="sub">One click proves the key, model chain and search grounding are alive. Run it whenever discovery looks weak.</div></div>
+  <div class="card"><h3>Business expenses (full control)</h3>
   <div class="sub" style="margin-bottom:6px">Supabase, domain, Railway, marketing, staff — anything. Yearly amounts are divided by 12; USD converts at the admin rate.</div>
   <div id="expRows">${window._expenses.map((x,i)=>`<div class="row" style="margin-top:6px">
     <input value="${escAttr(x.name)}" placeholder="Name" style="flex:2;min-width:110px" onchange="window._expenses[${i}].name=this.value">
@@ -2587,11 +2615,20 @@ async function adminUniversities(){
   <label>Universities / labs / research institutes — one per line, top priority first</label>
   <textarea id="ub-list" rows="8" placeholder="Technical University of Munich&#10;Heidelberg University&#10;Max Planck Institute for..."></textarea>
   <div class="row" style="margin-top:10px"><button class="btn b-gold" onclick="saveUniBulk(this)">Save country list</button>
-  <button class="btn b-line" onclick="loadUniBulk()">Load current list into editor</button></div></div>
+  <button class="btn b-line" onclick="loadUniBulk()">Load current list into editor</button></div>
+  <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
+    <b style="font-size:13px">Or import a file (Excel / CSV / Word)</b>
+    <div class="sub" style="margin:4px 0 6px">Columns or lines with institution name and official email. AI then researches each one: current admissions, next intake, fees, scholarships, latest news.</div>
+    <input type="file" id="uni-file" accept=".xlsx,.xls,.csv,.docx,.txt">
+    <div class="row" style="margin-top:8px">
+      <button class="btn b-gold" onclick="importUniFile(this)">Import file</button>
+      <button class="btn b-line" onclick="enrichUnis(this)">Refresh AI info for this country</button>
+    </div></div></div>
   <div class="card"><h3>All institutions (${us.length})</h3>
   ${Object.keys(byC).sort().map(cc=>`<div style="margin:8px 0"><b>${esc(cc)}</b> <span class="sub">· ${byC[cc].length}</span>
   ${byC[cc].map(u=>`<div class="spread" style="padding:4px 0;border-bottom:1px solid var(--line)">
-  <div>${esc(u.name)} <span class="sub">priority ${esc(u.priority)}</span></div>
+  <div style="min-width:0">${esc(u.name)} <span class="sub">p${esc(u.priority)}${u.official_email?' · '+esc(u.official_email):''}</span>
+  ${u.info&&(u.info.admissions_open||u.info.next_intake)?`<div class="sub" style="margin-top:1px;color:#9fe8d8">${esc([u.info.admissions_open,u.info.next_intake&&('Intake: '+u.info.next_intake),u.info.application_fee&&('Fee: '+u.info.application_fee)].filter(Boolean).join(' · ').slice(0,120))}</div>`:''}</div>
   <div class="row" style="gap:6px">
   <button class="btn ${u.enabled?'b-green':'b-line'}" style="padding:3px 10px" onclick="toggleUni('${u.id}',this)">${u.enabled?'On':'Off'}</button>
   <button class="btn b-line" style="padding:3px 10px" onclick="delUni('${u.id}',this)">Delete</button></div></div>`).join('')}</div>`).join('')||'<div class="sub">None yet. Pick a country above and paste its top institutions.</div>'}</div>`;
@@ -2606,6 +2643,23 @@ async function loadUniBulk(){
   const cc=($('ub-cc')||{}).value;
   try{const d=await api('/api/admin/universities');const rows=(d.universities||[]).filter(u=>u.country_code===cc).sort((a,b)=>a.priority-b.priority);
   $('ub-list').value=rows.map(r=>r.name).join('\n');toast(rows.length+' loaded for '+cc+'.')}catch(e){toast(e.message)}
+}
+async function importUniFile(btn){
+  const inp=$('uni-file');const cc=($('ub-cc')||{}).value;
+  if(!inp||!inp.files.length){toast('Choose a file first.');return}
+  btn.disabled=true;btn.textContent='Importing…';
+  try{
+    const fd=new FormData();fd.append('file',inp.files[0]);fd.append('country_code',cc);
+    const r=await fetch('/api/admin/universities/import',{method:'POST',headers:{authorization:'Bearer '+((SESSION&&SESSION.access_token)||'')},body:fd});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||'Import failed');
+    toast('Imported: '+d.created+' new, '+d.updated+' updated. AI research started.');vAdmin();
+  }catch(e){toast(e.message);btn.disabled=false;btn.textContent='Import file'}
+}
+async function enrichUnis(btn){
+  btn.disabled=true;
+  try{const d=await api('/api/admin/universities/enrich',{method:'POST',body:{country_code:($('ub-cc')||{}).value}});toast(d.message||'Refreshing.');}
+  catch(e){toast(e.message)}
+  btn.disabled=false;
 }
 async function delUni(id,btn){
   btn.disabled=true;
@@ -2633,12 +2687,22 @@ async function confirmPay(id,btn){btn.disabled=true;
   try{await api('/api/payments/'+id+'/confirm',{method:'POST'});toast('Confirmed, credits granted.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}}
 /* ---------- buy credits ---------- */
+async function loadRefBox(){
+  try{const d=await api('/api/home');const r=d&&d.referral;if(!r)return;const el=$('refBox');if(!el)return;
+    const link=location.origin+'/?ref='+r.code;
+    el.innerHTML=`<div style="border:1px solid rgba(0,212,255,.45);background:rgba(0,212,255,.06);border-radius:12px;padding:10px 14px;margin-bottom:10px;font-size:13px">
+    ${r.balance_pkr>0?`<b style="color:#3BF0D2">Referral discount: Rs ${r.balance_pkr.toLocaleString()}</b> — applied automatically at checkout (up to Rs 500 per case).<br>`:''}
+    <b>Invite &amp; earn:</b> every friend whose first purchase completes earns you <b style="color:#FFD070">Rs 500 per case</b> off your next package.
+    <div class="row" style="margin-top:6px"><input value="${link}" readonly style="flex:1;min-width:150px" onclick="this.select()"><button class="btn b-line" style="padding:6px 12px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${link}');toast('Invite link copied.')">Copy link</button></div></div>`;
+  }catch(e){}
+}
 async function vBuy(){
   $('view').innerHTML='<div class="empty">Loading credit packs…</div>';
   let d;try{d=await api('/api/pricing')}catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const packs=((d.pricing||{}).packs)||[];
   $('view').innerHTML=`<h2 style="margin-bottom:4px">Buy credits</h2>
   <div class="sub" style="margin-bottom:8px">1 credit = 1 complete application prepared end to end. Pay by bank transfer; the moment our team verifies it, your credits activate and you are notified on your dashboard.</div>
+  <div id="refBox"></div>
   <div style="border:1px solid rgba(245,184,65,.4);background:rgba(245,184,65,.07);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px">
   A typical consultant in Pakistan charges <b>Rs 50,000–150,000</b> per application, verifies nothing, and you still write your own documents.
   <b style="color:#F5B841">ForiForeign: from Rs 2,000</b> — verified from official pages, every document prepared, you press Send.</div>
