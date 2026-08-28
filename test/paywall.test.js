@@ -9,7 +9,7 @@ const checks = [
   ['post-insert credit race rollback', src.includes('balNow < 1')],
   ['payment confirm is atomic (pending flip)', /\.eq\('status', 'pending'\)\.select\('id'\)/.test(src)],
   ['entitlement is paid-or-staff only', src.includes('return (await balance(userId)) >= 1')],
-  ['report endpoint is sealed by entitlement', src.includes('await entitled(req.userId)')],
+  ['report endpoint is sealed by entitlement (sim-aware)', src.includes('await entitled(req.userId, simUser(req))')],
   ['no free-case grants remain', !src.includes("reason: 'free_case'")],
   ['payment confirmation notifies the user', src.includes('Payment confirmed')],
   ['admin runs are exempt from cooldown', src.includes('!isAdminRun')]

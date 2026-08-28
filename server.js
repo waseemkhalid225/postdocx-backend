@@ -276,7 +276,7 @@ app.get('/api/opportunities/:id/report', auth, async (req, res) => {
   if (!o) return res.status(404).json({ error: 'Opportunity not found' });
   // Paywall: without entitlement, the full report (institution, official page,
   // verified contacts) stays sealed. The teaser keeps the numbers that sell.
-  if (!(await entitled(req.userId))) {
+  if (!(await entitled(req.userId, simUser(req)))) {
     let m = null; try { const { matchOpportunity } = require('./lib/match'); m = await matchOpportunity(req.userId, o.id); } catch (e) {}
     return res.status(402).json({
       locked: true,
@@ -342,14 +342,14 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
       list = list.filter(o => !used.has(o.id) && !rset.has(o.id));
     } catch (e) {}
   }
-  const entOk = await entitled(req.userId);
+  const entOk = await entitled(req.userId, simUser(req));
   if (!entOk) list = list.map(o => lockTease(o));
   else if (String(req.query.match) === '1') {
     // Package choice model: solo sees its 2 best matches, smart 8, premium 15 -
     // choose freely among them; the rest stay reserved. Staff see everything.
     try {
       const { data: prf } = await admin().from('profiles').select('role').eq('id', req.userId).single();
-      if (!(prf && ['admin', 'staff'].includes(prf.role))) {
+      if (!(prf && ['admin', 'staff'].includes(prf.role) && !simUser(req))) {
         let tier = 0;
         try { const { data: pays } = await admin().from('payments').select('credits').eq('user_id', req.userId).eq('status', 'confirmed').order('credits', { ascending: false }).limit(1); tier = Number(pays && pays[0] && pays[0].credits) || 0; } catch (e) {}
         if (tier < 1) tier = 1;
@@ -769,6 +769,22 @@ app.get('/api/me', auth, async (req, res) => {
     data = ins.data;
   }
   if (!data) return res.status(500).json({ error: 'Profile unavailable' });
+  // FOUNDER SELF-HEAL: the owner account can never lose its powers. If the founder
+  // email ever shows up without the admin role or its credit grant (a recreated row,
+  // a bad migration moment, anything), it is restored right here, automatically.
+  try {
+    const isFounder2 = (req.userEmail || '').toLowerCase() === (process.env.ADMIN_EMAIL || 'waseemkhalid225@gmail.com').toLowerCase();
+    if (isFounder2) {
+      if (data.role !== 'admin') { await admin().from('profiles').update({ role: 'admin' }).eq('id', req.userId); data.role = 'admin'; }
+      const bal2 = await balance(req.userId);
+      if (bal2 < 100) {
+        const { data: prior } = await admin().from('credit_ledger').select('id').eq('user_id', req.userId).eq('reason', 'founder_restore').limit(1);
+        if (!prior || !prior.length) await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 999 - bal2, reason: 'founder_restore', note: 'Founder account credit restore' });
+      }
+    }
+  } catch (e) {}
+  // Deep profile: the agent's full extraction rides along for the profile view.
+  try { const { data: px } = await admin().from('app_settings').select('value').eq('key', 'profilex:' + req.userId).single(); if (px && px.value && px.value.x) data.deep = px.value.x; } catch (e) {}
   delete data.gmail_refresh_enc;
   let appCount = 0;
   try { const { count } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', req.userId); appCount = count || 0; } catch (e) {}
@@ -824,7 +840,9 @@ app.get('/api/home', auth, async (req, res) => {
     const { data: led } = await admin().from('credit_ledger').select('delta').eq('user_id', uid);
     const purchased = (led || []).filter(l => Number(l.delta) > 0).reduce((sm, l) => sm + Number(l.delta), 0);
     const { count: casesUsed } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', uid);
-    out.credits = { balance: bal, creditsRemaining: bal, casesUsed: casesUsed || 0, casesTotal: purchased };
+    const simZero = simUser(req);
+    out.credits = simZero ? { balance: 0, creditsRemaining: 0, casesUsed: 0, casesTotal: 0 }
+      : { balance: bal, creditsRemaining: bal, casesUsed: casesUsed || 0, casesTotal: purchased };
   } catch (e) {}
   try {
     // Personalized: how many CURRENT verified opportunities score >=70% for THIS user.
@@ -890,8 +908,12 @@ async function balance(userId) {
   const { data } = await admin().rpc('credit_balance', { uid: userId });
   return typeof data === 'number' ? data : 0;
 }
+/* Simulation: an admin can request the exact experience of a brand-new user.
+   The header only ever REDUCES privileges (never grants), so it is safe by design. */
+const simUser = req => String((req.headers || {})['x-ff-simulate-user'] || '') === '1';
 /* Paywall: full opportunity identity is for staff and package members only. */
-async function entitled(userId) {
+async function entitled(userId, sim) {
+  if (sim) return false; // simulated fresh user: everything locked, exactly as a new visitor sees it
   try {
     const { data: prof } = await admin().from('profiles').select('role').eq('id', userId).single();
     if (prof && ['admin', 'staff'].includes(prof.role)) return true;
@@ -1089,7 +1111,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
 app.post('/api/applications', auth, async (req, res) => {
   const { opportunityId } = req.body || {};
   const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
-  const isAdmin = prof && ['admin', 'staff'].includes(prof.role);
+  const isAdmin = prof && ['admin', 'staff'].includes(prof.role) && !simUser(req);
   // CV is the one required document before any application can be prepared.
   const { data: cvDocs } = await admin().from('documents').select('id').eq('user_id', req.userId).eq('kind', 'cv').eq('generated', false).limit(1);
   if (!isAdmin && (!cvDocs || !cvDocs.length)) {
@@ -1596,7 +1618,7 @@ app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').c
   prefs.prefsHash = JSON.stringify({ k: b.kind || null, c: prefs.countries, f: prefs.fundings, l: prefs.levels, j: prefs.jobTypes, e: prefs.exps, x: prefs.licenses, fd: prefs.field, i: prefs.intake, n: prefs.noLang, r: prefs.remote });
   // Admin and staff run without limits: no cooldown, full delivery target.
   let isAdminRun = false;
-  try { const { data: pr0 } = await admin().from('profiles').select('role').eq('id', req.userId).single(); isAdminRun = !!(pr0 && ['admin', 'staff'].includes(pr0.role)); } catch (e) {}
+  try { const { data: pr0 } = await admin().from('profiles').select('role').eq('id', req.userId).single(); isAdminRun = !!(pr0 && ['admin', 'staff'].includes(pr0.role)) && !simUser(req); } catch (e) {}
   // Smart cooldown: 30 min between runs, WAIVED when the last run delivered zero
   // or the user changed what they are searching for. A paid user with an empty
   // result or an updated profile is never made to wait.

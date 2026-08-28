@@ -567,6 +567,7 @@ const escAttr=s=>String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),4200)}
 async function api(p,o={}){o.headers=Object.assign({'content-type':'application/json'},o.headers||{});
   if(SESSION)o.headers.authorization='Bearer '+SESSION.access_token;
+  if(localStorage.getItem('ffSimUser')==='1')o.headers['x-ff-simulate-user']='1';
   if(o.body&&typeof o.body!=='string')o.body=JSON.stringify(o.body);
   const r=await fetch(p,o);const d=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(d.error||('Error '+r.status));return d}
@@ -632,7 +633,7 @@ function showAnnouncement(){
 async function signOut(){window._ffBooted=false;await SB.auth.signOut();location.reload()}
 function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render()}
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b){if(b.dataset.t==='browse')window._lane='';go(b.dataset.t)}});
-function render(){try{if(ME&&isAdminRole(ME.role)&&$('adminTab'))$('adminTab').style.display='inline-block';}catch(e){}({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(TAB==='buy')setTimeout(loadRefBox,200);if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
+function render(){try{if(ME&&isAdminRole(ME.role)&&$('adminTab'))$('adminTab').style.display='inline-block';}catch(e){}try{simBanner()}catch(e){}({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(TAB==='buy')setTimeout(loadRefBox,200);if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
 
 /* ---------- auth view ---------- */
 function renderAuth(mode){
@@ -896,8 +897,8 @@ async function vHome(){
   ${(()=>{const steps=[
     ['Upload CV',S.hasCV,'Upload',"window._uploadKind=null;document.getElementById('doc-files').click()"],
     ['Find opportunities'+(MY.count70?' · '+MY.count70+' found':''),MY.count70>0,'Find',"openFinder()"],
-    ['We prepare your case',S.appCount>0,'',''],
-    ['Approve &amp; Apply',S.state==='application_sent','Approve',"const el=document.getElementById('dashCases');if(el)el.scrollIntoView({behavior:'smooth'})"]
+    ['We prepare your case'+(S.appCount?' · '+S.appCount+' case'+(S.appCount===1?'':'s'):''),S.appCount>0,S.appCount?'View':'',"go('apps')"],
+    ['Approve &amp; Apply',S.state==='application_sent','Approve',"go('apps')"]
   ];let active=steps.findIndex(x=>!x[1]);if(active<0)active=steps.length-1;
   return steps.map((sp,i)=>`
     <div class="vstep ${sp[1]?'done':i===active?'act':''}">
@@ -916,16 +917,12 @@ async function vHome(){
     <div class="sub" style="margin:4px 0 8px">Running on our servers, finishes even if you close the app.</div>
     <button class="btn b-gold" onclick="resumeSearch('${HM.discover.kind||''}')">View live progress</button>
   </div>`:''}
-  <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
-    <a class="sub" style="cursor:pointer" onclick="go('browse')">Browse all opportunities →</a>
-    ${MY.count70?`<span class="sub">· ${MY.count70} matched to you now</span>`:S.matches?`<span class="sub">· ${S.matches} verified live now</span>`:''}
-  </div></div>
+  </div>
 
   ${SITE&&(SITE.country_updates||[]).length?`<div class="dash-sec"><h3>Important country updates</h3>
   ${SITE.country_updates.map(u=>`<div class="card"><b>${esc(u.title||'')}</b>${u.date?` <span class="sub">· ${esc(u.date)}</span>`:''}<div class="sub" style="margin-top:4px;white-space:pre-wrap">${esc(u.text||'')}</div></div>`).join('')}</div>`:''}
 
-  <div class="dash-sec"><h3>Live around the world</h3><div id="dashLive" class="row" style="flex-wrap:wrap;gap:8px"><div class="sub">Loading…</div></div></div>
-  <div class="dash-sec"><h3>Your cases</h3><div id="dashCases"><div class="sub">Loading…</div></div></div>
+
   <div class="row" style="margin-top:14px;gap:8px;justify-content:center">
     <button class="btn b-line" onclick="openReviewForm()">Share your review</button>
     <button class="btn b-line" style="position:relative" onclick="openSupport()">Ask us${HM&&HM.support&&HM.support.answered?`<span style="position:absolute;top:-5px;right:-5px;background:#fb7185;color:#fff;border-radius:99px;min-width:17px;height:17px;font:700 10px/17px Inter;text-align:center;padding:0 3px">${HM.support.answered}</span>`:''}</button>
@@ -939,8 +936,7 @@ async function vHome(){
     </div>
     <div class="sub" style="margin-top:4px;opacity:.7">ForiForeign · Built in Pakistan, for ambitious people everywhere.</div>
   </div>`;
-  dashLive();
-  dashCases();
+
   window._worldSelectHandler=dashGlobeSelect;
   ensureWorld().then(()=>worldInteractive(true));
 }
@@ -1944,6 +1940,7 @@ async function vApps(){
 /* ---------- profile ---------- */
 async function vProfile(){
   const m=ME||{};
+  window._pmode=m.mode||'study';
   const yearOf=v=>{const x=String(v&&(v.year||v.years)||'').match(/(19|20)\d{2}/g);return x?parseInt(x[x.length-1]):0};
   const edu=[...(m.education||[])].sort((a,b)=>yearOf(b)-yearOf(a));
   const exp=[...(m.experience||[])].sort((a,b)=>yearOf(b)-yearOf(a));
@@ -1952,6 +1949,21 @@ async function vProfile(){
   $('view').innerHTML=`
   ${isNew?`<div class="card" style="border-color:var(--gold);background:var(--gold-soft);margin-bottom:12px"><b>Welcome! Here's how to start:</b>
   <div class="sub" style="margin-top:6px;line-height:1.7">1. Upload your <b>CV</b> below, the agent reads it and fills your profile automatically.<br>2. Add degrees and transcripts when you have them; every document makes your applications stronger.<br>3. Then go to <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="go('browse')">Opportunities</a>, see your match scores free, then choose a package.</div></div>`:''}`+`
+  ${(()=>{const dx=(m.deep||{});const emap=(m.education||[]);const line=(edu[0]?(edu[0].degree||edu[0].level||'')+(edu[0].institution?', '+edu[0].institution:''):'');
+    const rows=[
+      ['Name',m.full_name],['Email',(SESSION&&SESSION.user&&SESSION.user.email)||dx.email],['Phone / WhatsApp',m.phone],
+      ['City',dx.city],['Profession',m.profession&&m.profession!=='Not applicable'?m.profession:dx.profession||m.field],
+      ['Total experience',dx.total_experience_years?dx.total_experience_years+' years':''],
+      ['Highest education',line],['Headline',m.headline],['Field',m.field],
+      ['Certifications',(dx.certifications||[]).slice(0,3).join('; ')],
+      ['Trainings',(dx.trainings||[]).slice(0,3).join('; ')],
+      ['Licenses',(m.licenses||[]).map(l=>l.name).filter(Boolean).slice(0,3).join('; ')]
+    ].filter(r=>r[1]&&String(r[1]).trim());
+    return `<div class="card" style="border-color:rgba(0,212,255,.4)">
+    <div class="spread"><h3 style="margin:0">My profile</h3><button class="btn b-line" style="padding:6px 14px" onclick="const e=document.getElementById('profEdit');e.style.display=e.style.display==='none'?'block':'none';this.textContent=e.style.display==='none'?'Edit details':'Close editor'">Edit details</button></div>
+    <div class="sub" style="margin:2px 0 8px">Filled automatically from your documents. Upload more anytime; it updates itself.</div>
+    ${rows.length?rows.map(r=>`<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid rgba(140,178,255,.12)"><span style="flex:0 0 150px;color:#9DB8E4;font:600 12px Inter;text-transform:uppercase;letter-spacing:.03em">${r[0]}</span><span style="flex:1;font:600 13.5px Inter;color:#fff">${esc(String(r[1]).slice(0,160))}</span></div>`).join(''):'<div class="sub">Upload your CV and this fills itself.</div>'}
+    </div>`})()}
   <div class="pid-card">
     <div class="pid-avatar" id="avatarBox" onclick="document.getElementById('avatar-file').click()" title="Change photo">
       <span id="avatarInitials">${esc(initials)}</span>
@@ -1994,9 +2006,8 @@ async function vProfile(){
   <div class="sub" style="margin:6px 0">By email: with our free extension, every draft and attachment is prepared in your own inbox, you review and press Send. By portal: the Apply Assistant fills the official website for you. Your credentials always remain yours; we never access them.</div></div>
 
   <div class="card"><h3>Edit details</h3>
-  <label>Full name</label><input id="p-name" value="${esc(m.full_name)}">
+  <div id="profEdit" style="display:none"><label>Full name</label><input id="p-name" value="${esc(m.full_name)}">
   <label>Phone</label><input id="p-phone" value="${esc(m.phone)}">
-  window._pmode='${m.mode||'study'}'
   <label>Headline</label><input id="p-head" value="${esc(m.headline)}" placeholder="e.g. PhD Pharmacology or Registered Nurse, 5 years ICU">
   <label>Field</label><input id="p-field" value="${esc(m.field)}">
   <label>Skills and methods</label><textarea id="p-methods">${esc(m.methods)}</textarea>
@@ -2010,7 +2021,7 @@ async function vProfile(){
   <textarea id="p-pubs">${esc((m.publications||[]).map(x=>typeof x==='string'?x:(x.title||'')).join('\n'))}</textarea>
   <label>Experience (one per line: Role, Organisation, Years)</label>
   <textarea id="p-exp">${esc((m.experience||[]).map(e=>[e.role,e.org,e.years].filter(Boolean).join(', ')).join('\n'))}</textarea>
-  <div class="row" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save profile</button></div></div>
+  <div class="row" style="margin-top:12px"><button class="btn b-ink" onclick="saveProfile()">Save profile</button></div></div></div>
   <div class="card"><h3>My referees</h3><div id="refList" class="sub" style="margin-top:6px">Loading…</div></div>`;
   loadDocs();loadRefs();loadFields();loadAvatar();
 }
@@ -2237,6 +2248,29 @@ async function vAdmin(){
   if(cur==='universities')return adminUniversities();
   return adminOverview();
 }
+function toggleSimUser(){
+  const on=localStorage.getItem('ffSimUser')==='1';
+  localStorage.setItem('ffSimUser',on?'0':'1');
+  toast(on?'Back to admin view.':'You now see EXACTLY what a brand-new user sees: locked results, package prompts, real cooldowns.');
+  setTimeout(()=>{HM=null;go('home')},400);
+}
+function simBanner(){
+  const ex=document.getElementById('ffSimBanner');
+  if(localStorage.getItem('ffSimUser')!=='1'){if(ex)ex.remove();return}
+  if(ex)return;
+  const b=document.createElement('div');b.id='ffSimBanner';
+  b.style.cssText='position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:80;background:#7C2D12;border:1px solid #F5B841;color:#FFE9C7;border-radius:99px;padding:8px 18px;font:700 12.5px Inter;box-shadow:0 8px 24px rgba(0,0,0,.5);cursor:pointer;white-space:nowrap';
+  b.textContent='Viewing as a new user - tap to exit';
+  b.onclick=toggleSimUser;
+  document.body.appendChild(b);
+}
+function assistStatus(el){
+  el.innerHTML='<span class="chip c-gray">Checking…</span>';
+  try{window.postMessage({type:'FF_ASSIST_PING'},location.origin)}catch(e){}
+  setTimeout(()=>{el.innerHTML=FF_ASSIST
+    ?'<span class="chip c-green">Connected — extension is active on this page</span>'
+    :'<span class="chip c-red">Not detected</span> <span class="sub">Install below, then reload this page and check again.</span>'},700);
+}
 async function adminOverview(){
   let M=null;try{M=await api('/api/admin/metrics')}catch(e){}
   const mHtml=M?`<div class="card"><h3>🩺 System health (24h)</h3>
@@ -2252,7 +2286,20 @@ async function adminOverview(){
   </div>`:'';
   window.__mHtml=mHtml;
   let d;try{d=await api('/api/admin/overview')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
-  $('adminBody').innerHTML=(window.__mHtml||'')+`
+  $('adminBody').innerHTML=(window.__mHtml||'')+`<div class="card" style="border-color:rgba(245,184,65,.5)">
+  <div class="spread"><h3 style="margin:0">View as a new user</h3><button class="btn b-gold" style="padding:6px 14px" onclick="toggleSimUser()">${'${'}localStorage.getItem('ffSimUser')==='1'?'Exit user view':'Start user view'}</button></div>
+  <div class="sub" style="line-height:1.6">One tap gives you the EXACT experience of a fresh visitor with zero credits: locked opportunities, package prompts, real cooldowns, real search targets, the full paywall funnel. Privileges are only reduced, never granted, so it is completely safe. Walk the journey, find the gaps, tap the banner below to return to admin power.</div></div>
+<div class="card" style="border-color:rgba(0,212,255,.45)">
+  <div class="spread"><h3 style="margin:0">Apply Assistant — test without the Web Store</h3><button class="btn b-line" style="padding:6px 14px" onclick="assistStatus(document.getElementById('assistStat'))">Check connection</button></div>
+  <div id="assistStat" style="margin:8px 0"><span class="chip ${'${'}FF_ASSIST?'c-green':'c-gray'}">${'${'}FF_ASSIST?'Connected':'Not checked yet'}</span></div>
+  <div class="sub" style="line-height:1.7">Until the Chrome Web Store listing is live, load it directly (2 minutes, works identically):<br>
+  1. <a style="color:#00D4FF;cursor:pointer" onclick="window.open('/foriforeign-apply-assistant.zip','_blank')">Download the extension zip</a> and extract it to a folder.<br>
+  2. Open <b>chrome://extensions</b> in Chrome, switch on <b>Developer mode</b> (top right).<br>
+  3. Press <b>Load unpacked</b> and select the extracted folder. The ForiForeign icon appears.<br>
+  4. Reload this page and press <b>Check connection</b> above — it should turn green.<br><br>
+  <b>Test email mode:</b> open any prepared case → Approve &amp; APPLY → your email compose opens with the draft, recipients and attachment list ready; you press Send.<br>
+  <b>Test portal fill:</b> open any university application or signup form in another tab, click the ForiForeign icon → it fills your profile fields, outlines what needs you in gold, and shows the human-input alerts. It never submits, never touches CAPTCHAs.<br><br>
+  Every user gets this same zip from the app until the Web Store version is published — nothing changes for them later except one-click install.</div></div>
   <div class="row" style="margin-bottom:12px">
   <div class="card" style="flex:1;text-align:center"><b style="font-size:22px;font-family:Fraunces">${d.users}</b><div class="sub">Users</div></div>
   <div class="card" style="flex:1;text-align:center"><b style="font-size:22px;font-family:Fraunces">${d.applications}</b><div class="sub">Applications</div></div>

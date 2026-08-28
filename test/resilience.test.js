@@ -51,6 +51,10 @@ const checks = [
   ['coverage memory excludes already-known institutions', e.includes('do NOT repeat these')],
   ['design system pass is in place', fs.readFileSync(__dirname + '/../public/index.html', 'utf8').includes('Design system pass: rhythm, hierarchy, craft')],
   ['admin tab is self-healing on every render', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes("isAdminRole(ME.role)&&$('adminTab')") && f.includes('adminTab').valueOf; })()],
+  ['founder account self-heals role and credits', sv.includes('FOUNDER SELF-HEAL') && sv.includes("reason: 'founder_restore'")],
+  ['profile view shows extracted rows with hidden editor', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('My profile') && f.includes('id="profEdit"') && !f.includes("window._pmode='$"); })()],
+  ['simulate-user mode reduces every privilege gate', sv.includes('simUser(req)') && (sv.match(/simUser\(req\)/g)||[]).length >= 5 && sv.includes('if (sim) return false')],
+  ['simulation can never grant privileges (reduce-only design)', sv.includes('only ever REDUCES privileges')],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
 let fail = 0;
