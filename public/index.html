@@ -2288,11 +2288,11 @@ async function adminOverview(){
   window.__mHtml=mHtml;
   let d;try{d=await api('/api/admin/overview')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   $('adminBody').innerHTML=(window.__mHtml||'')+`<div class="card" style="border-color:rgba(245,184,65,.5)">
-  <div class="spread"><h3 style="margin:0">View as a new user</h3><button class="btn b-gold" style="padding:6px 14px" onclick="toggleSimUser()">${'${'}localStorage.getItem('ffSimUser')==='1'?'Exit user view':'Start user view'}</button></div>
+  <div class="spread"><h3 style="margin:0">View as a new user</h3><button class="btn b-gold" style="padding:6px 14px" onclick="toggleSimUser()">${localStorage.getItem('ffSimUser')==='1'?'Exit user view':'Start user view'}</button></div>
   <div class="sub" style="line-height:1.6">One tap gives you the EXACT experience of a fresh visitor with zero credits: locked opportunities, package prompts, real cooldowns, real search targets, the full paywall funnel. Privileges are only reduced, never granted, so it is completely safe. Walk the journey, find the gaps, tap the banner below to return to admin power.</div></div>
 <div class="card" style="border-color:rgba(0,212,255,.45)">
   <div class="spread"><h3 style="margin:0">Apply Assistant — test without the Web Store</h3><button class="btn b-line" style="padding:6px 14px" onclick="assistStatus(document.getElementById('assistStat'))">Check connection</button></div>
-  <div id="assistStat" style="margin:8px 0"><span class="chip ${'${'}FF_ASSIST?'c-green':'c-gray'}">${'${'}FF_ASSIST?'Connected':'Not checked yet'}</span></div>
+  <div id="assistStat" style="margin:8px 0"><span class="chip ${FF_ASSIST?'c-green':'c-gray'}">${FF_ASSIST?'Connected':'Not checked yet'}</span></div>
   <div class="sub" style="line-height:1.7">Until the Chrome Web Store listing is live, load it directly (2 minutes, works identically):<br>
   1. <a style="color:#00D4FF;cursor:pointer" onclick="window.open('/foriforeign-apply-assistant.zip','_blank')">Download the extension zip</a> and extract it to a folder.<br>
   2. Open <b>chrome://extensions</b> in Chrome, switch on <b>Developer mode</b> (top right).<br>
@@ -2532,6 +2532,19 @@ async function toggleCountry(code,btn){
   try{const d=await api('/api/admin/countries/'+code+'/toggle',{method:'POST'});toast(code+' '+(d.enabled?'enabled':'disabled')+'.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}
 }
+async function runDeepDiag(btn){
+  btn.disabled=true;const orig=btn.textContent;btn.textContent='Deep diagnosis running (about 60s)…';
+  try{
+    const d=await api('/api/admin/ai-deepcheck');
+    const P=(d.probes||[]).map(p=>(p.ok?'PASS  ':'FAIL  ')+p.model+(p.ok?' ('+(p.ms||0)+'ms)':'  ->  '+(p.error||'unknown'))).join('\n');
+    const disc=d.discovery||{};
+    const D=disc.ok?('PIPELINE OK: parsed '+disc.parsed+' items, added '+disc.added_to_db+' to database ('+disc.ms+'ms)\nRaw start: '+String(disc.raw_first_300||'').slice(0,140))
+                  :('PIPELINE FAIL: '+(disc.error||'unknown'));
+    const E=(d.recent_errors||[]).map(x=>x.t+'  '+x.area+': '+x.msg).join('\n')||'none';
+    alert('DEEP AI DIAGNOSIS  -  '+d.build+'\n\nMODEL PROBES:\n'+P+'\n\nDISCOVERY PIPELINE:\n'+D+'\n\nRECENT ERRORS:\n'+E);
+  }catch(e){toast('Diagnosis failed: '+e.message)}
+  btn.disabled=false;btn.textContent=orig;
+}
 async function aiSelfTest(btn){
   btn.disabled=true;btn.textContent='Testing…';
   try{const d=await api('/api/admin/ai-selftest');
@@ -2547,7 +2560,7 @@ async function adminBusiness(){
   try{pnl=await api('/api/admin/pnl?month='+month)}catch(e){}
   window._expenses=(ex.items||[]).slice();
   return `<div class="card"><div class="spread"><h3>AI engine</h3><button class="btn b-line" onclick="aiSelfTest(this)">Test AI engine</button>
-  <button class="btn b-gold" onclick="(async b=>{b.disabled=true;b.textContent='Deep diagnosis (60s)…';try{const d=await api('/api/admin/ai-deepcheck');const P=d.probes.map(p=>(p.ok?'PASS  ':'FAIL  ')+p.model+(p.ok?' ('+p.ms+'ms)':' -> '+(p.error||''))).join('\n');const D=d.discovery&&d.discovery.ok?('PIPELINE OK: parsed '+d.discovery.parsed+', added '+d.discovery.added_to_db+' to DB ('+d.discovery.ms+'ms)'):('PIPELINE FAIL: '+(d.discovery&&d.discovery.error));const E=(d.recent_errors||[]).map(x=>x.t+' '+x.area+': '+x.msg).join('\n')||'none';alert('DEEP AI DIAGNOSIS — '+d.build+'\n\nMODEL PROBES:\n'+P+'\n\n'+D+'\n\nRECENT ERRORS:\n'+E)}catch(e){toast(e.message)}b.disabled=false;b.textContent='Run deep AI diagnosis'})(this)">Run deep AI diagnosis</button></div>
+  <button class="btn b-gold" onclick="runDeepDiag(this)">Run deep AI diagnosis</button></div>
   <div class="sub">One click proves the key, model chain and search grounding are alive. Run it whenever discovery looks weak.</div></div>
   <div class="card"><h3>Business expenses (full control)</h3>
   <div class="sub" style="margin-bottom:6px">Supabase, domain, Railway, marketing, staff, anything. Yearly amounts are divided by 12; USD converts at the admin rate.</div>
