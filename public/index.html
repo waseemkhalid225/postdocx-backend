@@ -557,7 +557,9 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
 }
 
 /* Compact equal marketing boxes */
-.mkt-eq{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.mkt-eq{grid-template-columns:repeat(3,1fr)}
+@media(max-width:860px){.mkt-eq{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.mkt-eq{grid-template-columns:1fr}}
 .mkt-eq .mkt-card{min-height:92px;padding:12px 14px}
 .mkt-eq .mkt-card h3{margin:0 0 5px;font:800 14.5px Inter;letter-spacing:.01em}
 .mkt-eq .mkt-card p{font-size:12px;line-height:1.5}
@@ -639,12 +641,7 @@ async function loadSiteConfig(){
   try{const rq=new URLSearchParams(location.search).get('ref');if(rq)localStorage.setItem('ffref',rq.toUpperCase())}catch(e){}
   try{SITE=(await (await fetch('/api/site-config')).json()).config||null}catch(e){SITE=null}
   fetch('/api/version').then(r=>r.json()).then(v=>{window._ffBuild=v.build;const t=document.getElementById('ffBuildTag');if(t)t.textContent='build '+v.build}).catch(()=>{});
-  fetch('/api/stats').then(r=>r.json()).then(st=>{
-    const f=(id,v)=>{const el=document.getElementById(id);if(el&&v)el.textContent=v};
-    if(st.opportunities>=25)f('stOpps',st.opportunities.toLocaleString());
-    if(st.countries>=5)f('stCtry',st.countries);
-    if(st.added7>=3)f('stNew','+'+st.added7);
-  }).catch(()=>{});
+
   setTimeout(()=>{try{
     const box=document.getElementById('mktStats');
     if(box&&SITE&&Array.isArray(SITE.stories)&&SITE.stories.length){
@@ -698,11 +695,11 @@ function renderAuth(mode){
   </div>
   <section class="mkt">
     <div class="mkt-stats" id="mktStats">
-      <div><b>Official sources</b><span>every opportunity verified before you see it</span></div>
-      <div><b id="stOpps">Live</b><span>verified opportunities right now</span></div>
-      <div><b id="stCtry">50+</b><span>countries covered</span></div>
-      <div><b id="stNew">Fresh</b><span>added this week</span></div>
-      <div><b>You</b><span>press Send, from your own email</span></div>
+      <div><b style="color:#00D4FF">40+</b><span>countries on our search map</span></div>
+      <div><b style="color:#F5B841">1000s</b><span>of positions scanned every week</span></div>
+      <div><b style="color:#3BF0D2">24/7</b><span>AI agents hunting while you sleep</span></div>
+      <div><b style="color:#00D4FF">100%</b><span>verified on official pages first</span></div>
+      <div><b style="color:#F5B841">Minutes</b><span>from search to a ready case</span></div>
     </div>
     <div class="sub" style="text-align:center;margin-top:10px;opacity:.9">No inbox access · No stored passwords · Confidential documents stay with you · Source link on every opportunity</div>
     <h2 class="mkt-h">How ForiForeign works</h2>
@@ -711,13 +708,8 @@ function renderAuth(mode){
       <div class="mkt-card"><h3 style="color:#F5B841">2 · We search &amp; verify</h3><p>Official sources only. Deadlines, funding and eligibility checked for you.</p></div>
       <div class="mkt-card"><h3 style="color:#3BF0D2">3 · You approve &amp; apply</h3><p>Complete case prepared. Nothing sends until you press Send yourself.</p></div>
     </div>
-    <h2 class="mkt-h">Built for your profession</h2>
-    <div class="mkt-grid mkt-eq">
-      <div class="mkt-card"><h3 style="color:#00D4FF">Health professionals</h3><p>Doctors, pharmacists, nurses, OT and lab staff. Licensing named: DHA, SCFHS, NCLEX, PEBC, PLAB.</p></div>
-      <div class="mkt-card"><h3 style="color:#F5B841">Engineers &amp; IT</h3><p>Verified jobs and funded programmes, Europe to the Gulf, visa route stated.</p></div>
-      <div class="mkt-card"><h3 style="color:#3BF0D2">Students, BS to Postdoc</h3><p>Scholarships, no-IELTS options, stipends flagged, research matched to your papers.</p></div>
-      <div class="mkt-card"><h3 style="color:#00D4FF">Complete intelligence</h3><p>Every opportunity: why you match, costs in PKR, verified contacts, source link.</p></div>
-      <div class="mkt-card"><h3 style="color:#F5B841">Your data, protected</h3><p>Private documents. Emails send from your own inbox, only after you approve.</p></div>
+      <div class="mkt-card"><h3 style="color:#00D4FF">Every profession, one home</h3><p>Doctors, pharmacists, nurses, OT staff, engineers, IT, researchers. Licensing routes named: DHA, SCFHS, NCLEX, PLAB.</p></div>
+      <div class="mkt-card"><h3 style="color:#F5B841">Students, BS to Postdoc</h3><p>Scholarships, no-IELTS options, stipends flagged, research matched to your papers.</p></div>
       <div class="mkt-card"><h3 style="color:#3BF0D2">Built for Pakistan</h3><p>PKR pricing, JazzCash, Easypaisa, bank. Free CV analysis, packages from Rs 2,000.</p></div>
     </div>
     <div class="mkt-cta">
