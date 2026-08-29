@@ -48,7 +48,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2300';
+const FF_BUILD = '2026-08-28-R2360';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -87,6 +87,7 @@ app.get('/api/health/full', async (req, res) => {
       SUPABASE_ANON_KEY: has('SUPABASE_ANON_KEY') || has('SUPABASE_KEY'),
       GEMINI_API_KEY: has('GEMINI_API_KEY'),
       OPENAI_API_KEY: has('OPENAI_API_KEY'),
+      ANTHROPIC_API_KEY: has('ANTHROPIC_API_KEY'),
       BRAVE_API_KEY: has('BRAVE_API_KEY')
     },
     db: 'not tested', auth_layer: 'not tested'
@@ -720,7 +721,7 @@ app.get('/api/admin/ai-deepcheck', auth, perm('aicost.read'), async (req, res) =
   for (const m of chain) {
     const t0 = Date.now();
     try {
-      const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 20000);
+      const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 45000);
       const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + m + ':generateContent?key=' + key, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with exactly: OK' }] }], tools: [{ google_search: {} }], generationConfig: { maxOutputTokens: 30 } }),
@@ -730,8 +731,17 @@ app.get('/api/admin/ai-deepcheck', auth, perm('aicost.read'), async (req, res) =
       out.probes.push({ model: m, status: r.status, ms: Date.now() - t0,
         ok: r.ok, error: r.ok ? null : String(d && d.error && d.error.message || '').slice(0, 220),
         sample: r.ok ? String(((d.candidates || [])[0] || {}).content && d.candidates[0].content.parts && d.candidates[0].content.parts.map(p => p.text || '').join('') || '').slice(0, 40) : null });
-    } catch (e) { out.probes.push({ model: m, ok: false, ms: Date.now() - t0, error: String(e.message).slice(0, 160) }); }
+    } catch (e) { out.probes.push({ model: m, ok: false, ms: Date.now() - t0, error: e.name === 'AbortError' ? 'slow right now (>45s); the cascade skips to the next model automatically' : String(e.message).slice(0, 160) }); }
   }
+  // CLAUDE probe: the premium writing lane, exactly as case preparation uses it.
+  if (process.env.ANTHROPIC_API_KEY) {
+    const t0 = Date.now();
+    try {
+      const { anthropicCall, AMODEL } = require('./lib/anthropic');
+      const a = await anthropicCall('Reply with exactly: OK', { maxTokens: 20, timeoutMs: 30000 });
+      out.probes.push({ model: 'CLAUDE:' + a.model, status: 200, ms: Date.now() - t0, ok: true, sample: String(a.text || '').slice(0, 20) });
+    } catch (e) { out.probes.push({ model: 'CLAUDE:' + require('./lib/anthropic').AMODEL(), ok: false, ms: Date.now() - t0, error: String(e.message).slice(0, 200) }); }
+  } else out.probes.push({ model: 'CLAUDE premium lane', ok: false, error: 'ANTHROPIC_API_KEY not set in Railway' });
   // OpenAI grounded backup probe
   if (process.env.OPENAI_API_KEY) {
     const t0 = Date.now(); const bm = process.env.OPENAI_BACKUP_MODEL || 'gpt-5.4-mini';
