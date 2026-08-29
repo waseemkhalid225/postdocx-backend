@@ -48,7 +48,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2420';
+const FF_BUILD = '2026-08-28-R2440';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -718,7 +718,7 @@ app.get('/api/admin/ai-deepcheck', auth, perm('aicost.read'), async (req, res) =
   const { MODEL, FALLBACK } = require('./lib/gemini');
   const chain = [...new Set([MODEL(), FALLBACK && FALLBACK(), 'gemini-3.6-flash'].filter(Boolean))];
   // 1) Per-model grounded probe: which models exist, which support search, which are overloaded.
-  for (const m of chain) {
+  await Promise.all(chain.map(async m => {
     const t0 = Date.now();
     try {
       const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 45000);
@@ -732,7 +732,8 @@ app.get('/api/admin/ai-deepcheck', auth, perm('aicost.read'), async (req, res) =
         ok: r.ok, error: r.ok ? null : String(d && d.error && d.error.message || '').slice(0, 220),
         sample: r.ok ? String(((d.candidates || [])[0] || {}).content && d.candidates[0].content.parts && d.candidates[0].content.parts.map(p => p.text || '').join('') || '').slice(0, 40) : null });
     } catch (e) { out.probes.push({ model: m, ok: false, ms: Date.now() - t0, error: e.name === 'AbortError' ? 'slow right now (>45s); the cascade skips to the next model automatically' : String(e.message).slice(0, 160) }); }
-  }
+  }));
+  out.probes.sort((a, b) => String(a.model).localeCompare(String(b.model)));
   // CLAUDE probe: the premium writing lane, exactly as case preparation uses it.
   if (process.env.ANTHROPIC_API_KEY) {
     const t0 = Date.now();
@@ -762,8 +763,8 @@ app.get('/api/admin/ai-deepcheck', auth, perm('aicost.read'), async (req, res) =
     const { parseJSON, ingestOpps } = require('./lib/engine');
     const t0 = Date.now();
     const txt = await callAI('search_verify',
-      'Find 3 currently-open, fully funded masters or PhD scholarships in Germany or Turkiye for international students. Verify each on its OFFICIAL page. Respond ONLY with a JSON array: [{"title":"","institution":"","country_code":"ISO2","url":"official page url","deadline":"YYYY-MM-DD or empty","funding":"","funding_type":"fully","level":"masters|phd"}]',
-      { search: true, urls: true, maxTokens: 3000, userId: req.userId });
+      'Find 2 currently-open, fully funded masters or PhD scholarships in Germany or Turkiye for international students. Verify each on its OFFICIAL page. Respond ONLY with a JSON array: [{"title":"","institution":"","country_code":"ISO2","url":"official page url","deadline":"YYYY-MM-DD or empty","funding":"","funding_type":"fully","level":"masters|phd"}]',
+      { search: true, urls: true, maxTokens: 1800, userId: req.userId });
     let items = parseJSON(txt) || [];
     if (!Array.isArray(items)) items = [items];
     const verdicts = items.map(it => ({
@@ -790,8 +791,19 @@ app.get('/api/admin/ai-selftest', auth, perm('aicost.read'), async (req, res) =>
       return { ok: true, ms: Date.now() - t0, model: r.model || null, sample: String(r.text || '').slice(0, 60) };
     } catch (e) { return { ok: false, ms: Date.now() - t0, error: String(e.message).slice(0, 200) }; }
   };
-  out.plain = await run('plain', { maxTokens: 20, thinking: 'low' });
-  out.grounded = await run('grounded', { maxTokens: 100, thinking: 'low', search: true });
+  const claudeRun = async () => {
+    if (!process.env.ANTHROPIC_API_KEY) return { ok: false, error: 'ANTHROPIC_API_KEY not set' };
+    const t0 = Date.now();
+    try { const { anthropicCall } = require('./lib/anthropic'); const a = await anthropicCall('Reply with exactly: OK', { maxTokens: 20, timeoutMs: 25000 }); return { ok: true, ms: Date.now() - t0, model: a.model }; }
+    catch (e) { return { ok: false, ms: Date.now() - t0, error: String(e.message).slice(0, 160) }; }
+  };
+  // All three probes fly in PARALLEL: total time = slowest, not the sum.
+  const [plain, grounded, claude] = await Promise.all([
+    run('plain', { maxTokens: 20, thinking: 'low' }),
+    run('grounded', { maxTokens: 100, thinking: 'low', search: true }),
+    claudeRun()
+  ]);
+  out.plain = plain; out.grounded = grounded; out.claude = claude;
   out.backup = { configured: !!process.env.OPENAI_API_KEY, model: process.env.OPENAI_BACKUP_MODEL || 'gpt-5.4-mini (default)' };
   res.json(out);
 });

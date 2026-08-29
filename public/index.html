@@ -569,6 +569,14 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
 ::-webkit-scrollbar-thumb:hover{background:#fff}
 ::-webkit-scrollbar-track{background:rgba(255,255,255,.08)}
 *{scrollbar-color:rgba(255,255,255,.85) rgba(255,255,255,.08);scrollbar-width:thin}
+
+/* Mobile header: brand, credits and Sign out always visible */
+@media(max-width:640px){
+  header{flex-wrap:wrap;gap:6px;padding:8px 10px;row-gap:6px}
+  header .brand,header b{font-size:16px}
+  #creditPill{font-size:11.5px;padding:5px 10px}
+  #outBtn{padding:5px 10px!important;font-size:12px;min-height:34px}
+}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -2647,7 +2655,7 @@ async function aiSelfTest(btn){
   try{const d=await api('/api/admin/ai-selftest');
     const f=x=>x?(x.ok?`OK · ${x.ms}ms${x.model?' · '+esc(x.model):''}`:`FAILED · ${esc(x.error||'')}`):'-';
     toast('Plain: '+(d.plain&&d.plain.ok?'OK':'FAIL')+' · Search: '+(d.grounded&&d.grounded.ok?'OK':'FAIL'));
-    alert('AI ENGINE SELF-TEST\n\nPlain call: '+f(d.plain)+'\n\nSearch-grounded call: '+f(d.grounded)+'\n\nOpenAI backup: '+(d.backup&&d.backup.configured?('ARMED · '+esc(d.backup.model)):'NOT CONFIGURED, add OPENAI_API_KEY in Railway')+'\n\nIf search fails while plain passes, the issue is grounding/tools or model overload, not your key. With the backup armed, discovery survives even a full Gemini outage.');
+    alert('AI ENGINE SELF-TEST\n\nFlash plain: '+f(d.plain)+'\n\nFlash search-grounded: '+f(d.grounded)+'\n\nCLAUDE premium lane: '+f(d.claude)+'\n\nOpenAI backup: '+(d.backup&&d.backup.configured?('ARMED · '+esc(d.backup.model)):'NOT CONFIGURED, add OPENAI_API_KEY in Railway')+'\n\nIf search fails while plain passes, the issue is grounding/tools or model overload, not your key. With the backup armed, discovery survives even a full Gemini outage.');
   }catch(e){toast(e.message)}
   btn.disabled=false;btn.textContent='Test AI engine';
 }
