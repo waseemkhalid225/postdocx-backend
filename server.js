@@ -48,7 +48,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2400';
+const FF_BUILD = '2026-08-28-R2420';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -1794,7 +1794,8 @@ app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').c
   const prefs = {
     countries: Array.isArray(b.countries) ? b.countries.filter(c => /^[A-Za-z]{2}$/.test(String(c))).map(c => String(c).toUpperCase()).slice(0, 15) : [],
     fundings: arr(b.fundings, ['fully', 'partial', 'self']),
-    levels: arr(b.levels, ['bachelors', 'masters', 'phd', 'postdoc']),
+    levels: arr(b.levels, ['bachelors', 'masters', 'phd', 'postdoc', 'diploma', 'short_course', 'fellowship', 'observership', 'licensing_exam']),
+    langs: arr(b.langs, ['none', 'cert_before', 'course_after', 'local_lang']),
     jobTypes: arr(b.job_types, ['full_time', 'part_time', 'contract', 'internship']),
     exps: arr(b.exps, ['entry', 'mid', 'senior']),
     licenses: Array.isArray(b.licenses) ? b.licenses.map(x => String(x).toUpperCase()).filter(x => LIC.includes(x)).slice(0, 8) : [],

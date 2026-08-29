@@ -598,6 +598,12 @@ async function refreshCredits(){
 // escAttr: safe for values placed inside single-quoted JS string args in onclick=""
 const escAttr=s=>String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/[<>]/g,c=>({'<':'&lt;','>':'&gt;'}[c])).replace(/\r?\n/g,' ');
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),4200)}
+/* Overlay shield: panels close ONLY via their close buttons. Any click landing on
+   an overlay backdrop is swallowed so a stray tap can never dismiss work. */
+document.addEventListener('click',e=>{
+  const ov=e.target.closest('.ffmatches,.ff-finder,.ff-ack,.ffwait,.ff-appview');
+  if(ov&&e.target===ov){e.stopPropagation();e.preventDefault()}
+},true);
 async function api(p,o={}){o.headers=Object.assign({'content-type':'application/json'},o.headers||{});
   if(SESSION)o.headers.authorization='Bearer '+SESSION.access_token;
   if(localStorage.getItem('ffSimUser')==='1'){o.headers['x-ff-simulate-user']='1';o.headers['x-ff-simulate-tier']=localStorage.getItem('ffSimTier')||'0'}
@@ -1379,7 +1385,7 @@ async function renderWorkLane(){
 }
 async function runSearch(kind,opts){
   opts=opts||{};
-  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,licenses:opts.licenses||[],job_types:opts.jobTypes||[],exps:opts.exps||[],program_types:opts.programTypes||[],sectors:opts.sectors||[],field:opts.field||undefined,intake:opts.intake||undefined}})}catch(e){toast(e.message);return}
+  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,licenses:opts.licenses||[],job_types:opts.jobTypes||[],exps:opts.exps||[],program_types:opts.programTypes||[],sectors:opts.sectors||[],langs:opts.langs||[],field:opts.field||undefined,intake:opts.intake||undefined}})}catch(e){toast(e.message);return}
   if(d&&d.ran===false){toast(d.message||'Your recent matches are still fresh.');showMatches(kind,opts);return}
   if(!d.ran){toast(d.message);return}
   // Staged progress ring. Stages reflect the real backend pipeline; the timer paces
@@ -1559,7 +1565,7 @@ function openFinder(afterUpload){
   const m=ME||{};
   window._finder=window._finder||{kind:m.mode==='work'?'work':'study',funded:!!m.funded_only,remote:false,visa:false,ctrys:[],ctryOpen:false,ctrySearch:''};
   if(!window._finder._loaded){window._finder._loaded=true;
-    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],programTypes:Array.isArray(P.programTypes)?P.programTypes:[],sectors:Array.isArray(P.sectors)?P.sectors:[],lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
+    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],programTypes:Array.isArray(P.programTypes)?P.programTypes:[],sectors:Array.isArray(P.sectors)?P.sectors:[],langs:Array.isArray(P.langs)?P.langs:[],lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
   }
   const wrap=document.createElement('div');wrap.className='ff-finder';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;display:flex;align-items:center;justify-content:center;padding:16px';
@@ -1574,7 +1580,7 @@ function openFinder(afterUpload){
 function renderFinder(){
   const el=$('ffBody');if(!el)return;
   const f=window._finder;
-  ['levels','fundings','jobTypes','exps','licenses','programTypes','sectors'].forEach(k=>{if(!Array.isArray(f[k]))f[k]=[]});
+  ['levels','fundings','jobTypes','exps','licenses','programTypes','sectors','langs'].forEach(k=>{if(!Array.isArray(f[k]))f[k]=[]});
   if(f.level&&!f.levels.length)f.levels=[f.level];if(f.funding&&!f.fundings.length)f.fundings=[f.funding];if(f.license&&!f.licenses.length)f.licenses=[f.license];
   f.lang=f.lang||'';f.workmode=f.workmode||'';f.visaSel=f.visaSel||'';f.field=f.field||'';f.intake=f.intake||'';f._open=f._open||{};
   const sel=(key,label2,opts2)=>`<label>${label2}</label><select onchange="window._finder['${key}']=this.value;renderFinder()">${opts2.map(([v,t])=>`<option value="${v}" ${f[key]===v?'selected':''}>${t}</option>`).join('')}</select>`;
@@ -1591,11 +1597,11 @@ function renderFinder(){
   const FIELD_NAMES=['Medicine','Pharmacy','Nursing','Dentistry','Physiotherapy','Allied Health','Public Health','Medical Laboratory','Radiology & Imaging','Veterinary','Psychology','Nutrition & Dietetics','Biotechnology','Microbiology','Biochemistry','Genetics','Life Sciences','Chemistry','Physics','Mathematics','Statistics','Environmental Science','Earth Sciences','Astronomy','Materials Science','IT & Software','Computer Science','Data Science','Artificial Intelligence','Cybersecurity','Networking','Web & App Development','Game Development','Cloud Computing','Electrical Engineering','Mechanical Engineering','Civil Engineering','Chemical Engineering','Petroleum Engineering','Mining Engineering','Industrial Engineering','Aerospace Engineering','Automotive Engineering','Biomedical Engineering','Mechatronics','Telecom Engineering','Architecture','Urban Planning','Construction Management','Business Administration','Management','Marketing','Sales','Accounting','Finance','Banking','Economics','Human Resources','Supply Chain & Logistics','Project Management','Entrepreneurship','International Business','Law','Political Science','International Relations','Public Administration','Sociology','Social Work','Anthropology','History','Philosophy','Islamic Studies','Languages & Linguistics','Literature','Journalism & Media','Communication','Film & Television','Graphic Design','Fashion Design','Interior Design','Fine Arts','Music','Performing Arts','Education & Teaching','Early Childhood Education','Special Education','Sports Science','Hospitality & Tourism','Culinary Arts','Aviation & Piloting','Maritime & Shipping','Agriculture','Food Science','Forestry','Fisheries','Horticulture','Textile Engineering','Energy & Renewables','Nanotechnology','Robotics','Library & Information Science','Criminology','Nursing Midwifery','Paramedical','Occupational Therapy','Speech Therapy','Optometry','Audiology'];
   const FIELDS=[['','Any profession']].concat(FIELD_NAMES.map(n=>[n.toLowerCase().replace(/[^a-z]+/g,'-').replace(/^-|-$/g,''),n]));
   const study=f.kind!=='work'?
-    mp('levels','Programme level, select any',[['bachelors','Undergraduate, Bachelor&#39;s degree'],['masters','Postgraduate, Master&#39;s / MPhil'],['phd','Doctorate, PhD'],['postdoc','Postdoctoral research']])+
-    mp('fundings','Funding preference, select any',[['fully','Fully funded, tuition and living covered'],['partial','Partially funded, scholarships and waivers'],['self','Self-financed, open admissions']])+
-    sel('lang','Language requirement',[['','Any'],['none','No IELTS / TOEFL required']])+
+    mp('levels','Programme level, select any',[['bachelors','Undergraduate, Bachelor&#39;s degree'],['masters','Postgraduate, Master&#39;s / MPhil'],['phd','Doctorate, PhD'],['postdoc','Postdoctoral research'],['diploma','Diploma'],['short_course','Short course / Training'],['fellowship','Fellowship / Exchange'],['observership','Clinical observership / rotation'],['licensing_exam','Licensing exam pathway (USMLE, PLAB, NCLEX, etc.)']])+
+    mp('fundings','Funding, choose one or all',[['fully','Fully funded / Scholarship'],['partial','Partial funding / Scholarship'],['self','Self finance']])+
+    mp('langs','Language rules, choose any that suit you',[['none','No language certificate required'],['cert_before','Certificate needed to apply (IELTS / TOEFL / OET / PTE)'],['course_after','Language course before or with the programme accepted'],['local_lang','Local language route (German, French, etc.)']])+
     sel('intake','Intake',[['','Any intake'],['2026','2026 intakes'],['2027','2027 intakes']])+
-    mp('programTypes','Programme type - select any',[['degree','Full degree programme'],['diploma','Diploma'],['short_course','Short course'],['training','Professional training'],['fellowship','Fellowship'],['exchange','Exchange / semester abroad'],['observership','Clinical observership / rotation']]):'';
+    '':'';
   const work=f.kind!=='study'?
     mp('jobTypes','Job type, select any',[['full_time','Full-time position'],['part_time','Part-time position'],['contract','Contract / locum'],['internship','Internship / trainee']])+
     mp('exps','Experience level, select any',[['entry','Early career (0–2 years)'],['mid','Established (3–7 years)'],['senior','Senior (8+ years)']])+
@@ -1637,9 +1643,9 @@ async function launchFinder(btn){
   btn.disabled=true;
   const f=window._finder||{};
   const kind=f.kind||'study';
-  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:f.lang==='none',remote:f.workmode==='remote',visa:false,licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
+  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:(f.langs||[]).length===1&&f.langs[0]==='none',remote:f.workmode==='remote',visa:false,licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),langs:(f.langs||[]).slice(),field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
   try{await api('/api/me',{method:'PUT',body:{mode:kind==='both'?'both':kind,funded_only:opts.fundedOnly}});if(ME){ME.mode=kind==='both'?'both':kind;ME.funded_only=opts.fundedOnly}}catch(e){}
-  api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,fundings:opts.fundings,levels:opts.levels,lang:opts.noLang?'none':'',workmode:opts.remote?'remote':'',licenses:opts.licenses,jobTypes:opts.jobTypes,exps:opts.exps,programTypes:opts.programTypes,sectors:opts.sectors,field:opts.field,intake:opts.intake,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
+  api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,fundings:opts.fundings,levels:opts.levels,lang:opts.noLang?'none':'',workmode:opts.remote?'remote':'',licenses:opts.licenses,jobTypes:opts.jobTypes,exps:opts.exps,programTypes:opts.programTypes,sectors:opts.sectors,langs:opts.langs,field:opts.field,intake:opts.intake,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
   document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
   runSearch(kind==='both'?undefined:kind,opts);
 }
