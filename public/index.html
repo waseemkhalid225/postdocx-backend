@@ -555,6 +555,18 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
   h1{font-size:22px}
   .mkt-h{font-size:17px}
 }
+
+/* Compact equal marketing boxes */
+.mkt-eq{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.mkt-eq .mkt-card{min-height:92px;padding:12px 14px}
+.mkt-eq .mkt-card h3{margin:0 0 5px;font:800 14.5px Inter;letter-spacing:.01em}
+.mkt-eq .mkt-card p{font-size:12px;line-height:1.5}
+/* WHITE, clearly visible scrollbars, everywhere */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.85);border-radius:99px;border:2px solid rgba(10,20,40,.6)}
+::-webkit-scrollbar-thumb:hover{background:#fff}
+::-webkit-scrollbar-track{background:rgba(255,255,255,.08)}
+*{scrollbar-color:rgba(255,255,255,.85) rgba(255,255,255,.08);scrollbar-width:thin}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -694,22 +706,20 @@ function renderAuth(mode){
     </div>
     <div class="sub" style="text-align:center;margin-top:10px;opacity:.9">No inbox access · No stored passwords · Confidential documents stay with you · Source link on every opportunity</div>
     <h2 class="mkt-h">How ForiForeign works</h2>
-    <div class="mkt-grid">
-      <div class="mkt-card"><div class="mkt-ic">1️⃣</div><h3>Build your real profile</h3><p>Education, experience, publications, documents, once. Our agent works only from your real facts, never inventions.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">2️⃣</div><h3>The agent searches &amp; verifies</h3><p>Study, scholarship and work opportunities from official sources, deadlines, funding and eligibility checked against your profile.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">3️⃣</div><h3>Apply with authority</h3><p>Tailored CV, cover letter and email prepared for each case. Nothing sends until you press Send yourself, from your own email.</p></div>
+    <div class="mkt-grid mkt-eq">
+      <div class="mkt-card"><h3 style="color:#00D4FF">1 · Upload your CV</h3><p>Your real profile, built in one minute. Free analysis with match scores.</p></div>
+      <div class="mkt-card"><h3 style="color:#F5B841">2 · We search &amp; verify</h3><p>Official sources only. Deadlines, funding and eligibility checked for you.</p></div>
+      <div class="mkt-card"><h3 style="color:#3BF0D2">3 · You approve &amp; apply</h3><p>Complete case prepared. Nothing sends until you press Send yourself.</p></div>
     </div>
-    <h2 class="mkt-h">Why students &amp; professionals choose us</h2>
-    <div class="mkt-grid">
-      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Study lane</h3><p>Bachelors to Postdoc with scholarship &amp; funding filters, no-IELTS options, stipend flags.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Work lane</h3><p>Verified jobs with the licensing route named, DHA, SCFHS, NCLEX, PEBC, so you know the real path.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Complete intelligence</h3><p>Every opportunity gets a full report: why you match, what's missing, costs in USD &amp; PKR, verified contacts.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Case management</h3><p>Each application is a case, editable documents, statuses, notes, and follow-ups in one place.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">◆</div><h3>Your data, protected</h3><p>Documents are private, used only for your applications. Emails send from your own Gmail, only after you approve.</p></div>
-      <div class="mkt-card" style="border-color:#00D4FF"><div class="mkt-ic">💎</div><h3>Free CV analysis · packages from Rs 2,000</h3><p>Upload CV → see your match scores across countries free → choose a package → complete tailored case → you press Send from your own email. No consultant fees, no guarantees sold, just the work, done properly.</p></div>
-      <div class="mkt-card"><div class="mkt-ic">🇵🇰</div><h3>Built for Pakistan</h3><p>PKR pricing, JazzCash/Easypaisa/bank transfer, and guidance written for Pakistani applicants.</p></div>
+    <h2 class="mkt-h">Built for your profession</h2>
+    <div class="mkt-grid mkt-eq">
+      <div class="mkt-card"><h3 style="color:#00D4FF">Health professionals</h3><p>Doctors, pharmacists, nurses, OT and lab staff. Licensing named: DHA, SCFHS, NCLEX, PEBC, PLAB.</p></div>
+      <div class="mkt-card"><h3 style="color:#F5B841">Engineers &amp; IT</h3><p>Verified jobs and funded programmes, Europe to the Gulf, visa route stated.</p></div>
+      <div class="mkt-card"><h3 style="color:#3BF0D2">Students, BS to Postdoc</h3><p>Scholarships, no-IELTS options, stipends flagged, research matched to your papers.</p></div>
+      <div class="mkt-card"><h3 style="color:#00D4FF">Complete intelligence</h3><p>Every opportunity: why you match, costs in PKR, verified contacts, source link.</p></div>
+      <div class="mkt-card"><h3 style="color:#F5B841">Your data, protected</h3><p>Private documents. Emails send from your own inbox, only after you approve.</p></div>
+      <div class="mkt-card"><h3 style="color:#3BF0D2">Built for Pakistan</h3><p>PKR pricing, JazzCash, Easypaisa, bank. Free CV analysis, packages from Rs 2,000.</p></div>
     </div>
-    <div id="mktReviews"></div>
     <div class="mkt-cta">
       <h2>Your journey starts in Pakistan.<br>Where it goes is up to you.</h2>
       <button class="btn b-gold" style="font-size:15px;padding:12px 26px" onclick="renderAuth('signup');window.scrollTo({top:0,behavior:'smooth'})">Create your free account →</button>
@@ -1618,9 +1628,9 @@ async function openApp(id){
   if(a.stage==='preparing'&&!window._prepPoll){window._prepPoll=setInterval(async()=>{try{const r=await api('/api/applications/'+id);if(r.application.stage!=='preparing'){clearInterval(window._prepPoll);window._prepPoll=null;document.querySelectorAll('.ff-appview').forEach(x=>x.remove());toast('Your case is ready. Every document prepared.');openApp(id)}else{const p2=r.application.prep_status||{plan:[],done:[]};const el=document.getElementById('prepRing');const pct=Math.min(96,8+Math.round(((p2.done||[]).length/Math.max(1,(p2.plan||[]).length))*88));if(el){el.style.background=`conic-gradient(#1683FF ${pct*3.6}deg,rgba(120,180,255,.15) 0)`;el.querySelector('b').textContent=pct+'%'}const dn=document.getElementById('prepDone');if(dn)dn.textContent=(p2.done||[]).join(' · ')||'Analysing the position…'}}catch(e){}},4000)}
   if(a.stage!=='preparing'&&window._prepPoll){clearInterval(window._prepPoll);window._prepPoll=null}
   const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:50;overflow:auto;padding:20px 10px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:50;overflow:hidden;display:flex;align-items:flex-start;justify-content:center;padding:16px 10px';
   wrap.className=(wrap.className||'')+' ff-appview';
-  wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:18px">
+  wrap.innerHTML=`<div style="max-width:680px;width:100%;max-height:94vh;overflow:auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:18px">
   ${a.stage==='preparing'?`<div style="display:flex;align-items:center;gap:16px;background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.35);border-radius:14px;padding:14px;margin-bottom:12px">
     <div id="prepRing" style="width:74px;height:74px;border-radius:50%;background:conic-gradient(#1683FF ${prepPct*3.6}deg,rgba(120,180,255,.15) 0);display:flex;align-items:center;justify-content:center;flex:0 0 74px"><div style="width:56px;height:56px;border-radius:50%;background:#0A1428;display:flex;align-items:center;justify-content:center"><b style="font:800 15px Inter;color:#00D4FF">${prepPct}%</b></div></div>
     <div><div style="font:700 14.5px Inter">Preparing your case, live</div>
