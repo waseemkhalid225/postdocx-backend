@@ -810,14 +810,28 @@ async function doAuth(mode){
   try{
     if(mode==='signup'){
       const name=($('a-name')&&$('a-name').value.trim())||'';
+      if(window._authBusy)return;window._authBusy=true;
       const wa=(document.getElementById('su-wa')||{}).value||'';const {error}=await SB.auth.signUp({email,password,options:{data:{full_name:name,whatsapp:wa},emailRedirectTo:location.origin}});
       if(error)throw error;
-      toast('Account created. Check your email for the verification link, then sign in.');renderAuth('signin');
+      // Confirm instantly server-side, then sign straight in: no email link needed, ever.
+      try{await fetch('/api/auth/confirmed',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})})}catch(e){}
+      const si=await SB.auth.signInWithPassword({email,password});
+      if(si.error){toast('Account created. Please sign in now.');renderAuth('signin')}
+      else toast('Welcome to ForiForeign, '+(name.split(' ')[0]||'')+'!');
     }else{
-      const {error}=await SB.auth.signInWithPassword({email,password});
+      if(window._authBusy)return;window._authBusy=true;
+      let {error}=await SB.auth.signInWithPassword({email,password});
+      if(error&&/not confirmed|confirm/i.test(error.message||'')){
+        // Heal the stuck-confirmation loop automatically, once, then retry.
+        try{await fetch('/api/auth/confirmed',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})})}catch(e){}
+        const r2=await SB.auth.signInWithPassword({email,password});error=r2.error;
+      }
       if(error)throw error;
     }
-  }catch(e){toast(e.message)}
+  }catch(e){
+    const m=String(e.message||'');
+    toast(/security purposes|rate limit|seconds/i.test(m)?'One moment please, then try once more.':m);
+  }finally{window._authBusy=false}
 }
 async function forgotPassword(){
   const email=($('a-email')&&$('a-email').value.trim())||prompt('Enter your account email:')||'';

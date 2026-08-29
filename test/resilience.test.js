@@ -69,6 +69,7 @@ const checks = [
   ['anthropic caller is retry-hardened', (() => { const a = fs.readFileSync(__dirname + '/../lib/anthropic.js', 'utf8'); return a.includes('anthropic-version') && a.includes('attempt < 2') && a.includes('429'); })()],
   ['support can grant a free Solo case, once per ticket, with audit', sv.includes('grant-solo') && sv.includes("reason: 'support_grant'") && sv.includes('Already granted for this ticket') && sv.includes('SUPPORT_GRANT_SOLO')],
   ['free-package requests are auto-detected with approve/decline', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('Free package request detected') && f.includes('grantSolo') && f.includes('declineFree'); })()],
+  ['signup auto-confirms and signs straight in (no email loop)', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('/api/auth/confirmed') && f.includes('_authBusy') && sv.includes('email_confirm: true') && sv.includes('never reveal whether an email exists'); })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
 let fail = 0;

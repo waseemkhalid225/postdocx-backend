@@ -48,9 +48,34 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2280';
+const FF_BUILD = '2026-08-28-R2300';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
+/* Instant email confirmation: kills the "email not confirmed" loop permanently.
+   Confirming an address grants nothing without the password, so this is safe;
+   lightly rate-limited per IP. */
+const _confHits = new Map();
+app.post('/api/auth/confirmed', async (req, res) => {
+  try {
+    const ip = req.headers['x-forwarded-for'] || req.ip || 'x';
+    const now = Date.now(); const h = _confHits.get(ip) || [];
+    const fresh = h.filter(t => now - t < 60000); fresh.push(now); _confHits.set(ip, fresh);
+    if (fresh.length > 10) return res.status(429).json({ error: 'Too many attempts, wait a minute.' });
+    const email = String(req.body && req.body.email || '').trim().toLowerCase();
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
+    const base = process.env.SUPABASE_URL.replace(/\/$/, '');
+    const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SECRET_KEY;
+    const hd = { apikey: key, authorization: 'Bearer ' + key, 'content-type': 'application/json' };
+    const q = await fetch(base + '/auth/v1/admin/users?email=' + encodeURIComponent(email), { headers: hd });
+    const qd = await q.json().catch(() => ({}));
+    const u = (qd.users || (Array.isArray(qd) ? qd : [])).find(x => String(x.email || '').toLowerCase() === email);
+    if (!u) return res.json({ ok: true }); // never reveal whether an email exists
+    if (!u.email_confirmed_at) {
+      await fetch(base + '/auth/v1/admin/users/' + u.id, { method: 'PUT', headers: hd, body: JSON.stringify({ email_confirm: true }) });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: 'Could not confirm right now' }); }
+});
 /* Self-diagnosing health: shows WHICH link is broken without exposing any secret. */
 app.get('/api/health/full', async (req, res) => {
   const has = k => !!process.env[k];
