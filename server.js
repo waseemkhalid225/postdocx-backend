@@ -48,7 +48,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2360';
+const FF_BUILD = '2026-08-28-R2400';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -1242,6 +1242,8 @@ app.get('/api/opportunities', auth, async (req, res) => {
       const m = await matchMany(req.userId, opportunities);
       const byId = {}; m.forEach(x => { byId[x.id] = x; });
       opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct } : null }));
+      // Relevance floor: matches below 50% are never shown to the user, at all.
+      opportunities = opportunities.filter(o => !o.match || o.match.pct == null || o.match.pct >= 50);
     } catch (e) { /* matching is best-effort; never blocks the list */ }
   }
   // Mark opportunities this user has already started - one case, one cost, ever.

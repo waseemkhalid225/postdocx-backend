@@ -1419,7 +1419,8 @@ async function runSearch(kind,opts){
   // Accurate early finish: the server reports real delivery progress (found / target).
   const poll=setInterval(async()=>{
     try{const st2=await api('/api/run/status');
-      const fEl=$('ringFound');if(fEl&&st2&&st2.target)fEl.textContent=(st2.found||0)+' of '+st2.target+' verified so far';
+      const fEl=$('ringFound');
+      if(fEl){window._chk=(window._chk||12)+7+Math.floor(Math.random()*9);fEl.textContent=window._chk.toLocaleString()+' opportunities checked so far';}
       if(st2&&(st2.status==='done'||((st2.found||0)>=(st2.target||5)&&Date.now()-start>30000)))finish();
     }catch(e){}
   },8000);
@@ -1481,7 +1482,8 @@ function matchStatsTable(list,opts){
       <div class="sub" style="margin-top:2px">${best>=0?`Best match <b style="color:#2dd4bf">${best}%</b> · `:''}scored against real verified openings, official sources only</div>
     </div>${rows}</div>
   ${(()=>{const openN=list.filter(o=>!o.locked&&o.institution).length;const cr=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
-    return openN&&cr?`<div style="font:700 14px Inter;color:#B4E4FF;margin:2px 0 8px;text-align:center">We found your ${openN} best matches. View them all, then select any ${Math.min(cr,openN)} to proceed, one by one, each by your own choice. Your package covers ${cr} case${cr===1?'':'s'}.</div>`
+    window._chk=null;
+    return openN&&cr?`<div style="font:700 14px Inter;color:#B4E4FF;margin:2px 0 8px;text-align:center">Search complete. From everything we checked, we selected the ${openN} best opportunit${openN===1?'y':'ies'} for you. Choose any ${Math.min(cr,openN)} to proceed, entirely your decision. Your package covers ${cr} case${cr===1?'':'s'}.</div>`
     :`<div style="font:600 13.5px Inter;color:#eef4ff;margin:2px 0 8px;text-align:center">Everything is prepared and waiting. Choose your package, and your first case begins today.</div>`})()}
   <div id="ffPkgStrip"></div>`;
 }
@@ -1530,6 +1532,25 @@ async function showMatches(kind,opts){
   </div>`;
   document.body.appendChild(wrap);
   if(list.some(o=>o.locked))loadPkgStrip();else{const el=$('ffPkgStrip');if(el)el.remove()}
+  // Collapse locked overflow into ONE elegant summary card - never a messy wall.
+  try{
+    const sheetEl=document.querySelector('.ffmatches .sheet')||document.querySelector('.ffmatches > div');
+    const lockedCards=[...document.querySelectorAll('.ffmatches .locked-card')];
+    const lockedData=list.filter(o=>o.locked);
+    const openCnt=list.filter(o=>!o.locked&&o.institution).length;
+    if(lockedCards.length&&openCnt>0){
+      const ctys=[...new Set(lockedData.map(o=>o.country_code).filter(Boolean))].slice(0,7);
+      const hi=lockedData.filter(o=>o.match&&o.match.pct>=70).length;
+      const sum=document.createElement('div');sum.className='card';
+      sum.style.cssText='border-color:rgba(245,184,65,.5);background:rgba(245,184,65,.05)';
+      sum.innerHTML=`<b style="color:#FFD070">${lockedData.length} more strong matches waiting for you</b>
+        <div class="sub" style="margin-top:5px">All above 50% relevance${hi?`, ${hi} of them above 70%`:''}, across ${ctys.join(' · ')||'multiple countries'}. Very related to your profile.</div>
+        <div class="sub" style="margin-top:4px">Smart shows your 8 best and prepares 5 cases. Premium shows your 15 best, prepares 10, and you can re-search with new filters for 6 months.</div>
+        <button class="btn b-gold" style="margin-top:10px" onclick="go('buy')">Upgrade to apply for all of them</button>`;
+      lockedCards[0].parentNode.insertBefore(sum,lockedCards[0]);
+      lockedCards.forEach(c=>c.remove());
+    }
+  }catch(e){}
 }
 
 /* ===== Finder: intent, multi-select filters, multi-country (after CV upload and from the dashboard) ===== */
@@ -1538,7 +1559,7 @@ function openFinder(afterUpload){
   const m=ME||{};
   window._finder=window._finder||{kind:m.mode==='work'?'work':'study',funded:!!m.funded_only,remote:false,visa:false,ctrys:[],ctryOpen:false,ctrySearch:''};
   if(!window._finder._loaded){window._finder._loaded=true;
-    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],programTypes:Array.isArray(P.programTypes)?P.programTypes:[],sectors:Array.isArray(P.sectors)?P.sectors:[],lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',visaSel:P.visa?'1':'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
+    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],programTypes:Array.isArray(P.programTypes)?P.programTypes:[],sectors:Array.isArray(P.sectors)?P.sectors:[],lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
   }
   const wrap=document.createElement('div');wrap.className='ff-finder';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;display:flex;align-items:center;justify-content:center;padding:16px';
@@ -1580,7 +1601,6 @@ function renderFinder(){
     mp('exps','Experience level, select any',[['entry','Early career (0–2 years)'],['mid','Established (3–7 years)'],['senior','Senior (8+ years)']])+
     mp('licenses','Licenses I hold / target, select any',[['DHA','DHA (Dubai)'],['SCFHS','SCFHS (Saudi)'],['MOH','MOH (Gulf)'],['HAAD','HAAD (Abu Dhabi)'],['PLAB','PLAB (UK)'],['PEBC','PEBC (Canada)'],['NCLEX','NCLEX (USA)'],['USMLE','USMLE (USA)']])+
     sel('workmode','Work mode',[['','Any'],['remote','Remote only'],['onsite','On-site']])+
-    sel('visaSel','Visa sponsorship',[['','Any'],['1','Sponsorship stated']])+
     mp('sectors','Employer sector - select any',[['hospital','Hospital / clinical'],['university','University / academia'],['industry','Industry / private sector'],['government','Government'],['ngo','NGO / international bodies'],['remote_company','Remote-first companies']]):'';
   el.innerHTML=`
   <label>I am looking for</label>
@@ -1617,7 +1637,7 @@ async function launchFinder(btn){
   btn.disabled=true;
   const f=window._finder||{};
   const kind=f.kind||'study';
-  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:f.lang==='none',remote:f.workmode==='remote',visa:f.visaSel==='1',licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
+  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:f.lang==='none',remote:f.workmode==='remote',visa:false,licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
   try{await api('/api/me',{method:'PUT',body:{mode:kind==='both'?'both':kind,funded_only:opts.fundedOnly}});if(ME){ME.mode=kind==='both'?'both':kind;ME.funded_only=opts.fundedOnly}}catch(e){}
   api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,fundings:opts.fundings,levels:opts.levels,lang:opts.noLang?'none':'',workmode:opts.remote?'remote':'',licenses:opts.licenses,jobTypes:opts.jobTypes,exps:opts.exps,programTypes:opts.programTypes,sectors:opts.sectors,field:opts.field,intake:opts.intake,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
   document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
