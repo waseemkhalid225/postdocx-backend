@@ -56,8 +56,19 @@ const checks = [
   ['admin tab is self-healing on every render', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes("isAdminRole(ME.role)&&$('adminTab')") && f.includes('adminTab').valueOf; })()],
   ['founder account self-heals role and credits', sv.includes('FOUNDER SELF-HEAL') && sv.includes("reason: 'founder_restore'")],
   ['profile view shows extracted rows with hidden editor', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('My profile') && f.includes('id="profEdit"') && !f.includes("window._pmode='$"); })()],
-  ['simulate-user mode reduces every privilege gate', sv.includes('simUser(req)') && (sv.match(/simUser\(req\)/g)||[]).length >= 5 && sv.includes('if (sim) return false')],
+  ['simulate-user mode reduces every privilege gate', sv.includes('simUser(req)') && (sv.match(/simUser\(req\)/g)||[]).length >= 5 && sv.includes('return (sim.tier || 0) >= 1')],
   ['simulation can never grant privileges (reduce-only design)', sv.includes('only ever REDUCES privileges')],
+  ['admin can simulate all three packages plus new user', sv.includes('[0, 1, 5, 10].includes(t)')],
+  ['case selection needs a named yes (no accidental cases)', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('Are you sure?') && f.includes('Yes, I am sure. Prepare my case') && f.includes('entirely your decision'); })()],
+  ['case preparation shows a live progress ring', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('prepRing') && f.includes('conic-gradient') && f.includes('_prepPoll'); })()],
+  ['premium Claude lane exists with Gemini fallback', (() => { const r = fs.readFileSync(__dirname + '/../lib/router.js', 'utf8'); return r.includes("case_writing:      { provider: 'anthropic'") && r.includes('profile_normalize') && r.includes('modelOverrides') && r.includes("provider === 'anthropic' && process.env.ANTHROPIC_API_KEY"); })()],
+  ['case documents are written by the case_writing lane', e.includes("callAI('case_writing'") && !e.includes("callAI('high_value'")],
+  ['case writing is research-aware', e.includes('research papers') && e.includes('weave their actual findings')],
+  ['extraction is two-stage with silent premium fallback', (() => { const d = fs.readFileSync(__dirname + '/../lib/docs.js', 'utf8'); return d.includes("callAI('profile_normalize'") && d.includes('research_papers') && d.includes('age'); })()],
+  ['guide has the tabulated road to visa success', sv.includes('Your complete road, application to visa success') && sv.includes('Protector of Emigrants')],
+  ['anthropic caller is retry-hardened', (() => { const a = fs.readFileSync(__dirname + '/../lib/anthropic.js', 'utf8'); return a.includes('anthropic-version') && a.includes('attempt < 2') && a.includes('429'); })()],
+  ['support can grant a free Solo case, once per ticket, with audit', sv.includes('grant-solo') && sv.includes("reason: 'support_grant'") && sv.includes('Already granted for this ticket') && sv.includes('SUPPORT_GRANT_SOLO')],
+  ['free-package requests are auto-detected with approve/decline', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('Free package request detected') && f.includes('grantSolo') && f.includes('declineFree'); })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
 let fail = 0;

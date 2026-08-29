@@ -586,7 +586,7 @@ const escAttr=s=>String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),4200)}
 async function api(p,o={}){o.headers=Object.assign({'content-type':'application/json'},o.headers||{});
   if(SESSION)o.headers.authorization='Bearer '+SESSION.access_token;
-  if(localStorage.getItem('ffSimUser')==='1')o.headers['x-ff-simulate-user']='1';
+  if(localStorage.getItem('ffSimUser')==='1'){o.headers['x-ff-simulate-user']='1';o.headers['x-ff-simulate-tier']=localStorage.getItem('ffSimTier')||'0'}
   if(o.body&&typeof o.body!=='string')o.body=JSON.stringify(o.body);
   const r=await fetch(p,o);const d=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(d.error||('Error '+r.status));return d}
@@ -1465,7 +1465,7 @@ function matchStatsTable(list,opts){
       <div class="sub" style="margin-top:2px">${best>=0?`Best match <b style="color:#2dd4bf">${best}%</b> · `:''}scored against real verified openings, official sources only</div>
     </div>${rows}</div>
   ${(()=>{const openN=list.filter(o=>!o.locked&&o.institution).length;const cr=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
-    return openN&&cr?`<div style="font:700 14px Inter;color:#B4E4FF;margin:2px 0 8px;text-align:center">Choose ${Math.min(cr,openN)} of these ${openN} best matches. Your package covers ${cr} case${cr===1?'':'s'}.</div>`
+    return openN&&cr?`<div style="font:700 14px Inter;color:#B4E4FF;margin:2px 0 8px;text-align:center">We found your ${openN} best matches. View them all, then select any ${Math.min(cr,openN)} to proceed, one by one, each by your own choice. Your package covers ${cr} case${cr===1?'':'s'}.</div>`
     :`<div style="font:600 13.5px Inter;color:#eef4ff;margin:2px 0 8px;text-align:center">Everything is prepared and waiting. Choose your package, and your first case begins today.</div>`})()}
   <div id="ffPkgStrip"></div>`;
 }
@@ -1613,9 +1613,19 @@ async function openApp(id){
   let d;try{d=await api('/api/applications/'+id)}catch(e){toast(e.message);return}
   const a=d.application,opp=a.opportunities||{};
   const msg=(d.messages||[]).find(m=>m.status==='pending')||(d.messages||[])[0];
+  const ps=a.prep_status||{plan:[],done:[]};
+  const prepPct=a.stage==='preparing'?Math.min(96,8+Math.round(((ps.done||[]).length/Math.max(1,(ps.plan||[]).length))*88)):0;
+  if(a.stage==='preparing'&&!window._prepPoll){window._prepPoll=setInterval(async()=>{try{const r=await api('/api/applications/'+id);if(r.application.stage!=='preparing'){clearInterval(window._prepPoll);window._prepPoll=null;document.querySelectorAll('.ff-appview').forEach(x=>x.remove());toast('Your case is ready. Every document prepared.');openApp(id)}else{const p2=r.application.prep_status||{plan:[],done:[]};const el=document.getElementById('prepRing');const pct=Math.min(96,8+Math.round(((p2.done||[]).length/Math.max(1,(p2.plan||[]).length))*88));if(el){el.style.background=`conic-gradient(#1683FF ${pct*3.6}deg,rgba(120,180,255,.15) 0)`;el.querySelector('b').textContent=pct+'%'}const dn=document.getElementById('prepDone');if(dn)dn.textContent=(p2.done||[]).join(' · ')||'Analysing the position…'}}catch(e){}},4000)}
+  if(a.stage!=='preparing'&&window._prepPoll){clearInterval(window._prepPoll);window._prepPoll=null}
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:50;overflow:auto;padding:20px 10px';
+  wrap.className=(wrap.className||'')+' ff-appview';
   wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:18px">
+  ${a.stage==='preparing'?`<div style="display:flex;align-items:center;gap:16px;background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.35);border-radius:14px;padding:14px;margin-bottom:12px">
+    <div id="prepRing" style="width:74px;height:74px;border-radius:50%;background:conic-gradient(#1683FF ${prepPct*3.6}deg,rgba(120,180,255,.15) 0);display:flex;align-items:center;justify-content:center;flex:0 0 74px"><div style="width:56px;height:56px;border-radius:50%;background:#0A1428;display:flex;align-items:center;justify-content:center"><b style="font:800 15px Inter;color:#00D4FF">${prepPct}%</b></div></div>
+    <div><div style="font:700 14.5px Inter">Preparing your case, live</div>
+    <div class="sub" id="prepDone" style="margin-top:3px">${(ps.done||[]).join(' · ')||'Analysing the position…'}</div>
+    <div class="sub" style="margin-top:3px;font-size:11.5px">Each document is written one by one. This page updates itself, no refresh needed.</div></div></div>`:''}
   <div class="spread"><h2>${esc(opp.institution||'')}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
   <div class="sub">${esc(opp.title||'')} · ${esc(a.case_no)} · <span class="chip c-gold">${esc(a.stage.replace(/_/g,' '))}</span></div>
   <div style="border:1px solid rgba(0,184,169,.5);border-radius:12px;padding:10px 14px;margin-top:10px;background:rgba(0,184,169,.07)">
@@ -1931,12 +1941,12 @@ function startApp(id,inst,reqs){
   const w=document.createElement('div');w.className='ff-ack';
   w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:66;display:flex;align-items:center;justify-content:center;padding:18px';
   w.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);color:#eef4ff;border-radius:16px;padding:20px">
-  <h3 style="margin:0 0 6px">Before your case begins</h3>
-  <div class="sub" style="margin-bottom:8px">${esc(inst)}</div>
+  <h3 style="margin:0 0 6px">Are you sure?</h3>
+  <div style="background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.4);border-radius:10px;padding:10px;font:600 13.5px Inter;margin-bottom:8px">You are choosing <b style="color:#00D4FF">${esc(inst)}</b>. Preparing this case will use <b>1 case</b> from your package. Nothing is ever selected for you, this is entirely your decision.</div>
   ${reqs?`<div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.35);border-radius:10px;padding:10px;font-size:13px"><b style="color:#F5B841">Stated requirements:</b> ${esc(reqs)}</div>`:`<div class="sub">No special requirements are stated on the official page beyond standard documents.</div>`}
   <div class="sub" style="margin-top:8px">Documents are collected step by step, only what each stage needs, never everything at once. If the official page later shows a requirement we did not list here, your credit is returned.</div>
   <div class="sub" style="margin-top:6px">Each case uses 1 credit and is prepared completely, end to end. Only this case is prepared.</div>
-  <button class="btn b-gold" style="width:100%;margin-top:12px" onclick="this.disabled=true;doStartApp('${id}',this)">I understand, start my case</button>
+  <button class="btn b-gold" style="width:100%;margin-top:12px" onclick="this.disabled=true;doStartApp('${id}',this)">Yes, I am sure. Prepare my case</button>
   <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-ack').remove()">Choose another opportunity</button></div>`;
   document.body.appendChild(w);
 }
@@ -1988,6 +1998,10 @@ async function vProfile(){
       ['City',dx.city],['Profession',m.profession&&m.profession!=='Not applicable'?m.profession:dx.profession||m.field],
       ['Total experience',dx.total_experience_years?dx.total_experience_years+' years':''],
       ['Highest education',line],['Headline',m.headline],['Field',m.field],
+      ['Age',dx.age?dx.age+' years':''],
+      ['Achievements',(dx.achievements||[]).slice(0,3).join('; ')],
+      ['Research papers',(dx.research_papers||[]).length?((dx.research_papers||[]).length+' papers: '+String((dx.research_papers[0]||{}).title||'').slice(0,60)+((dx.research_papers||[]).length>1?'…':'')):''],
+      ['References',(m.referees||[]).length?(m.referees.length+' referees on file'):''],
       ['Certifications',(dx.certifications||[]).slice(0,3).join('; ')],
       ['Trainings',(dx.trainings||[]).slice(0,3).join('; ')],
       ['Licenses',(m.licenses||[]).map(l=>l.name).filter(Boolean).slice(0,3).join('; ')]
@@ -2281,10 +2295,14 @@ async function vAdmin(){
   if(cur==='universities')return adminUniversities();
   return adminOverview();
 }
-function toggleSimUser(){
-  const on=localStorage.getItem('ffSimUser')==='1';
-  localStorage.setItem('ffSimUser',on?'0':'1');
-  toast(on?'Back to admin view.':'You now see EXACTLY what a brand-new user sees: locked results, package prompts, real cooldowns.');
+function simTierName(t){return {0:'a brand-new user',1:'a Solo member (1 case)',5:'a Smart member (5 cases)',10:'a Premium member (10 cases)'}[t]||'a user'}
+function toggleSimUser(tier){
+  if(tier===undefined||localStorage.getItem('ffSimUser')==='1'&&String(tier)===localStorage.getItem('ffSimTier')){
+    localStorage.setItem('ffSimUser','0');toast('Back to admin view.');
+  }else{
+    localStorage.setItem('ffSimUser','1');localStorage.setItem('ffSimTier',String(tier));
+    toast('You now see EXACTLY what '+simTierName(tier)+' sees.');
+  }
   setTimeout(()=>{HM=null;go('home')},400);
 }
 function simBanner(){
@@ -2293,7 +2311,7 @@ function simBanner(){
   if(ex)return;
   const b=document.createElement('div');b.id='ffSimBanner';
   b.style.cssText='position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:80;background:#7C2D12;border:1px solid #F5B841;color:#FFE9C7;border-radius:99px;padding:8px 18px;font:700 12.5px Inter;box-shadow:0 8px 24px rgba(0,0,0,.5);cursor:pointer;white-space:nowrap';
-  b.textContent='Viewing as a new user - tap to exit';
+  b.textContent='Viewing as '+simTierName(parseInt(localStorage.getItem('ffSimTier')||'0',10))+' - tap to exit';
   b.onclick=toggleSimUser;
   document.body.appendChild(b);
 }
@@ -2320,8 +2338,13 @@ async function adminOverview(){
   window.__mHtml=mHtml;
   let d;try{d=await api('/api/admin/overview')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   $('adminBody').innerHTML=(window.__mHtml||'')+`<div class="card" style="border-color:rgba(245,184,65,.5)">
-  <div class="spread"><h3 style="margin:0">View as a new user</h3><button class="btn b-gold" style="padding:6px 14px" onclick="toggleSimUser()">${localStorage.getItem('ffSimUser')==='1'?'Exit user view':'Start user view'}</button></div>
-  <div class="sub" style="line-height:1.6">One tap gives you the EXACT experience of a fresh visitor with zero credits: locked opportunities, package prompts, real cooldowns, real search targets, the full paywall funnel. Privileges are only reduced, never granted, so it is completely safe. Walk the journey, find the gaps, tap the banner below to return to admin power.</div></div>
+  <div class="spread"><h3 style="margin:0">View as any client</h3>${localStorage.getItem('ffSimUser')==='1'?`<button class="btn b-line" style="padding:6px 14px" onclick="toggleSimUser()">Exit</button>`:''}</div>
+  <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
+    <button class="btn b-line" onclick="toggleSimUser(0)">New user (0)</button>
+    <button class="btn b-line" onclick="toggleSimUser(1)">Solo (1 case)</button>
+    <button class="btn b-line" onclick="toggleSimUser(5)">Smart (5 cases)</button>
+    <button class="btn b-gold" onclick="toggleSimUser(10)">Premium (10 cases)</button></div>
+  <div class="sub" style="line-height:1.6">One tap gives you the EXACT experience of that client: their visible matches (2, 8 or 15), their choose limits, package prompts, real cooldowns, the full funnel. Privileges are only reduced, never granted. Tap the banner to return to admin power.</div></div>
 <div class="card" style="border-color:rgba(0,212,255,.45)">
   <div class="spread"><h3 style="margin:0">Apply Assistant — test without the Web Store</h3><button class="btn b-line" style="padding:6px 14px" onclick="assistStatus(document.getElementById('assistStat'))">Check connection</button></div>
   <div id="assistStat" style="margin:8px 0"><span class="chip ${FF_ASSIST?'c-green':'c-gray'}">${FF_ASSIST?'Connected':'Not checked yet'}</span></div>
@@ -2697,8 +2720,21 @@ async function adminSupport(){
   <div class="row" style="margin-top:8px">
   <select id="st-${t.id}">${['new','open','waiting','answered','resolved','closed'].map(s=>`<option value="${s}" ${t.status===s?'selected':''}>${s}</option>`).join('')}</select>
   <button class="btn b-gold" onclick="saveTicket('${t.id}',this)">Save</button>
-  ${String(t.subject||'').startsWith('Review')?`<button class="btn b-green" onclick="approveReview('${t.id}',this)">Approve to homepage</button>`:''}</div></div>`).join('')||'<div class="empty">No tickets.</div>'}`;
+  ${String(t.subject||'').startsWith('Review')?`<button class="btn b-green" onclick="approveReview('${t.id}',this)">Approve to homepage</button>`:''}</div>
+  ${/free|gift|trial|discount|complimentary|1 case|one case|solo package/i.test((t.subject||'')+' '+(t.message||''))&&t.status!=='answered'&&t.status!=='resolved'&&t.status!=='closed'?`
+  <div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.4);border-radius:10px;padding:10px;margin-top:8px">
+    <b style="color:#F5B841">Free package request detected</b>
+    <div class="row" style="gap:8px;margin-top:8px">
+      <button class="btn b-green" onclick="grantSolo('${t.id}',this)">Approve 1 free Solo case</button>
+      <button class="btn b-line" onclick="declineFree('${t.id}',this)">Decline politely</button></div>
+    <div class="sub" style="margin-top:6px">Approve adds 1 case to this client instantly (once per ticket) and replies warmly. Decline sends a friendly no with the value pitch. Both mark the ticket answered.</div></div>`:''}</div>`).join('')||'<div class="empty">No tickets.</div>'}`;
 }
+async function grantSolo(id,btn){btn.disabled=true;
+  try{await api('/api/admin/support/'+id+'/grant-solo',{method:'POST'});toast('1 free Solo case granted. The client can apply now.');vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}}
+async function declineFree(id,btn){btn.disabled=true;
+  try{await api('/api/admin/support/'+id+'/decline-free',{method:'POST'});toast('Declined politely and marked answered.');vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false}}
 async function saveTicket(id,btn){
   btn.disabled=true;
   const reply=($('rep-'+id)||{}).value||'';const status=($('st-'+id)||{}).value||'open';

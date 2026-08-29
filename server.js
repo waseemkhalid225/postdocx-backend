@@ -48,7 +48,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2180';
+const FF_BUILD = '2026-08-28-R2240';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Self-diagnosing health: shows WHICH link is broken without exposing any secret. */
@@ -381,7 +381,9 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
       const { data: prf } = await admin().from('profiles').select('role').eq('id', req.userId).single();
       if (!(prf && ['admin', 'staff'].includes(prf.role) && !simUser(req))) {
         let tier = 0;
-        try { const { data: pays } = await admin().from('payments').select('credits').eq('user_id', req.userId).eq('status', 'confirmed').order('credits', { ascending: false }).limit(1); tier = Number(pays && pays[0] && pays[0].credits) || 0; } catch (e) {}
+        const simT = simUser(req);
+        if (simT) tier = simT.tier || 0;
+        else try { const { data: pays } = await admin().from('payments').select('credits').eq('user_id', req.userId).eq('status', 'confirmed').order('credits', { ascending: false }).limit(1); tier = Number(pays && pays[0] && pays[0].credits) || 0; } catch (e) {}
         if (tier < 1) tier = 1;
         const visible = tier >= 10 ? 15 : tier >= 5 ? 8 : 2;
         const pv2 = o => (o.match && o.match.pct != null) ? o.match.pct : -1;
@@ -595,6 +597,31 @@ app.post('/api/support/seen', auth, async (req, res) => {
   res.json({ ok: true });
 });
 /* Approve a user-submitted review ticket straight onto the public homepage. */
+/* Free Solo grant from support: one tap approves 1 case for the requester
+   (idempotent per ticket), replies warmly, and the user can apply immediately. */
+app.post('/api/admin/support/:id/grant-solo', auth, perm('support.write'), async (req, res) => {
+  try {
+    const { data: t } = await admin().from('support_tickets').select('*').eq('id', req.params.id).single();
+    if (!t) return res.status(404).json({ error: 'Ticket not found' });
+    if (!t.user_id) return res.status(400).json({ error: 'Ticket has no linked user' });
+    const grantNote = 'Free Solo case via support ' + t.id;
+    const { data: prior } = await admin().from('credit_ledger').select('id').eq('user_id', t.user_id).eq('note', grantNote).limit(1);
+    if (prior && prior.length) return res.status(409).json({ error: 'Already granted for this ticket' });
+    await admin().from('credit_ledger').insert({ user_id: t.user_id, delta: 1, reason: 'support_grant', note: grantNote });
+    const reply = 'Good news! We have added 1 free Solo case to your account as a one-time gift. Run your search, view your 2 best matches and choose the one you want, your case will be prepared completely, end to end. We wish you success!';
+    await admin().from('support_tickets').update({ reply, status: 'answered', handled_by: req.userId }).eq('id', req.params.id);
+    await admin().from('audit_log').insert({ actor: req.userId, event: 'SUPPORT_GRANT_SOLO', detail: 'ticket ' + t.id + ' -> user ' + t.user_id }).then(() => {}, () => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/admin/support/:id/decline-free', auth, perm('support.write'), async (req, res) => {
+  try {
+    const reply = 'Thank you for asking! Free packages are offered only occasionally, and we cannot add one this time. The Solo package costs less than one restaurant dinner and prepares your complete case end to end, and every payment supports the free CV analysis we give everyone. We would love to prepare your case whenever you are ready.';
+    await admin().from('support_tickets').update({ reply, status: 'answered', handled_by: req.userId }).eq('id', req.params.id);
+    await admin().from('audit_log').insert({ actor: req.userId, event: 'SUPPORT_DECLINE_FREE', detail: 'ticket ' + req.params.id }).then(() => {}, () => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.post('/api/admin/support/:id/approve-review', auth, perm('reviews.write'), async (req, res) => {
   const { data: t } = await admin().from('support_tickets').select('*').eq('id', req.params.id).single();
   if (!t) return res.status(404).json({ error: 'Not found' });
@@ -932,8 +959,8 @@ app.get('/api/home', auth, async (req, res) => {
     const { data: led } = await admin().from('credit_ledger').select('delta').eq('user_id', uid);
     const purchased = (led || []).filter(l => Number(l.delta) > 0).reduce((sm, l) => sm + Number(l.delta), 0);
     const { count: casesUsed } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', uid);
-    const simZero = simUser(req);
-    out.credits = simZero ? { balance: 0, creditsRemaining: 0, casesUsed: 0, casesTotal: 0 }
+    const simP = simUser(req);
+    out.credits = simP ? { balance: simP.tier, creditsRemaining: simP.tier, casesUsed: 0, casesTotal: simP.tier }
       : { balance: bal, creditsRemaining: bal, casesUsed: casesUsed || 0, casesTotal: purchased };
   } catch (e) {}
   try {
@@ -1002,10 +1029,14 @@ async function balance(userId) {
 }
 /* Simulation: an admin can request the exact experience of a brand-new user.
    The header only ever REDUCES privileges (never grants), so it is safe by design. */
-const simUser = req => String((req.headers || {})['x-ff-simulate-user'] || '') === '1';
+const simUser = req => {
+  if (String((req.headers || {})['x-ff-simulate-user'] || '') !== '1') return false;
+  const t = parseInt((req.headers || {})['x-ff-simulate-tier'] || '0', 10) || 0;
+  return { tier: [0, 1, 5, 10].includes(t) ? t : 0 };
+};
 /* Paywall: full opportunity identity is for staff and package members only. */
 async function entitled(userId, sim) {
-  if (sim) return false; // simulated fresh user: everything locked, exactly as a new visitor sees it
+  if (sim) return (sim.tier || 0) >= 1; // simulated package member or fresh visitor, exactly as chosen
   try {
     const { data: prof } = await admin().from('profiles').select('role').eq('id', userId).single();
     if (prof && ['admin', 'staff'].includes(prof.role)) return true;
@@ -1613,6 +1644,38 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   pdf.moveDown(0.5);
   P('Congratulations on reaching this stage. The distance between you and ' + clean(g ? g.name : 'your destination') + ' is now a checklist, not a dream' + (opp.funding_type === 'fully' ? ' - and this position is fully funded, so the numbers are already on your side' : '') + (opp.stipend ? '. Your stated stipend: ' + clean(String(opp.stipend).slice(0, 40)) + '.' : '.'));
   P('This guide covers what happens after you are accepted, step by step, until you land and secure your position. ForiForeign does not provide visa or document-processing services, and you do not need any agent: every step below is designed for you to do yourself, easily and officially. Thousands of Pakistani students and professionals complete these exact steps every year. So will you.');
+  H('Your complete road, application to visa success');
+  {
+    const wk = (opp && opp.kind) === 'work';
+    const steps = [
+      ['Reply and confirm', 'Answer every university or employer email within 48 hours, politely and briefly. Confirm your interest and ask for the official offer or admission letter.'],
+      ['Offer letter in hand', 'Save the signed offer or admission letter as PDF. Every next step, bank, embassy, ' + (wk ? 'Protector office' : 'scholarship body') + ', will ask for it.'],
+      ['Degree attestation, HEC', 'Start at eservices.hec.gov.pk, then the nearest HEC Regional Centre (list in the Pakistan offices section below). Attest all degrees and transcripts. For school-level certificates use IBCC.'],
+      ['MOFA attestation', 'After HEC, attest the same documents at MOFA, Islamabad HQ or the camp office in your city. Book online at mofa.gov.pk and carry originals plus CNIC.'],
+      ['Bank statement', 'Prepare ' + (g && g.funds ? g.funds : 'the proof of funds your destination requires') + '. Keep the amount seasoned in the account 3 to 6 months where possible; a parent or sponsor account works with a sponsorship letter and their CNIC.'],
+      ['Police character certificate', 'From your district police office or the provincial police portal. Takes days, not weeks; do it early.'],
+      ['Medical and insurance', 'Some embassies require a medical from an approved panel doctor and health insurance covering the first months. Check the embassy page the same week you apply.'],
+      ['Visa application', (g ? 'Apply at ' + g.portal + '. ' : 'Apply on the official national visa portal. ') + 'Fill every field exactly as in your passport, upload the attested set, pay the fee, book biometrics.'],
+      ['Embassy or VAC visit', (g ? g.embassy + '. ' : 'Your destination embassy or its visa application centre in Pakistan. ') + 'Carry originals, copies, photos per spec, and the fee receipt.']
+    ];
+    if (wk) steps.push(['Protector of Emigrants', 'Employment abroad requires registration with the Bureau of Emigration, Protectorate office (Islamabad, Rawalpindi, Lahore, Karachi, Peshawar, Multan and others) before departure, with your work visa and contract. beoe.gov.pk has the list.']);
+    steps.push(
+      ['Interview, if called', 'Answer honestly and consistently with your documents. Know your programme, funding and return plans. Short, confident answers win.'],
+      ['Ticket and arrival plan', 'Book only after the visa is stamped. Arrange airport pickup or first-week housing through the ' + (wk ? 'employer' : 'university international office') + ' before you fly.'],
+      ['First week there', (wk ? 'Report to the employer, sign the contract copy, register with local authorities and open a bank account.' : 'Register at the university, activate your student ID, register with local authorities, open a bank account and confirm your funding payments.')]
+    );
+    let n = 0;
+    for (const [t, dtl] of steps) {
+      n++;
+      if (doc.y > 720) doc.addPage();
+      const y0 = doc.y;
+      doc.font('Times-Bold').fontSize(11).fillColor('#000').text(n + '.  ' + t, 40, y0, { width: 150 });
+      doc.font('Times-Roman').fontSize(10.5).text(dtl, 200, y0, { width: 355, align: 'justify' });
+      doc.moveTo(40, doc.y + 4).lineTo(555, doc.y + 4).strokeColor('#BBBBBB').lineWidth(0.5).stroke();
+      doc.y = doc.y + 9; doc.x = 40;
+    }
+    doc.moveDown(0.6);
+  }
   H('1. After acceptance');
   B('You may be invited to an online interview. Prepare with your CV and the documents ForiForeign drafted; answer plainly.');
   B('Degree attestation: first HEC (eservices.hec.gov.pk, online account, courier both ways), then MOFA (mofa.gov.pk attestation, online appointment or Qousia counters). Attest degree + transcripts.');
