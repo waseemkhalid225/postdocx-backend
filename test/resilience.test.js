@@ -107,6 +107,70 @@ const checks = [
     const pxDefined = e.indexOf('let px = null');
     return declaredEarly > -1 && pxDefined > declaredEarly && e.includes('px.professions');
   })()],
+  ['relevance gate: below-level + field-mismatch are hard-filtered, list sorted by match', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const mj = fs.readFileSync(__dirname + '/../lib/match.js', 'utf8');
+    return mj.includes("status = 'below_your_level'") && mj.includes('fieldMismatch') &&
+      sv.includes('mt.overqualified') && sv.includes('mt.fieldMismatch') && sv.includes('opportunities.sort');
+  })()],
+  ['pre-purchase privacy: institution name and source URL hidden until owned', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes('const revealed=o.started||o.owned') && f.includes('open when you start your case') &&
+      !f.includes('Criteria not published by the source');
+  })()],
+  ['portal-only cases skip email/cover, prepare CV + checklist only', (() => {
+    const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    return e.includes('PORTAL-ONLY EFFICIENCY') && e.includes('_portalOnly') && e.includes("k === 'cv' || k === 'checklist'");
+  })()],
+  ['field mismatch is a hard gate (never shown as 50% potentially eligible)', (() => {
+    const m = fs.readFileSync(__dirname + '/../lib/match.js', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return m.includes("status = 'field_mismatch'") && sv.includes("mt.status === 'field_mismatch'");
+  })()],
+  ['no negative "Not stated" leaks in detail views', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return !f.includes("'<span class=sub>Not stated on official page</span>'") && !f.includes("||'Not stated'");
+  })()],
+  ['CV blueprint demands full multi-page professional depth', (() => {
+    const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    return e.includes('MULTI-PAGE') && e.includes('cv: 2200');
+  })()],
+  ['package-first reveal: 0 credits locks all, credits reveal 2/8/15, 60% floor', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return sv.includes('effectiveTier') && sv.includes('effectiveTier < 1') && sv.includes('RELEVANCE_FLOOR = 60') && sv.includes('mt.pct < RELEVANCE_FLOOR');
+  })()],
+  ['downloads confirm to the user (no silent PDF)', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return (f.match(/PDF downloaded\. Check your Downloads/g) || []).length >= 2;
+  })()],
+  ['CV analysis is context-aware (job vs study vs licensing) + classy', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes('Your Job Match Analysis') && f.includes('Your Licensing Pathway Analysis') &&
+      f.includes('Your CV Analysis & Search Report') && f.includes('CTX.section');
+  })()],
+  ['packages are admin-editable and deploy app-wide (visibility + pricing driven by config)', (() => {
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return st.includes('packages:') && st.includes('tiers') && sv.includes('cfg.packages && cfg.packages.tiers') &&
+      f.includes('savePackages') && f.includes('Packages (deploys instantly');
+  })()],
+  ['search covers labs, small employers and local social channels', (() => {
+    const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    return e.includes('RESEARCH LABS AND INSTITUTES') && e.includes('SMALL AND NATIVE EMPLOYERS') && e.includes('Max Planck');
+  })()],
+  ['speed: home stale-while-revalidate cache + etag revalidation', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return f.includes('_homeCache') && sv.includes('etag: true');
+  })()],
+  ['owner email auto-promotes to super_admin; admin can delete users safely', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return sv.includes("waseemkhalid225@gmail.com") && sv.includes('OWNER_EMAILS') &&
+      sv.includes("app.delete('/api/admin/users/:id'") && sv.includes('cannot be deleted here') &&
+      f.includes('deleteUser') && f.includes('cannot be undone');
+  })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
 let fail = 0;

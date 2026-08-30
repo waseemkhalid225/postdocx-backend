@@ -50,8 +50,10 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
+
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2760';
+const FF_BUILD = '2026-08-28-R2960';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -111,7 +113,7 @@ app.use(express.json({ limit: '2mb' }));
 const multer = require('multer');
 const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 20 } });
 // Long-cache heavy static assets (video/icons); HTML always fresh.
-app.use(express.static('public', { maxAge: '7d', setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
+app.use(express.static('public', { maxAge: '7d', etag: true, lastModified: true, setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache, must-revalidate'); } }));
 app.get('/health', (req, res) => res.json({ ok: true, up: process.uptime() | 0 }));
 
 /* Per-user limiter for AI-triggering actions: protects cost and stability under load.
@@ -130,11 +132,16 @@ process.on('unhandledRejection', e => console.error('[bg]', e && e.message));
 process.on('uncaughtException', e => console.error('[bg!]', e && e.message));
 
 /* ---------- auth ---------- */
+// Owner emails always hold super_admin, enforced on every authenticated request.
+const OWNER_EMAILS = ['waseemkhalid225@gmail.com', 'admin@foriforeign.com'];
 async function auth(req, res, next) {
   const t = (req.headers.authorization || '').replace(/^Bearer /, '');
   const u = await userFromToken(t);
   if (!u) return res.status(401).json({ error: 'Please sign in again' });
   req.userId = u.id; req.userEmail = u.email;
+  if (u.email && OWNER_EMAILS.includes(String(u.email).toLowerCase())) {
+    try { const { data: p } = await admin().from('profiles').select('role').eq('id', u.id).single(); if (!p || p.role !== 'super_admin') await admin().from('profiles').update({ role: 'super_admin' }).eq('id', u.id); } catch (e) {}
+  }
   next();
 }
 async function staffOnly(req, res, next) {
@@ -463,11 +470,28 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
         const simT = simUser(req);
         if (simT) tier = simT.tier || 0;
         else try { const { data: pays } = await admin().from('payments').select('credits').eq('user_id', req.userId).eq('status', 'confirmed').order('credits', { ascending: false }).limit(1); tier = Number(pays && pays[0] && pays[0].credits) || 0; } catch (e) {}
-        if (tier < 1) tier = 1;
-        const visible = tier >= 10 ? 15 : tier >= 5 ? 8 : 2;
+        // Package-first model: the user's real available credits decide the reveal.
+        // 0 credits -> nothing is unlocked; they see the analysis and choose a package.
+        // After confirmation, their tier reveals 2 (solo) / 8 (smart) / 15 (premium), best first.
+        const bal = await balance(req.userId);
+        const effectiveTier = Math.max(tier, bal);
         const pv2 = o => (o.match && o.match.pct != null) ? o.match.pct : -1;
-        const open = new Set([...list].sort((x, y) => pv2(y) - pv2(x)).slice(0, visible).map(o => o.id));
-        list = list.map(o => open.has(o.id) ? o : lockTease(o));
+        if (effectiveTier < 1) {
+          list = list.map(o => lockTease(o));  // convince with the analysis; reveal after purchase
+        } else {
+          // Visibility from admin-editable packages: find the tier whose credits the user
+          // holds and show its 'view' count. Falls back to the classic 2/8/15 if unset.
+          let visible = 2;
+          try {
+            const cfg = await require('./lib/settings').getConfig();
+            const tiers = ((cfg.packages && cfg.packages.tiers) || []).slice().sort((a, b) => (a.credits || 0) - (b.credits || 0));
+            let picked = null;
+            for (const t of tiers) if (effectiveTier >= (t.credits || 0)) picked = t;
+            visible = picked ? (picked.view || 2) : (tiers[0] ? tiers[0].view : 2);
+          } catch (e) { visible = effectiveTier >= 10 ? 15 : effectiveTier >= 5 ? 8 : 2; }
+          const open = new Set([...list].sort((x, y) => pv2(y) - pv2(x)).slice(0, visible).map(o => o.id));
+          list = list.map(o => open.has(o.id) ? o : lockTease(o));
+        }
       }
     } catch (e) {}
   }
@@ -622,6 +646,26 @@ app.get('/api/admin/users', auth, perm('users.read'), async (req, res) => {
   if (q) query = query.ilike('full_name', '%' + q + '%');
   const { data } = await query;
   res.json({ users: data || [] });
+});
+app.delete('/api/admin/users/:id', auth, perm('users.write'), async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    if (targetId === req.userId) return res.status(400).json({ error: 'You cannot delete your own account.' });
+    const { data: target } = await admin().from('profiles').select('id, full_name, role').eq('id', targetId).single();
+    if (!target) return res.status(404).json({ error: 'User not found.' });
+    // Protect owner and other super_admins from deletion.
+    if (target.role === 'super_admin') return res.status(403).json({ error: 'A super admin account cannot be deleted here.' });
+    // Remove the user's data across the app, then the auth account.
+    for (const tbl of ['application_documents', 'applications', 'documents', 'credit_ledger', 'payments', 'support_tickets', 'profile_fields']) {
+      try { await admin().from(tbl).delete().eq('user_id', targetId); } catch (e) {}
+    }
+    try { await admin().from('app_settings').delete().eq('key', 'profilex:' + targetId); } catch (e) {}
+    try { await admin().from('app_settings').delete().eq('key', 'prefs:' + targetId); } catch (e) {}
+    try { await admin().from('profiles').delete().eq('id', targetId); } catch (e) {}
+    try { await admin().auth.admin.deleteUser(targetId); } catch (e) {}
+    try { await admin().from('audit_log').insert({ actor: req.userId, event: 'USER_DELETED', detail: 'Deleted user ' + (target.full_name || targetId) }); } catch (e) {}
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.post('/api/admin/users/:id/role', auth, perm('users.write'), async (req, res) => {
   const { ROLE_PERMISSIONS } = require('./lib/rbac');
@@ -1210,13 +1254,22 @@ app.get('/api/credits', auth, async (req, res) => {
 /* ---------- pricing & payments (server-confirmed rule) ---------- */
 app.get('/api/pricing', async (req, res) => {
   const { data } = await admin().from('pricing').select('*').eq('active', true).single();
-  res.json({ pricing: data });
+  const out = data || { packs: [] };
+  // Admin packages are the source of truth: build the purchasable packs from them so a
+  // price/credits change in admin is live instantly for everyone.
+  try {
+    const cfg = await siteSettings.getConfig();
+    const tiers = (cfg.packages && cfg.packages.tiers) || [];
+    if (tiers.length) out.packs = tiers.map(t => ({ credits: t.credits, pkr: t.pkr, name: t.name, view: t.view }));
+  } catch (e) {}
+  res.json({ pricing: out });
 });
 app.post('/api/payments', auth, async (req, res) => {
   try { const cfg = await siteSettings.getConfig(); if (cfg.features && cfg.features.payments === false) return res.status(503).json({ error: 'Payments are temporarily unavailable. Please try again shortly.' }); } catch (e) {}
   const { credits, reference } = req.body || {};
   const { data: pr } = await admin().from('pricing').select('*').eq('active', true).single();
-  const pack = ((pr || {}).packs || []).find(p => p.credits === Number(credits));
+  let pack = ((pr || {}).packs || []).find(p => p.credits === Number(credits));
+  if (!pack) { try { const cfg = await siteSettings.getConfig(); const t = ((cfg.packages && cfg.packages.tiers) || []).find(x => Number(x.credits) === Number(credits)); if (t) pack = { credits: t.credits, pkr: t.pkr }; } catch (e) {} }
   if (!pack) return res.status(400).json({ error: 'Choose a valid credit pack' });
   // Referral discount: Rs 500 per case, automatically applied from the user's balance.
   let discount = 0;
@@ -1256,6 +1309,14 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
         admin().from('audit_log').insert({ actor: p.user_id, event: 'REFERRAL_BONUS', detail: 'Rs ' + bonus + ' credited to referrer for first confirmed payment' }).then(() => {}, () => {});
         admin().from('support_tickets').insert({ user_id: buyer.referred_by, subject: 'Referral reward earned', message: 'A friend you invited completed their first purchase.', reply: 'Congratulations - Rs ' + bonus + ' referral discount is now in your account, applied automatically on your next package.', status: 'answered' }).then(() => {}, () => {});
       }
+    }
+  } catch (e) {}
+  // Active pull-back: if a WhatsApp bridge is configured, ping the buyer that their
+  // package is live (reuses the same optional ZAINAB_NOTIFY_URL hook as results-ready).
+  try {
+    if (process.env.ZAINAB_NOTIFY_URL) {
+      const { data: pf } = await admin().from('profiles').select('whatsapp,full_name').eq('id', p.user_id).single();
+      if (pf && pf.whatsapp) fetch(process.env.ZAINAB_NOTIFY_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: pf.whatsapp, text: 'ForiForeign: your payment is verified and ' + p.credits + ' case credit' + (p.credits === 1 ? ' is' : 's are') + ' now active. Open your dashboard to pick your best match. foriforeign.com' }) }).catch(() => {});
     }
   } catch (e) {}
   // Manual-verification era: the moment credits land, the user sees a dashboard
@@ -1353,16 +1414,29 @@ app.get('/api/opportunities', auth, async (req, res) => {
       const { matchMany } = require('./lib/match');
       const m = await matchMany(req.userId, opportunities);
       const byId = {}; m.forEach(x => { byId[x.id] = x; });
-      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct } : null }));
-      // Relevance floor: matches below 50% are never shown to the user, at all.
-      opportunities = opportunities.filter(o => !o.match || o.match.pct == null || o.match.pct >= 50);
+      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct, overqualified: byId[o.id].overqualified, fieldMismatch: byId[o.id].fieldMismatch } : null }));
+      // HARD RELEVANCE GATE (never show the user anything that is not a real fit):
+      //  - below the applicant's own level (PhD holder must never see MPhil/Masters/Bachelors)
+      //  - a clear field/profession mismatch (pharmacist must not see biochemistry-only roles)
+      //  - not_eligible, or below the 50% relevance floor
+      //  - criteria the source never published (we keep these ONLY if nothing else, and never labelled as weak)
+      opportunities = opportunities.filter(o => {
+        const mt = o.match;
+        if (!mt) return true;
+        if (mt.overqualified || mt.status === 'below_your_level') return false;
+        if (mt.fieldMismatch || mt.status === 'field_mismatch' || mt.status === 'not_eligible') return false;
+        if (mt.pct != null && mt.pct < RELEVANCE_FLOOR) return false;
+        return true;
+      });
+      // Highest match first, always.
+      opportunities.sort((a, b) => ((b.match && b.match.pct) || 0) - ((a.match && a.match.pct) || 0));
     } catch (e) { /* matching is best-effort; never blocks the list */ }
   }
   // Mark opportunities this user has already started - one case, one cost, ever.
   try {
     const { data: mine } = await admin().from('applications').select('opportunity_id').eq('user_id', req.userId);
     const mset = new Set((mine || []).map(x => x.opportunity_id));
-    if (mset.size) opportunities = opportunities.map(o => mset.has(o.id) ? { ...o, started: true } : o);
+    if (mset.size) opportunities = opportunities.map(o => mset.has(o.id) ? { ...o, started: true, owned: true } : o);
   } catch (e) {}
   // Free-preview model: after the free case is used and credits are exhausted, the list
   // still shows match strength / funding / deadline, but identity is locked until purchase.
