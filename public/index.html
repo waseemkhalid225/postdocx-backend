@@ -736,7 +736,7 @@ function renderAuth(mode){
       ${mode==='signin'?`<div class="auth-switch" style="margin-top:6px"><a onclick="forgotPassword()">Forgot your password?</a></div>`:''}
       <div class="auth-switch">${mode==='signin'?'New here?':'Already have an account?'}
         <a onclick="renderAuth('${mode==='signin'?'signup':'signin'}')">${mode==='signin'?'Create an account':'Sign in'}</a></div>
-      ${mode==='signup'?`<div class="sub auth-note">A quick verification email confirms your address. That is all we need to get you started.</div>`:''}
+      ${mode==='signup'?`<div class="sub auth-note">We will get you in right away. If a confirmation email from admin@foriforeign.com arrives, open it to verify, but you can usually start immediately.</div>`:''}
       <div class="auth-links">
         <a onclick="landingInfo('privacy')">Privacy</a><span>·</span><a onclick="landingInfo('refund')">Refunds</a><span>·</span><a onclick="landingInfo('help')">Help</a>
       </div>
@@ -866,7 +866,7 @@ async function doAuth(mode){
       try{await fetch('/api/auth/confirmed',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})})}catch(e){}
       const si=await SB.auth.signInWithPassword({email,password});
       if(si.error){toast('Account created. Please sign in now.');renderAuth('signin')}
-      else toast('Welcome to ForiForeign, '+(name.split(' ')[0]||'')+'!');
+      else toast('Welcome to ForiForeign, '+(name.split(' ')[0]||'')+'! If asked, check your email inbox for a note from admin@foriforeign.com to verify.');
     }else{
       if(window._authBusy)return;window._authBusy=true;
       let {error}=await SB.auth.signInWithPassword({email,password});
@@ -1108,8 +1108,8 @@ function dashGlobeSelect(sel){
     ${d.scholarship?`<span class="gchip" style="border-color:#f59e0b">${d.scholarship} scholarships</span>`:''}
     ${d.work?`<span class="gchip" style="border-color:#22c55e">${d.work} jobs</span>`:''}</div>
     <div class="row" style="margin-top:8px;gap:6px">
-    <button class="btn b-gold" style="padding:5px 12px" onclick="window._lane='study';window._study=window._study||{};Object.assign(window._study,{levels:[],fundings:[],ctrys:['${sel.code}'],subj:'',noLang:false,stipend:false});go('browse')">Study here</button>
-    <button class="btn b-line" style="padding:5px 12px" onclick="window._lane='work';window._work=window._work||{};window._work.ctrys=['${sel.code}'];go('browse')">Work here</button></div></div>`;
+    <button class="btn b-gold" style="padding:5px 12px" onclick="openFinderFor('study','${sel.code}')">Study here</button>
+    <button class="btn b-line" style="padding:5px 12px" onclick="openFinderFor('work','${sel.code}')">Work here</button></div></div>`;
 }
 async function dashLoad(elId,url,n){
   try{const d=await api(url);const el=$(elId);if(!el)return;
@@ -1154,7 +1154,7 @@ async function dashLive(){
     const d=await (await fetch('/api/public/opportunity-counts')).json();
     const names={};(window._countries||await ensureCountries()).forEach(c=>names[c.code]=c.name);
     const rows=Object.entries(d.counts||{}).map(([code,c])=>({code,name:names[code]||code,...c})).sort((a,b)=>b.total-a.total).slice(0,10);
-    el.innerHTML=rows.length?rows.map(r=>`<div class="card" style="padding:10px 14px;cursor:pointer;min-width:150px" onclick="window._lane='study';window._study=window._study||{levels:[],fundings:[],ctrys:[],subj:'',noLang:false,stipend:false};window._study.ctrys=['${r.code}'];go('browse')">
+    el.innerHTML=rows.length?rows.map(r=>`<div class="card" style="padding:10px 14px;cursor:pointer;min-width:150px" onclick="openFinderFor('study','${r.code}')">
     <b>${esc(r.name)}</b>
     <div class="row" style="gap:4px;margin-top:5px;flex-wrap:wrap">
     ${r.study?`<span class="chip c-blue">${r.study} study</span>`:''}
@@ -1177,6 +1177,9 @@ async function loadReadiness(){
 /* ---------- Opportunities: commercial two-lane entry ---------- */
 // window._lane: '' (chooser) | 'study' | 'work'
 async function vBrowse(){
+  // Legacy lane retired: the browse tab now flows into the unified finder.
+  go('home'); setTimeout(()=>openFinder(true),60); return;
+  // eslint-disable-next-line no-unreachable
   const lane=window._lane||'';
   if(!lane){ renderLaneChooser(); return; }
   if(lane==='study'){ renderStudyLane(); return; }
@@ -1186,13 +1189,13 @@ function renderLaneChooser(){
   $('view').innerHTML=`<div class="hero" style="padding:22px"><h1>Where do you want to go?</h1>
   <p>Pick a lane. Every listing here has been checked against its official source, so you are never chasing dead links.</p></div>
   <div class="row" style="gap:12px">
-    <div class="lane lane-study" onclick="window._lane='study';vBrowse()">
+    <div class="lane lane-study" onclick="openFinderFor('study')">
       
       <h2>Study Abroad</h2>
       <p class="sub">Bachelors, Masters, PhD and Postdoc, plus scholarships built in. Filter by funding: fully funded, partial, or self-finance.</p>
       <span class="btn b-gold" style="margin-top:12px;pointer-events:none">Explore study routes →</span>
     </div>
-    <div class="lane lane-work" onclick="window._lane='work';vBrowse()">
+    <div class="lane lane-work" onclick="openFinderFor('work')">
       
       <h2>Work Abroad</h2>
       <p class="sub">Real jobs for Pakistani professionals, with the exact license or registration route named for each destination (DHA, SCFHS, NCLEX, PEBC and more).</p>
@@ -1661,6 +1664,16 @@ async function showMatches(kind,opts){
 }
 
 /* ===== Finder: intent, multi-select filters, multi-country (after CV upload and from the dashboard) ===== */
+function openFinderFor(mode,countryCode){
+  // Single entry point: every "study/work here" path now flows into the unified finder.
+  window._finder=window._finder||{};
+  window._finder.kind=(mode==='work')?'work':'study';
+  window._finder.ctrys=window._finder.ctrys||[];
+  if(countryCode&&window._finder.ctrys.indexOf(countryCode)<0)window._finder.ctrys.push(countryCode);
+  window._finder._open=window._finder._open||{};
+  if(typeof go==='function')go('home');
+  setTimeout(()=>openFinder(true),80);
+}
 function openFinder(afterUpload){
   // ACTIVE search running? Reopen its live progress ring, never a restart.
   if(!afterUpload&&window.HM&&HM.discover&&HM.discover.status==='running'){resumeSearch(HM.discover.kind||'');return}
@@ -1696,7 +1709,7 @@ function renderFinder(){
     return `<label>${label2}</label><div class="ctry-picker">
     <div class="ctry-head" onclick="window._finder._open['${key}']=!window._finder._open['${key}'];renderFinder()"><span>${esc(head)}</span><span>${open?'▲':'▼'}</span></div>
     ${open?`<div class="ctry-body">${opts2.map(([v,t])=>{const on=cur.includes(v);
-      return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder['${key}'];const i=a.indexOf('${v}');i>=0?a.splice(i,1):a.push('${v}');window._finder._open['${key}']=false;if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${t}</div>`}).join('')}
+      return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder['${key}'];const i=a.indexOf('${v}');i>=0?a.splice(i,1):a.push('${v}');window._finder._open['${key}']=false;if('${key}'==='licenses')autoPickExamCountry('${v}');if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${t}</div>`}).join('')}
     ${cur.length?`<div class="row" style="margin-top:6px"><button class="segbtn" onclick="window._finder['${key}']=[];renderFinder()">Clear</button></div>`:''}</div>`:''}</div>`;
   };
   const FIELD_NAMES=['Medicine','Pharmacy','Nursing','Dentistry','Physiotherapy','Allied Health','Public Health','Medical Laboratory','Radiology & Imaging','Veterinary','Psychology','Nutrition & Dietetics','Biotechnology','Microbiology','Biochemistry','Genetics','Life Sciences','Chemistry','Physics','Mathematics','Statistics','Environmental Science','Earth Sciences','Astronomy','Materials Science','IT & Software','Computer Science','Data Science','Artificial Intelligence','Cybersecurity','Networking','Web & App Development','Game Development','Cloud Computing','Electrical Engineering','Mechanical Engineering','Civil Engineering','Chemical Engineering','Petroleum Engineering','Mining Engineering','Industrial Engineering','Aerospace Engineering','Automotive Engineering','Biomedical Engineering','Mechatronics','Telecom Engineering','Architecture','Urban Planning','Construction Management','Business Administration','Management','Marketing','Sales','Accounting','Finance','Banking','Economics','Human Resources','Supply Chain & Logistics','Project Management','Entrepreneurship','International Business','Law','Political Science','International Relations','Public Administration','Sociology','Social Work','Anthropology','History','Philosophy','Islamic Studies','Languages & Linguistics','Literature','Journalism & Media','Communication','Film & Television','Graphic Design','Fashion Design','Interior Design','Fine Arts','Music','Performing Arts','Education & Teaching','Early Childhood Education','Special Education','Sports Science','Hospitality & Tourism','Culinary Arts','Aviation & Piloting','Maritime & Shipping','Agriculture','Food Science','Forestry','Fisheries','Horticulture','Textile Engineering','Energy & Renewables','Nanotechnology','Robotics','Library & Information Science','Criminology','Nursing Midwifery','Paramedical','Occupational Therapy','Speech Therapy','Optometry','Audiology'];
@@ -1747,6 +1760,8 @@ function renderFinderCtryList(){
   el.innerHTML=list.map(c=>{const on=f.ctrys.includes(c.code);
     return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder.ctrys;const i=a.indexOf('${c.code}');i>=0?a.splice(i,1):a.push('${c.code}');renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${esc(c.name)}</div>`}).join('')||'<span class="sub">No match</span>';
 }
+const EXAM_CC={PLAB:'GB',USMLE:'US',MCCQE:'CA',AMC:'AU',NZREX:'NZ',DHA:'AE',DOH:'AE',MOHAP:'AE',SCFHS:'SA',QCHP:'QA',OMSB:'OM',NHRA:'BH',MOH:'KW',NCLEX:'US',CBT:'GB',CGFNS:'US',AHPRA:'AU',PEBC:'CA',FPGEE:'US',OSPAP:'GB',KAPS:'AU',ORE:'GB',NDEB:'CA',ADC:'AU',INBDE:'US',NPTE:'US',HCPC:'GB',PE:'US',CENG:'GB',PENG:'CA',SCE:'SA',UPDA:'QA'};
+function autoPickExamCountry(v){try{const cc=EXAM_CC[v];const f=window._finder;if(cc&&f&&f.licenses&&f.licenses.indexOf(v)>=0){f.ctrys=f.ctrys||[];if(f.ctrys.indexOf(cc)<0){f.ctrys.push(cc);if(typeof toast==='function')toast('Country set to '+cc+' for this exam, you can still change it.')}}}catch(e){}}
 function saveFinderPrefs(){
   const f=window._finder||{};const kind=f.kind||'study';
   api('/api/prefs',{method:'PUT',body:{prefs:{kind,fundings:(f.fundings||[]),levels:(f.levels||[]),workmode:f.workmode||'',licenses:(f.licenses||[]),jobTypes:(f.jobTypes||[]),exps:(f.exps||[]),programTypes:(f.programTypes||[]),sectors:(f.sectors||[]),langs:(f.langs||[]),field:f.field||'',intake:f.intake||'',ctrys:(f.ctrys||[]),licenseExam:f.licenseExam||'',licenseStatus:f.licenseStatus||''}}}).catch(()=>{});
@@ -1859,7 +1874,7 @@ async function openApp(id){
   <div class="card"><h3>Case notes</h3>
   <textarea id="case-notes" style="min-height:70px" placeholder="Your private notes for this case…">${esc(a.notes||'')}</textarea>
   <div class="row" style="margin-top:8px"><button class="btn b-line" onclick="saveNotes('${a.id}',this)">Save notes</button>
-  <button class="btn b-line" onclick="downloadGuide('${a.id}',this)">Future Path Guide (PDF)</button></div></div>
+  <button class="btn b-line" onclick="downloadGuide('${a.id}',this)">Future Path Guide (PDF)</button>${((typeof d!=='undefined'&&d.documents)||[]).some(x=>x.themed_key)?`<button class="btn b-gold" onclick="downloadThemedCV('${a.id}',this)">Download your tailored CV, your original design kept</button>`:''}</div></div>
   ${msg?`<div class="card" style="border-color:var(--ink)"><h3>Application email</h3>
   <div class="sub" style="margin:6px 0">To: ${msg.to_emails&&msg.to_emails.length?esc(msg.to_emails.join(', ')):'<i>no official email published, portal application</i>'}</div>
   <div style="font-weight:600">${esc(msg.subject)}</div>
@@ -1877,6 +1892,15 @@ function docCaption(kind,inst){
     research_proposal:'Realistic aims aligned with this position, built on your actual research record.',
     scholarship_statement:'Your real financial case, stated professionally for this award.'}[kind];
   return m?'<div class="sub" style="margin-top:2px">'+m+'</div>':'';
+}
+async function downloadThemedCV(appId,btn){
+  const old=btn.textContent;btn.textContent='Preparing…';btn.disabled=true;
+  try{
+    const r=await fetch('/api/applications/'+appId+'/cv.docx',{headers:{authorization:'Bearer '+((SESSION&&SESSION.access_token)||'')}});
+    if(!r.ok)throw new Error('Themed CV not ready yet');
+    const blob=await r.blob();const u=URL.createObjectURL(blob);const link=document.createElement('a');link.href=u;link.download='ForiForeign_CV.docx';link.click();URL.revokeObjectURL(u);
+    toast('Your tailored CV downloaded, opens in Word with your original design.');
+  }catch(e){toast(e.message)}finally{btn.textContent=old;btn.disabled=false}
 }
 async function downloadGuide(appId,btn){
   if(btn)btn.disabled=true;

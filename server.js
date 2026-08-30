@@ -51,7 +51,7 @@ app.use('/api', (req, res, next) => {
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2680';
+const FF_BUILD = '2026-08-28-R2760';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -1652,7 +1652,7 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
     const o0 = a.opportunities || {};
     return res.status(409).json({ error: 'portal_only', portal_url: o0.url || a.portal_url || '', message: 'This opportunity applies through its official portal. Your documents are ready to attach there.' });
   }
-  const { data: docs } = await admin().from('application_documents').select('id,kind,title').eq('application_id', a.id);
+  const { data: docs } = await admin().from('application_documents').select('id,kind,title,themed_key').eq('application_id', a.id);
   const o = a.opportunities || {};
   const pkg = applyLib.buildPackage({
     applicationId: a.id, opportunityId: o.id || '',
@@ -1821,6 +1821,22 @@ const INSIDER = {
     ['Money timing', 'Bank funds should be seasoned 3-6 months BEFORE the visa application; a sudden large deposit is the most common refusal trigger.']
   ]
 };
+app.get('/api/applications/:id/cv.docx', auth, async (req, res) => {
+  try {
+    const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
+    if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+    const { data: d } = await admin().from('application_documents').select('themed_key').eq('application_id', req.params.id).eq('kind', 'cv').limit(1);
+    const key = d && d[0] && d[0].themed_key;
+    if (!key) return res.status(404).json({ error: 'No themed CV for this case yet.' });
+    const { BUCKET } = require('./lib/docs');
+    const { data: f, error } = await admin().storage.from(BUCKET).download(key);
+    if (error || !f) return res.status(404).json({ error: 'Themed CV unavailable.' });
+    const buf = Buffer.from(await f.arrayBuffer());
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', 'attachment; filename="ForiForeign_CV.docx"');
+    res.send(buf);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
@@ -2081,7 +2097,7 @@ app.post('/api/applications/:id/prepare', auth, (req,res,next)=>{const f=(requir
 app.get('/api/applications/:id', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
-  let { data: docs } = await admin().from('application_documents').select('id,kind,title,content,status').eq('application_id', a.id).then(r => r, async () => await admin().from('application_documents').select('id,kind,title,content').eq('application_id', a.id));
+  let { data: docs } = await admin().from('application_documents').select('id,kind,title,content,status,themed_key').eq('application_id', a.id).then(r => r, async () => await admin().from('application_documents').select('id,kind,title,content').eq('application_id', a.id));
   const { data: msgs } = await admin().from('messages').select('*').eq('application_id', a.id).order('created_at', { ascending: false });
   res.json({ application: a, documents: docs || [], messages: msgs || [] });
 });
