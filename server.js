@@ -40,15 +40,18 @@ const _rl = new Map();
 const _rlSweep = setInterval(() => _rl.clear(), 5 * 60000);
 if (_rlSweep.unref) _rlSweep.unref();
 app.use('/api', (req, res, next) => {
-  const ip = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || 'x';
+  // Workshop-safe: a whole venue shares one public IP, so signed-in traffic is
+  // keyed by the user's own token and never punished for a neighbour's clicks.
+  const tok = String(req.headers.authorization || '').slice(-28);
+  const ip = tok ? ('u:' + tok) : ((req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || 'x');
   const n = (_rl.get(ip) || 0) + 1;
   _rl.set(ip, n);
-  if (n > 600) return res.status(429).json({ error: 'Too many requests. Please slow down for a few minutes.' });
+  if (n > (tok ? 900 : 300)) return res.status(429).json({ error: 'Too many requests. Please slow down for a few minutes.' });
   next();
 });
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2440';
+const FF_BUILD = '2026-08-28-R2680';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -90,7 +93,8 @@ app.get('/api/health/full', async (req, res) => {
       ANTHROPIC_API_KEY: has('ANTHROPIC_API_KEY'),
       BRAVE_API_KEY: has('BRAVE_API_KEY')
     },
-    db: 'not tested', auth_layer: 'not tested'
+    db: 'not tested', auth_layer: 'not tested',
+    ai_gate: (() => { try { const j = require('./lib/jobs'); return { max: j.MAX_AI || null, active: j.aiActive ? j.aiActive() : null, waiting: j.aiWaiting ? j.aiWaiting() : null }; } catch (e) { return null; } })()
   };
   try {
     const { error } = await admin().from('profiles').select('id', { count: 'exact', head: true });
@@ -117,9 +121,10 @@ function aiLimit(req, res, next) {
   const id = req.userId || req.ip; const now = Date.now();
   const arr = (_aiHits.get(id) || []).filter(t => now - t < 3600e3);
   if (arr.length >= 30) return res.status(429).json({ error: 'You have reached this hour\'s search limit. Please try again shortly.' });
-  arr.push(now); _aiHits.set(id, arr); next();
+  arr.push(now); _aiHits.set(id, arr);
+  if (_aiHits.size > 5000) _aiHits.clear(); // memory-safe under real load
+  next();
 }
-if (_aiHits.size > 5000) _aiHits.clear();
 
 process.on('unhandledRejection', e => console.error('[bg]', e && e.message));
 process.on('uncaughtException', e => console.error('[bg!]', e && e.message));
@@ -363,6 +368,16 @@ app.get('/api/opportunities/:id/report', auth, async (req, res) => {
     } : null,
     note: 'Stated figures come from the official source. Living cost is an approximate public average, not an official figure.'
   };
+  // Market band from our own verified inventory (never fabricated; only when >=2 datapoints exist)
+  try {
+    if (o.kind === 'work') {
+      const role = /pharmac/i.test(o.title) ? 'Pharmacist' : /nurse|midwif/i.test(o.title) ? 'Nurse' : /doctor|physician|medical officer|resident|consultant/i.test(o.title) ? 'Doctor' : /dent/i.test(o.title) ? 'Dentist' : /engineer/i.test(o.title) ? 'Engineer' : /lab|technologist|technician/i.test(o.title) ? 'Lab/Allied' : null;
+      if (role) {
+        const rq = await fetch('http://localhost:' + (process.env.PORT || 3000) + '/api/salary-intel?role=' + role + '&cc=' + (o.country_code || ''), { headers: { authorization: req.headers.authorization || '' } }).then(r => r.json()).catch(() => null);
+        if (rq && rq.band) financial.market_band = { label: role + ' in ' + (o.country_code || ''), range: rq.band.currency + ' ' + rq.band.low.toLocaleString() + ' - ' + rq.band.high.toLocaleString() + ' /month', based_on: rq.band.n + ' verified positions in our inventory' };
+      }
+    }
+  } catch (e) {}
   const now = Date.now(), day = 86400000;
   const freshness = (o.deadline && new Date(o.deadline).getTime() < now - day) ? 'deadline_passed'
     : (o.verified_at && now - new Date(o.verified_at).getTime() < day) ? 'verified_today'
@@ -371,6 +386,44 @@ app.get('/api/opportunities/:id/report', auth, async (req, res) => {
     opportunity: o, match, financial, freshness,
     provenance: { source_url: o.url, source_type: 'official_page', retrieved_at: o.created_at, last_verified: o.verified_at, verification: o.status }
   });
+});
+/* ---------- Salary intelligence: bands mined from our own verified hunts ----------
+   Zero external data, zero fabrication: we aggregate the salary/stipend figures our
+   agents verified on official pages. Cached 1h. */
+let _salIntel = { at: 0, data: {} };
+function _moneyNums(txt) {
+  const out = [];
+  const re = /(SAR|AED|QAR|OMR|BHD|KWD|GBP|USD|EUR|AUD|CAD|£|\$|€)\s?([\d,]{3,9})/gi;
+  let m2; while ((m2 = re.exec(String(txt || '')))) { const v = parseInt(m2[2].replace(/,/g, ''), 10); if (v >= 800 && v <= 90000) out.push({ cur: m2[1].toUpperCase(), v }); }
+  return out;
+}
+app.get('/api/salary-intel', auth, async (req, res) => {
+  try {
+    if (Date.now() - _salIntel.at > 3600e3) {
+      const { data: rows } = await admin().from('opportunities').select('country_code,title,salary_note,stipend').eq('kind', 'work').eq('status', 'verified').limit(1000);
+      const agg = {};
+      for (const o of (rows || [])) {
+        const role = /pharmac/i.test(o.title) ? 'Pharmacist' : /nurse|midwif/i.test(o.title) ? 'Nurse' : /doctor|physician|medical officer|resident|consultant/i.test(o.title) ? 'Doctor' : /dent/i.test(o.title) ? 'Dentist' : /engineer/i.test(o.title) ? 'Engineer' : /lab|technologist|technician/i.test(o.title) ? 'Lab/Allied' : 'Other';
+        for (const n of _moneyNums((o.salary_note || '') + ' ' + (o.stipend || ''))) {
+          const k = role + '|' + (o.country_code || '??') + '|' + n.cur.replace('£','GBP').replace('$','USD').replace('€','EUR');
+          (agg[k] = agg[k] || []).push(n.v);
+        }
+      }
+      const bands = {};
+      for (const [k, vs] of Object.entries(agg)) {
+        if (vs.length < 2) continue;
+        vs.sort((a, b) => a - b);
+        bands[k] = { low: vs[Math.floor(vs.length * .25)], high: vs[Math.floor(vs.length * .75)], n: vs.length };
+      }
+      _salIntel = { at: Date.now(), data: bands };
+    }
+    const role = String(req.query.role || ''); const cc = String(req.query.cc || '').toUpperCase();
+    if (role && cc) {
+      const hit = Object.entries(_salIntel.data).find(([k]) => k.startsWith(role + '|' + cc + '|'));
+      return res.json({ band: hit ? { role, cc, currency: hit[0].split('|')[2], ...hit[1] } : null, source: 'ForiForeign verified inventory' });
+    }
+    res.json({ bands: _salIntel.data, source: 'ForiForeign verified inventory' });
+  } catch (e) { res.json({ bands: {}, band: null }); }
 });
 /* ---------- Spec 41: save / unsave + saved list ---------- */
 app.post('/api/opportunities/:id/save', auth, async (req, res) => {
@@ -565,7 +618,7 @@ app.get('/api/admin/me', auth, staffOnly, async (req, res) => {
 });
 app.get('/api/admin/users', auth, perm('users.read'), async (req, res) => {
   const q = String(req.query.q || '').trim();
-  let query = admin().from('profiles').select('id,full_name,role,created_at').order('created_at', { ascending: false }).limit(100);
+  let query = admin().from('profiles').select('id,full_name,role,created_at,whatsapp').order('created_at', { ascending: false }).limit(100);
   if (q) query = query.ilike('full_name', '%' + q + '%');
   const { data } = await query;
   res.json({ users: data || [] });
@@ -623,6 +676,45 @@ app.post('/api/support/seen', auth, async (req, res) => {
   res.json({ ok: true });
 });
 /* Approve a user-submitted review ticket straight onto the public homepage. */
+/* SITE-WIDE FREE PROMO: admin opens a limited window (e.g. 48h); every user who
+   claims during it gets exactly 1 free Solo case, once per promo. */
+app.post('/api/admin/promo', auth, perm('settings.write'), async (req, res) => {
+  try {
+    const hours = Math.max(1, Math.min(168, parseInt(req.body && req.body.hours, 10) || 48));
+    const ends = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+    await admin().from('app_settings').upsert({ key: 'free_promo', value: { active: true, started_at: new Date().toISOString(), ends_at: ends, hours } });
+    await admin().from('audit_log').insert({ actor: req.userId, event: 'PROMO_START', detail: hours + 'h free Solo, ends ' + ends }).then(() => {}, () => {});
+    res.json({ ok: true, ends_at: ends });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/admin/promo/stop', auth, perm('settings.write'), async (req, res) => {
+  try {
+    await admin().from('app_settings').upsert({ key: 'free_promo', value: { active: false, stopped_at: new Date().toISOString() } });
+    await admin().from('audit_log').insert({ actor: req.userId, event: 'PROMO_STOP', detail: 'manual stop' }).then(() => {}, () => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+async function activePromo() {
+  try {
+    const { data } = await admin().from('app_settings').select('value').eq('key', 'free_promo').single();
+    const v = data && data.value;
+    if (v && v.active && v.ends_at && new Date(v.ends_at) > new Date()) return v;
+  } catch (e) {}
+  return null;
+}
+app.post('/api/promo/claim', auth, async (req, res) => {
+  try {
+    if (simUser(req)) return res.status(400).json({ error: 'Exit user-view simulation to claim on your real account.' });
+    const promo = await activePromo();
+    if (!promo) return res.status(400).json({ error: 'No free promo is running right now.' });
+    const note = 'promo:' + promo.ends_at;
+    const { data: prior } = await admin().from('credit_ledger').select('id').eq('user_id', req.userId).eq('note', note).limit(1);
+    if (prior && prior.length) return res.status(409).json({ error: 'You already claimed this promo. Enjoy your free case!' });
+    await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 1, reason: 'promo_grant', note });
+    await admin().from('audit_log').insert({ actor: req.userId, event: 'PROMO_CLAIM', detail: note }).then(() => {}, () => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 /* Free Solo grant from support: one tap approves 1 case for the requester
    (idempotent per ticket), replies warmly, and the user can apply immediately. */
 app.post('/api/admin/support/:id/grant-solo', auth, perm('support.write'), async (req, res) => {
@@ -1006,6 +1098,14 @@ app.get('/api/home', auth, async (req, res) => {
     const { data: led } = await admin().from('credit_ledger').select('delta').eq('user_id', uid);
     const purchased = (led || []).filter(l => Number(l.delta) > 0).reduce((sm, l) => sm + Number(l.delta), 0);
     const { count: casesUsed } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', uid);
+    try {
+      const promo = await activePromo();
+      if (promo) {
+        const note = 'promo:' + promo.ends_at;
+        const { data: cl } = await admin().from('credit_ledger').select('id').eq('user_id', req.userId).eq('note', note).limit(1);
+        out.promo = { active: true, ends_at: promo.ends_at, claimed: !!(cl && cl.length) };
+      }
+    } catch (e) {}
     const simP = simUser(req);
     out.credits = simP ? { balance: simP.tier, creditsRemaining: simP.tier, casesUsed: 0, casesTotal: simP.tier }
       : { balance: bal, creditsRemaining: bal, casesUsed: casesUsed || 0, casesTotal: purchased };
@@ -1335,7 +1435,14 @@ app.post('/api/documents', auth, up.array('files', 20), async (req, res) => {
     }
     const ok = results.some(r => !r.error);
     res.json({ ok, results, autofill: ok });
-    if (ok) setTimeout(() => extractProfile(req.userId).catch(e => admin().from('audit_log').insert({ actor: req.userId, event: 'AUTOFILL_FAIL', detail: String(e.message).slice(0, 200) })), 1200);
+    if (ok) setTimeout(() => {
+      // Extraction rides the same surge gate as search and prepare: even 50
+      // simultaneous uploads queue fairly instead of storming the AI provider.
+      require('./lib/jobs').runJob('prepare', 'autofill:' + req.userId + ':' + Date.now(), req.userId,
+        () => extractProfile(req.userId),
+        { retries: 0, timeoutMs: 300000 }
+      ).catch(e => admin().from('audit_log').insert({ actor: req.userId, event: 'AUTOFILL_FAIL', detail: String(e.message).slice(0, 200) }).then(() => {}, () => {}));
+    }, 1200);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 /* ---------- profile avatar (private bucket, signed URL) ---------- */
@@ -1645,10 +1752,25 @@ app.get('/api/prefs', auth, async (req, res) => {
 });
 app.put('/api/prefs', auth, async (req, res) => {
   const v = (req.body && req.body.prefs) || {};
+  const sArr = (a, re, cap) => Array.isArray(a) ? a.map(x => String(x)).filter(x => re.test(x)).slice(0, cap || 10) : [];
   const clean = {
     kind: ['study', 'work', 'both'].includes(v.kind) ? v.kind : 'study',
     funded: !!v.funded, remote: !!v.remote, visa: !!v.visa,
-    ctrys: Array.isArray(v.ctrys) ? v.ctrys.filter(c => /^[A-Za-z]{2}$/.test(String(c))).map(c => String(c).toUpperCase()).slice(0, 15) : []
+    ctrys: Array.isArray(v.ctrys) ? v.ctrys.filter(c => /^[A-Za-z]{2}$/.test(String(c))).map(c => String(c).toUpperCase()).slice(0, 15) : [],
+    // Every finder choice persists - the promise "your selection is saved automatically" is kept here.
+    fundings: sArr(v.fundings, /^(fully|partial|self)$/),
+    levels: sArr(v.levels, /^[a-z_]{2,20}$/),
+    langs: sArr(v.langs, /^[a-z_]{2,20}$/),
+    jobTypes: sArr(v.jobTypes, /^[a-z_]{2,20}$/),
+    exps: sArr(v.exps, /^[a-z]{2,10}$/),
+    licenses: sArr(v.licenses, /^[A-Z]{2,10}$/, 12),
+    programTypes: sArr(v.programTypes, /^[a-z_]{2,20}$/),
+    sectors: sArr(v.sectors, /^[a-z_]{2,20}$/),
+    workmode: ['', 'remote', 'onsite'].includes(String(v.workmode || '')) ? String(v.workmode || '') : '',
+    field: /^[a-z][a-z-]{1,40}$/.test(String(v.field || '')) ? String(v.field) : '',
+    intake: ['', '2026', '2027'].includes(String(v.intake || '')) ? String(v.intake || '') : '',
+    licenseExam: String(v.licenseExam || '').replace(/[^A-Za-z0-9 \-]/g, '').slice(0, 40),
+    licenseStatus: ['', 'preparing', 'passed', 'registered'].includes(String(v.licenseStatus || '')) ? String(v.licenseStatus || '') : ''
   };
   try { await admin().from('app_settings').upsert({ key: 'prefs:' + req.userId, value: clean }); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ error: e.message }); }
@@ -1672,6 +1794,32 @@ const FUTURE_PATH = {
   NL: { name: 'Netherlands', embassy: 'Netherlands embassy route is handled BY the university (TEV procedure)', portal: 'The university applies for your MVV/residence permit; you attend biometrics when called', funds: 'Approx. EUR 13,000/year transferred to the university before arrival', extra: 'Orange Knowledge and university excellence scholarships stack with this route.' },
   HU: { name: 'Hungary', embassy: 'Embassy of Hungary Islamabad', portal: 'Stipendium Hungaricum via apply.stipendiumhungaricum.hu (deadline mid-January), then D visa', funds: 'Stipendium is fully funded: tuition, stipend, housing allowance, insurance', extra: 'HEC Pakistan co-nominates - watch hec.gov.pk for the parallel window.' },
   NZ: { name: 'New Zealand', embassy: 'New Zealand visas are processed online (no local embassy visit needed)', portal: 'Student visa via immigration.govt.nz with offer of place', funds: 'NZD 20,000/year evidence plus tuition', extra: 'Post-study work rights up to 3 years; Manaaki New Zealand Scholarships are fully funded.' }
+};
+const INSIDER = {
+  GULF_LICENSE: [
+    ['DataFlow PSV', '30-45 days typical; premium 10-12 days where offered. Delays almost always come from universities and past employers not replying - warn your referees TODAY that DataFlow will contact them.'],
+    ['Prometric exam booking', 'Slots in Pakistan (Islamabad, Lahore, Karachi) fill 2-4 weeks ahead; book the moment eligibility opens.'],
+    ['Regulator eligibility', 'SCFHS via Mumaris Plus: classification 2-6 weeks after DataFlow clears. DHA: eligibility letter usually valid about 1 year - track its expiry. QCHP/DHP: evaluation 3-8 weeks.'],
+    ['Offer to visa', 'Gulf employer visa processing 2-6 weeks after license activation; medical (GAMCA) + police certificate + attestations must already be in hand or you lose those weeks.'],
+    ['First salary reality', 'Expect the first pay 30-45 days after joining; carry funds for the first six weeks of living costs.']
+  ],
+  GB_LICENSE: [
+    ['PLAB 2 to GMC registration', 'ID check appointment and registration decision typically 5-15 working days after a complete application; English evidence (IELTS 7.5 UKVI academic or OET B) must be under 2 years old.'],
+    ['NMC route (nurses)', 'CBT from Pakistan anytime; OSCE only in the UK within 3 months of arrival on the OSCE visa route; NMC decision about 2-4 weeks per stage.'],
+    ['Certificate of Sponsorship', 'NHS trusts issue CoS in 1-3 weeks after offer; Skilled Worker visa from Pakistan currently about 3 weeks standard, priority faster.'],
+    ['First rotation truth', 'Most IMGs start in non-training SHO/Trust-grade posts; use the first 6-12 months for portfolio + exams toward training posts.']
+  ],
+  US_LICENSE: [
+    ['ECFMG certification', 'EPIC verification of each credential 2-8 weeks; plan USMLE Step scheduling around Prometric Pakistan slot scarcity.'],
+    ['NCLEX path (nurses)', 'CGFNS/state board evaluation 6-12 weeks, ATT then NCLEX; VisaScreen certificate needed for the visa stage.'],
+    ['Match cycle reality', 'Residency interviews Oct-Jan, Match in March, start July - align your paperwork year to this calendar or lose a full year.']
+  ],
+  GENERIC_STUDY: [
+    ['Offer to CAS/I-20/CoE', 'Universities issue the visa document 1-4 weeks after deposit; chase politely at 2 weeks.'],
+    ['Attestation chain', 'HEC attestation 5-10 working days (urgent counters faster), MOFA 1-3 days after HEC; courier both ways adds a week - start the chain the day you accept.'],
+    ['Visa decision windows', 'UK about 3 weeks, Schengen study 2-6 weeks, USA interview-dependent, Australia 4-8 weeks typical for Pakistani applicants; peak season (June-August) runs longer.'],
+    ['Money timing', 'Bank funds should be seasoned 3-6 months BEFORE the visa application; a sudden large deposit is the most common refusal trigger.']
+  ]
 };
 app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
@@ -1699,6 +1847,7 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
     const steps = [
       ['Reply and confirm', 'Answer every university or employer email within 48 hours, politely and briefly. Confirm your interest and ask for the official offer or admission letter.'],
       ['Offer letter in hand', 'Save the signed offer or admission letter as PDF. Every next step, bank, embassy, ' + (wk ? 'Protector office' : 'scholarship body') + ', will ask for it.'],
+      ['License and credential verification', (wk ? 'For regulated professions start DataFlow (Gulf), EPIC/ECFMG (physicians) or CGFNS (nurses, USA) NOW, it takes 30 to 45 days and every employer waits for it. Keep license, eligibility letters and good-standing certificates scanned and ready.' : 'If your route involves professional registration later, keep degree and license documents scanned; verification bodies like DataFlow and EPIC take weeks, never days.')],
       ['Degree attestation, HEC', 'Start at eservices.hec.gov.pk, then the nearest HEC Regional Centre (list in the Pakistan offices section below). Attest all degrees and transcripts. For school-level certificates use IBCC.'],
       ['MOFA attestation', 'After HEC, attest the same documents at MOFA, Islamabad HQ or the camp office in your city. Book online at mofa.gov.pk and carry originals plus CNIC.'],
       ['Bank statement', 'Prepare ' + (g && g.funds ? g.funds : 'the proof of funds your destination requires') + '. Keep the amount seasoned in the account 3 to 6 months where possible; a parent or sponsor account works with a sponsorship letter and their CNIC.'],
@@ -1716,14 +1865,23 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
     let n = 0;
     for (const [t, dtl] of steps) {
       n++;
-      if (doc.y > 720) doc.addPage();
-      const y0 = doc.y;
-      doc.font('Times-Bold').fontSize(11).fillColor('#000').text(n + '.  ' + t, 40, y0, { width: 150 });
-      doc.font('Times-Roman').fontSize(10.5).text(dtl, 200, y0, { width: 355, align: 'justify' });
-      doc.moveTo(40, doc.y + 4).lineTo(555, doc.y + 4).strokeColor('#BBBBBB').lineWidth(0.5).stroke();
-      doc.y = doc.y + 9; doc.x = 40;
+      if (pdf.y > 720) pdf.addPage();
+      const y0 = pdf.y;
+      pdf.font('Times-Bold').fontSize(11).fillColor('#000').text(n + '.  ' + t, 40, y0, { width: 150 });
+      pdf.font('Times-Roman').fontSize(10.5).text(dtl, 200, y0, { width: 355, align: 'justify' });
+      pdf.moveTo(40, pdf.y + 4).lineTo(555, pdf.y + 4).strokeColor('#BBBBBB').lineWidth(0.5).stroke();
+      pdf.y = pdf.y + 9; pdf.x = 40;
     }
-    doc.moveDown(0.6);
+    pdf.moveDown(0.6);
+  }
+  H('Insider timeline: what actually happens next, and when');
+  {
+    const wk2 = (opp && opp.kind) === 'work';
+    const cc2 = opp.country_code || '';
+    let rows2 = wk2 ? (['SA','AE','QA','OM','BH','KW'].includes(cc2) ? INSIDER.GULF_LICENSE : cc2 === 'GB' ? INSIDER.GB_LICENSE : cc2 === 'US' ? INSIDER.US_LICENSE : INSIDER.GULF_LICENSE.slice(0,2).concat(INSIDER.GENERIC_STUDY.slice(2))) : INSIDER.GENERIC_STUDY;
+    P('These are the inside timeframes most applicants only learn after losing months. Current at preparation time; always confirm on the official page, which is the only authority.');
+    for (const [t2, d2] of rows2) { B(t2 + ' - ' + d2); }
+    P('Golden rule: run verifications, attestations and bookings IN PARALLEL, never one after another. The applicants who land in 90 days are the ones whose DataFlow, police certificate and attestations were all moving in the same week.');
   }
   H('1. After acceptance');
   B('You may be invited to an online interview. Prepare with your CV and the documents ForiForeign drafted; answer plainly.');
@@ -1802,7 +1960,7 @@ app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').c
   // searched first; comparable nearby destinations complete the set only if needed.
   const b = req.body || {};
   const arr = (v, ok) => Array.isArray(v) ? v.map(x => String(x)).filter(x => ok.includes(x)).slice(0, 8) : [];
-  const LIC = ['DHA', 'SCFHS', 'PLAB', 'PEBC', 'NCLEX', 'MOH', 'HAAD', 'USMLE'];
+  const LIC = ['DHA', 'HAAD', 'DOH', 'MOHAP', 'SCFHS', 'QCHP', 'OMSB', 'NHRA', 'MOH', 'PLAB', 'UKMLA', 'USMLE', 'MCCQE', 'AMC', 'NZREX', 'NCLEX', 'CBT', 'OSCE', 'CGFNS', 'PEBC', 'FPGEE', 'NAPLEX', 'KAPS', 'OSPAP', 'ORE', 'NDEB', 'ADC', 'INBDE', 'ASCPI', 'NPTE', 'HCPC', 'AHPRA', 'OET', 'DATAFLOW', 'PROMETRIC', 'PE', 'FE', 'CENG', 'PENG', 'SCE', 'UPDA'];
   const prefs = {
     countries: Array.isArray(b.countries) ? b.countries.filter(c => /^[A-Za-z]{2}$/.test(String(c))).map(c => String(c).toUpperCase()).slice(0, 15) : [],
     fundings: arr(b.fundings, ['fully', 'partial', 'self']),
@@ -1852,7 +2010,10 @@ app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').c
   res.json({ ok: true, ran: true, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.' });
   require('./lib/jobs').runJob('discover', 'discover:' + req.userId + ':' + Math.floor(Date.now()/1800e3), req.userId, () =>
     discoverForUser(req.userId, b.kind, prefs)
-      .then(async n => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'done', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: n, prefsHash: prefs.prefsHash } }); } catch (e) {} return n; })
+      .then(async n => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'done', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: n, prefsHash: prefs.prefsHash } }); } catch (e) {}
+        // Pull-back notification: if a WhatsApp bridge is configured, ping the user.
+        try { if (process.env.ZAINAB_NOTIFY_URL && n > 0) { const { data: pf } = await admin().from('profiles').select('whatsapp,full_name').eq('id', req.userId).single(); if (pf && pf.whatsapp) fetch(process.env.ZAINAB_NOTIFY_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: pf.whatsapp, text: 'ForiForeign: your matches are ready! ' + n + ' verified opportunities are waiting on your dashboard. foriforeign.com' }) }).catch(() => {}); } } catch (e) {}
+        return n; })
       .catch(async e => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'error', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, message: String(e.message).slice(0, 160), prefsHash: prefs.prefsHash } }); } catch (e2) {} throw e; }),
     { retries: 1, timeoutMs: 600000 });
   // Real-time Brave assist: right after every user search, harvest fresh leads and
@@ -1976,7 +2137,11 @@ const SEED_CORRIDORS = [
   ['work', 'pharmacist nurse doctor jobs Saudi Arabia UAE Qatar with visa sponsorship'],
   ['work', 'healthcare allied health jobs Gulf hospitals SCFHS DHA licensed'],
   ['work', 'engineer IT jobs Europe Germany Netherlands visa sponsorship for international candidates'],
-  ['work', 'nurse jobs UK Ireland Australia New Zealand international recruitment']
+  ['work', 'nurse jobs UK Ireland Australia New Zealand international recruitment'],
+  ['work', 'DHA SCFHS QCHP licensed pharmacist doctor nurse vacancies Gulf hospitals current openings'],
+  ['work', 'NHS Trust vacancies IMG doctors NMC nurses Trac jobs HealthJobsUK current'],
+  ['work', 'UPDA SCE licensed engineer vacancies Qatar Saudi Arabia mega projects'],
+  ['work', 'medical laboratory radiographer physiotherapist jobs Gulf UK DataFlow HCPC licensed']
 ];
 async function selfSeed(reason) {
   try {

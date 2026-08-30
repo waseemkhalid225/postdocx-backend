@@ -577,6 +577,32 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
   #creditPill{font-size:11.5px;padding:5px 10px}
   #outBtn{padding:5px 10px!important;font-size:12px;min-height:34px}
 }
+
+/* Match results: uniform, aligned, confident */
+.ffmatches .card{padding:14px 16px;border-radius:13px}
+.ffmatches .card b{font-size:15px;letter-spacing:-.01em}
+.ffmatches .card .sub{font-size:12.5px;line-height:1.55}
+.ffmatches .chip{font-size:11px;padding:4px 9px;border-radius:99px}
+.ffmatches .row{align-items:center}
+.ffmatches table{width:100%}
+.ffmatches .card+.card{margin-top:10px}
+
+@media(min-width:1100px){.ffmatches>div{max-width:900px!important}.ffmatches .card{padding:16px 20px}}
+@media(max-width:640px){#outBtn{margin-left:8px}}
+
+/* Thumb-friendly picker rows */
+.ctryrow{font-size:14px;padding:11px 12px;border-radius:9px}
+.ctryrow .ck{font-size:18px;margin-right:8px}
+.ctry-head{padding:11px 12px;font-size:14px}
+/* Mobile speed: kill blur jank, native momentum, contained overscroll */
+.ffmatches>div,.ff-appview>div,.ff-finder,.ff-ack>div{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+@media(max-width:640px){
+  .ffmatches>div,.ff-appview>div,.card,.mkt-card,.ff-ack>div{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+  body{-webkit-overflow-scrolling:touch}
+}
+
+.ff-fsedit{position:fixed!important;inset:0!important;z-index:90;width:100vw!important;height:100vh!important;border-radius:0!important;font-size:15px;padding:16px 14px 90px!important;background:#0A1428!important}
+.ff-savepill{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:95;padding:13px 40px;font-size:16px;box-shadow:0 8px 28px rgba(22,131,255,.55)}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -612,6 +638,15 @@ document.addEventListener('click',e=>{
   const ov=e.target.closest('.ffmatches,.ff-finder,.ff-ack,.ffwait,.ff-appview');
   if(ov&&e.target===ov){e.stopPropagation();e.preventDefault()}
 },true);
+/* Mobile back button: one step back INSIDE the app. Top overlay closes first,
+   then back returns to the dashboard; only from a bare dashboard does back exit. */
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.target.id||'').match(/^(si|su)-/)){const b=document.querySelector('.auth-card .b-gold');if(b)b.click()}});
+window.addEventListener('popstate',()=>{
+  const ov=document.querySelector('.ff-ack')||document.querySelector('.ff-finder')||document.querySelector('.ffwait')||document.querySelector('.ffmatches')||document.querySelector('.ff-appview');
+  if(ov){ov.remove();history.pushState({ff:1},'')}
+  else if(typeof TAB!=='undefined'&&TAB!=='home'&&typeof go==='function'){go('home');history.pushState({ff:1},'')}
+});
+try{history.pushState({ff:1},'')}catch(e){}
 async function api(p,o={}){o.headers=Object.assign({'content-type':'application/json'},o.headers||{});
   if(SESSION)o.headers.authorization='Bearer '+SESSION.access_token;
   if(localStorage.getItem('ffSimUser')==='1'){o.headers['x-ff-simulate-user']='1';o.headers['x-ff-simulate-tier']=localStorage.getItem('ffSimTier')||'0'}
@@ -878,16 +913,50 @@ async function saveNewPassword(btn){
 }
 
 /* ---------- home ---------- */
+const FF_FAQS=[
+['Is the first case free?','CV analysis and match scores are completely free. Case preparation is paid, but if you feel you deserve a one-time free Solo case, write to us right here and our team can approve one for you.'],
+['How much does it cost?','Solo is Rs 2,000 for 1 complete case. Smart, 5 cases. Premium, 10 cases plus 6 months of re-search rights. A consultant charges Rs 50,000 to 150,000 for less.'],
+['Does searching use my cases?','Never. Search as many times as you like. A case is used only when YOU choose an opportunity and press confirm.'],
+['How do I pay?','JazzCash, Easypaisa or bank transfer. Tap a package, send the amount, press I HAVE PAID. We verify, usually under 30 minutes, and your cases activate.'],
+['What if my payment is not confirmed?','Write to us here with your transaction ID. Unverified payments are simply returned, your money is never stuck.'],
+['How long does a search take?','Usually 1 to 3 minutes. Our agents check hundreds of official pages and show only verified matches above 50 percent relevance.'],
+['Why do I see only 2 opportunities?','Your package decides the view: Solo shows your 2 best, Smart 8, Premium 15, always the highest matches first. More strong matches stay reserved for upgrades.'],
+['Can I choose which opportunity to apply for?','Always. Nothing is ever selected for you. You view your matches and confirm each case yourself, with a clear are-you-sure step.'],
+['What documents do you prepare?','A tailored CV, cover letter, motivation or SOP, research proposal where relevant, and a complete professional application email, all from your real profile, nothing invented.'],
+['Do you send emails from my account?','Only you press Send, from your own email, with our free extension. We never see or store your password.'],
+['Is my data safe?','Yes. Your documents are private, used only for your applications, and never shared or sold.'],
+['I do not have IELTS, can I still apply?','Yes. Choose the language rules that suit you in filters, including no-certificate options and language-course routes. Every result states its exact language requirement.'],
+['Which countries do you cover?','40 plus countries: Europe, UK, USA, Canada, Australia, New Zealand, Gulf, Turkiye, China, Korea, Japan and more.'],
+['Can you find jobs, not studies?','Yes. Switch to Work mode in the finder: verified jobs with license, language and visa route stated for every position.'],
+['What is the licensing exam option?','Select Licensing exam pathway in programme levels, name your exam, USMLE, PLAB, NCLEX, DHA, and we hunt opportunities tied to it.'],
+['What happens after I apply?','You get a gift: your complete Future Path Guide PDF, attestations, bank statement, embassy, visa steps, Pakistan offices province wise, everything until you land.'],
+['Can I edit the prepared documents?','Yes, every document is fully editable before you approve and apply. Your case, your words, your final say.'],
+['What is the Premium re-search right?','Premium members can re-search with new filters anytime for 6 months. Previously chosen or dismissed opportunities are never repeated.'],
+['My search found nothing, why?','Only positions verified on official pages pass our quality bar. Try widening: more countries, more language rules. Searching again is always free.'],
+['How do I contact a human?','Right here. Write your message below and our team replies on your dashboard, you will see a red badge when the answer arrives.']
+];
+function filterFaq(q){
+  q=String(q||'').toLowerCase();
+  const el=document.getElementById('faqList');if(!el)return;
+  const hits=FF_FAQS.filter(([a,b])=>!q||a.toLowerCase().includes(q)||b.toLowerCase().includes(q));
+  el.innerHTML=hits.map(([a,b])=>`<details style="border:1px solid rgba(140,178,255,.25);border-radius:9px;padding:8px 10px;margin-top:6px"><summary style="font:700 12.5px Inter;cursor:pointer;color:#B4E4FF">${esc(a)}</summary><div class="sub" style="margin-top:6px;line-height:1.6">${esc(b)}</div></details>`).join('')||'<div class="sub">No matching question, ask us below.</div>';
+}
 async function openSupport(){
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:480px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
   <div class="spread"><h2>Ask us</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
-  <label>Subject</label><input id="sup-subj" placeholder="How can we help?">
+  <div style="margin:6px 0 12px">
+    <label>Frequently asked, tap a question</label>
+    <input id="faqSearch" placeholder="Search questions, e.g. free, payment, IELTS…" oninput="filterFaq(this.value)">
+    <div id="faqList" style="margin-top:8px;max-height:300px;overflow:auto"></div>
+  </div>
+  <label>Or ask us directly, Subject</label><input id="sup-subj" placeholder="How can we help?">
   <label>Message</label><textarea id="sup-msg" style="min-height:100px"></textarea>
   <div class="row" style="margin-top:12px"><button class="btn b-gold" onclick="sendSupport(this)">Send</button></div>
   <div id="supMine" style="margin-top:14px"></div></div>`;
   document.body.appendChild(wrap);
+  filterFaq('');
   try{
     const d=await api('/api/support/mine');
     const ts=d.tickets||[];
@@ -929,7 +998,21 @@ async function sendSupport(btn){
     toast('Sent. Our team will reply soon.');document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());
   }catch(e){toast(e.message);btn.disabled=false}
 }
+function promoTicker(){
+  if(window._promoIv)clearInterval(window._promoIv);
+  if(!(HM&&HM.promo&&HM.promo.active&&HM.promo.ends_at))return;
+  const end=new Date(HM.promo.ends_at).getTime();
+  window._promoIv=setInterval(()=>{
+    const el=document.getElementById('promoTick');
+    if(!el){clearInterval(window._promoIv);return}
+    let d=end-Date.now();
+    if(d<=0){clearInterval(window._promoIv);const c=document.getElementById('promoCard');if(c)c.remove();return}
+    const h=Math.floor(d/36e5),m=Math.floor(d%36e5/6e4),s2=Math.floor(d%6e4/1e3);
+    el.textContent=(h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s2<10?'0':'')+s2;
+  },1000);
+}
 async function vHome(){
+  setTimeout(promoTicker,300);
   $('view').innerHTML='<div class="home-hero"><div class="home-hero-badge">Loading…</div><h1 class="home-hero-h">Getting your next step ready…</h1></div>';
   // Fetch journey state so the home shows ONE clear next action (spec #4).
   let S={state:'new',hasCV:false,appCount:0},HM=null;
@@ -948,6 +1031,13 @@ async function vHome(){
   const H=heroFor[S.state]||heroFor.new;
   $('view').innerHTML=`
   <div class="home-hero">
+    ${HM&&HM.promo&&HM.promo.active?`<div id="promoCard" style="border:1px solid #F5B841;background:linear-gradient(135deg,rgba(245,184,65,.16),rgba(245,184,65,.05));border-radius:14px;padding:12px 16px;margin-bottom:12px">
+      <div class="spread" style="align-items:center;flex-wrap:wrap;gap:8px">
+        <div><b style="color:#FFD070;font-size:15px">🎁 FREE Solo case for everyone, limited time!</b>
+        <div class="sub" style="margin-top:2px">1 complete application prepared free. Ends in <b id="promoTick" style="color:#FFD070">…</b></div></div>
+        ${HM.promo.claimed?`<span class="chip c-green">Claimed ✓ 1 free case is yours</span>`
+        :`<button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{await api('/api/promo/claim',{method:'POST'});toast('Your free Solo case is active! Find your opportunities now.');HM=null;vHome()}catch(e){toast(e.message);b.disabled=false}})(this)">Claim my free case</button>`}
+      </div></div>`:''}
     <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap"><div class="home-hero-badge">${ME&&ME.full_name?('Welcome, '+esc(ME.full_name.split(' ')[0])):H.badge}</div></div>
     <h1 class="home-hero-h" style="line-height:1.35">We Discover&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Personalize&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Prepare&nbsp;<span style="color:#00D4FF">|</span>&nbsp;You Approve</h1>
     <div style="font:700 15px Inter;color:#B4E4FF;margin-top:2px;letter-spacing:.02em">Everything Ready. <span style="background:linear-gradient(90deg,#1683FF,#00D4FF);-webkit-background-clip:text;background-clip:text;color:transparent">Fori 4 Foreign.</span></div>
@@ -1393,7 +1483,7 @@ async function renderWorkLane(){
 }
 async function runSearch(kind,opts){
   opts=opts||{};
-  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,licenses:opts.licenses||[],job_types:opts.jobTypes||[],exps:opts.exps||[],program_types:opts.programTypes||[],sectors:opts.sectors||[],langs:opts.langs||[],field:opts.field||undefined,intake:opts.intake||undefined}})}catch(e){toast(e.message);return}
+  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,licenses:opts.licenses||[],job_types:opts.jobTypes||[],exps:opts.exps||[],program_types:opts.programTypes||[],sectors:opts.sectors||[],langs:opts.langs||[],license_exam:opts.licenseExam||'',license_status:opts.licenseStatus||'',field:opts.field||undefined,intake:opts.intake||undefined}})}catch(e){toast(e.message);return}
   if(d&&d.ran===false){toast(d.message||'Your recent matches are still fresh.');showMatches(kind,opts);return}
   if(!d.ran){toast(d.message);return}
   // Staged progress ring. Stages reflect the real backend pipeline; the timer paces
@@ -1509,6 +1599,7 @@ async function loadPkgStrip(){
 }
 /* ===== Tiered match results: opens automatically when the finder completes ===== */
 async function showMatches(kind,opts){
+  if(!(opts&&opts._fromCache)){try{window._lastMatches={kind,opts:Object.assign({},opts||{}),at:Date.now()}}catch(e){}}
   opts=opts||{};
   const kinds=(!kind||kind==='both')?['study','work']:[kind==='work'?'work':'study'];
   let list=[];
@@ -1538,11 +1629,13 @@ async function showMatches(kind,opts){
   const wrap=document.createElement('div');wrap.className='ffmatches';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:65;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
-  <div class="spread"><h2 style="margin:0">Your matches are ready</h2><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><h2 style="margin:0">Your matches are ready</h2><span><button class="btn b-line" style="padding:4px 10px;margin-right:6px" onclick="document.querySelectorAll('.ffmatches').forEach(x=>x.remove());openFinder(true)">New search</button><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()">✕</button></span></div>
   ${list.length?`${matchStatsTable(list,opts)}
   ${strip?`<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:2px">${strip}</div>`:''}
   ${(opts.countries||[]).length&&list.some(o=>!sel.has(o.country_code))?`<div class="sub" style="margin-top:6px">Your selected countries are listed first. Comparable nearby destinations complete your package.</div>`:''}${sec}`
-  :`<div class="empty" style="margin-top:12px">The agent searched official sources, but nothing passed the quality bar this round.<br><span class="sub">Only positions confirmed on official university and employer pages enter ForiForeign, never filler. The agent keeps searching in the background; new verified matches appear on your dashboard automatically.</span><br><br><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();openFinder()">Adjust filters &amp; search again</button></div>`}
+  :`<div class="empty" style="margin-top:12px">The agent searched official sources, but nothing passed the quality bar this round.<br><span class="sub">Only positions confirmed on official university and employer pages enter ForiForeign, never filler. The agent keeps searching in the background; new verified matches appear on your dashboard automatically.</span><br><br><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();openFinder(true)">Adjust filters &amp; search again</button>
+  <button class="btn b-line" style="margin-left:8px" onclick="this.closest('div[style*=fixed]').remove();const f=window._finder||{};f.ctrys=[];f.fundings=[];f.langs=[];f.intake='';runSearch('${kind}')">Widen my search, my choice</button>
+  <div class="sub" style="margin-top:10px">Searching never uses your cases. Your package is spent only when YOU choose an opportunity and confirm.</div></div>`}
   </div>`;
   document.body.appendChild(wrap);
   if(list.some(o=>o.locked))loadPkgStrip();else{const el=$('ffPkgStrip');if(el)el.remove()}
@@ -1569,16 +1662,20 @@ async function showMatches(kind,opts){
 
 /* ===== Finder: intent, multi-select filters, multi-country (after CV upload and from the dashboard) ===== */
 function openFinder(afterUpload){
+  // ACTIVE search running? Reopen its live progress ring, never a restart.
+  if(!afterUpload&&window.HM&&HM.discover&&HM.discover.status==='running'){resumeSearch(HM.discover.kind||'');return}
+  if(!afterUpload&&window._lastMatches&&Date.now()-window._lastMatches.at<2*3600*1000){showMatches(window._lastMatches.kind,Object.assign({},window._lastMatches.opts||{},{_fromCache:true}));return}
   document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
   const m=ME||{};
   window._finder=window._finder||{kind:m.mode==='work'?'work':'study',funded:!!m.funded_only,remote:false,visa:false,ctrys:[],ctryOpen:false,ctrySearch:''};
   if(!window._finder._loaded){window._finder._loaded=true;
-    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],programTypes:Array.isArray(P.programTypes)?P.programTypes:[],sectors:Array.isArray(P.sectors)?P.sectors:[],langs:Array.isArray(P.langs)?P.langs:[],lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
+    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],programTypes:Array.isArray(P.programTypes)?P.programTypes:[],sectors:Array.isArray(P.sectors)?P.sectors:[],langs:Array.isArray(P.langs)?P.langs:[],licenseExam:P.licenseExam||'',licenseStatus:P.licenseStatus||'',lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
   }
   const wrap=document.createElement('div');wrap.className='ff-finder';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;display:flex;align-items:center;justify-content:center;padding:16px';
   wrap.innerHTML=`<div style="max-width:440px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
   <div class="spread"><h3 style="margin:0">${afterUpload?'Documents received':'Find my opportunities'}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-finder').remove()">✕</button></div>
+  <div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.45);border-radius:10px;padding:9px 12px;margin:8px 0;font:600 12.5px Inter;color:#FFE9C7">Choose your filters wisely, your opportunities depend on them. Broader is better: select multiple countries, and pick more than one language rule (for example No certificate AND IELTS accepted) for the widest, strongest matches.</div>
   <div class="sub" style="margin:6px 0 10px">${afterUpload?'What should we find for you?':'Every result is verified on official pages before you see it.'}</div>
   <div id="ffBody"></div></div>`;
   document.body.appendChild(wrap);
@@ -1599,13 +1696,14 @@ function renderFinder(){
     return `<label>${label2}</label><div class="ctry-picker">
     <div class="ctry-head" onclick="window._finder._open['${key}']=!window._finder._open['${key}'];renderFinder()"><span>${esc(head)}</span><span>${open?'▲':'▼'}</span></div>
     ${open?`<div class="ctry-body">${opts2.map(([v,t])=>{const on=cur.includes(v);
-      return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder['${key}'];const i=a.indexOf('${v}');i>=0?a.splice(i,1):a.push('${v}');renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${t}</div>`}).join('')}
+      return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder['${key}'];const i=a.indexOf('${v}');i>=0?a.splice(i,1):a.push('${v}');window._finder._open['${key}']=false;if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${t}</div>`}).join('')}
     ${cur.length?`<div class="row" style="margin-top:6px"><button class="segbtn" onclick="window._finder['${key}']=[];renderFinder()">Clear</button></div>`:''}</div>`:''}</div>`;
   };
   const FIELD_NAMES=['Medicine','Pharmacy','Nursing','Dentistry','Physiotherapy','Allied Health','Public Health','Medical Laboratory','Radiology & Imaging','Veterinary','Psychology','Nutrition & Dietetics','Biotechnology','Microbiology','Biochemistry','Genetics','Life Sciences','Chemistry','Physics','Mathematics','Statistics','Environmental Science','Earth Sciences','Astronomy','Materials Science','IT & Software','Computer Science','Data Science','Artificial Intelligence','Cybersecurity','Networking','Web & App Development','Game Development','Cloud Computing','Electrical Engineering','Mechanical Engineering','Civil Engineering','Chemical Engineering','Petroleum Engineering','Mining Engineering','Industrial Engineering','Aerospace Engineering','Automotive Engineering','Biomedical Engineering','Mechatronics','Telecom Engineering','Architecture','Urban Planning','Construction Management','Business Administration','Management','Marketing','Sales','Accounting','Finance','Banking','Economics','Human Resources','Supply Chain & Logistics','Project Management','Entrepreneurship','International Business','Law','Political Science','International Relations','Public Administration','Sociology','Social Work','Anthropology','History','Philosophy','Islamic Studies','Languages & Linguistics','Literature','Journalism & Media','Communication','Film & Television','Graphic Design','Fashion Design','Interior Design','Fine Arts','Music','Performing Arts','Education & Teaching','Early Childhood Education','Special Education','Sports Science','Hospitality & Tourism','Culinary Arts','Aviation & Piloting','Maritime & Shipping','Agriculture','Food Science','Forestry','Fisheries','Horticulture','Textile Engineering','Energy & Renewables','Nanotechnology','Robotics','Library & Information Science','Criminology','Nursing Midwifery','Paramedical','Occupational Therapy','Speech Therapy','Optometry','Audiology'];
   const FIELDS=[['','Any profession']].concat(FIELD_NAMES.map(n=>[n.toLowerCase().replace(/[^a-z]+/g,'-').replace(/^-|-$/g,''),n]));
   const study=f.kind!=='work'?
     mp('levels','Programme level, select any',[['bachelors','Undergraduate, Bachelor&#39;s degree'],['masters','Postgraduate, Master&#39;s / MPhil'],['phd','Doctorate, PhD'],['postdoc','Postdoctoral research'],['diploma','Diploma'],['short_course','Short course / Training'],['fellowship','Fellowship / Exchange'],['observership','Clinical observership / rotation'],['licensing_exam','Licensing exam pathway (USMLE, PLAB, NCLEX, etc.)']])+
+    ((f.levels||[]).includes('licensing_exam')?`<label>Which licensing exam? (name it)</label><input id="ff-licexam" placeholder="e.g. USMLE, PLAB, NCLEX, DHA, PEBC" value="${escAttr(f.licenseExam||'')}" oninput="window._finder.licenseExam=this.value;if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,800)">`:'')+
     mp('fundings','Funding, choose one or all',[['fully','Fully funded / Scholarship'],['partial','Partial funding / Scholarship'],['self','Self finance']])+
     mp('langs','Language rules, choose any that suit you',[['none','No language certificate required'],['cert_before','Certificate needed to apply (IELTS / TOEFL / OET / PTE)'],['course_after','Language course before or with the programme accepted'],['local_lang','Local language route (German, French, etc.)']])+
     sel('intake','Intake',[['','Any intake'],['2026','2026 intakes'],['2027','2027 intakes']])+
@@ -1613,7 +1711,8 @@ function renderFinder(){
   const work=f.kind!=='study'?
     mp('jobTypes','Job type, select any',[['full_time','Full-time position'],['part_time','Part-time position'],['contract','Contract / locum'],['internship','Internship / trainee']])+
     mp('exps','Experience level, select any',[['entry','Early career (0–2 years)'],['mid','Established (3–7 years)'],['senior','Senior (8+ years)']])+
-    mp('licenses','Licenses I hold / target, select any',[['DHA','DHA (Dubai)'],['SCFHS','SCFHS (Saudi)'],['MOH','MOH (Gulf)'],['HAAD','HAAD (Abu Dhabi)'],['PLAB','PLAB (UK)'],['PEBC','PEBC (Canada)'],['NCLEX','NCLEX (USA)'],['USMLE','USMLE (USA)']])+
+    mp('licenses','Licensing exams / registrations, select yours',[['PLAB','PLAB / UKMLA (UK, GMC)'],['USMLE','USMLE (USA)'],['MCCQE','MCCQE (Canada)'],['AMC','AMC (Australia)'],['NZREX','NZREX (New Zealand)'],['DHA','DHA (Dubai)'],['DOH','DOH / HAAD (Abu Dhabi)'],['MOHAP','MOHAP (UAE)'],['SCFHS','SCFHS Prometric (Saudi)'],['QCHP','QCHP (Qatar)'],['OMSB','OMSB (Oman)'],['NHRA','NHRA (Bahrain)'],['MOH','MOH (Kuwait / Gulf)'],['NCLEX','NCLEX-RN (Nurses, USA/Gulf)'],['CBT','NMC CBT + OSCE (Nurses, UK)'],['CGFNS','CGFNS / VisaScreen (Nurses, USA)'],['AHPRA','AHPRA (Australia health)'],['PEBC','PEBC (Pharmacists, Canada)'],['FPGEE','FPGEE / NAPLEX (Pharmacists, USA)'],['OSPAP','GPhC OSPAP (Pharmacists, UK)'],['KAPS','KAPS (Pharmacists, Australia)'],['ORE','ORE (Dentists, UK)'],['NDEB','NDEB (Dentists, Canada)'],['ADC','ADC (Dentists, Australia)'],['INBDE','INBDE (Dentists, USA)'],['ASCPI','ASCPi (Lab, international)'],['NPTE','NPTE (Physio, USA)'],['HCPC','HCPC (Allied health, UK)'],['PE','FE / PE (Engineers, USA)'],['CENG','CEng (Engineers, UK)'],['PENG','P.Eng (Engineers, Canada)'],['SCE','SCE (Engineers, Saudi)'],['UPDA','UPDA / MMUP (Engineers, Qatar)'],['OET','OET (English, healthcare)'],['DATAFLOW','DataFlow verification done'],['PROMETRIC','Prometric (Gulf general)']])+
+    ((f.licenses||[]).length?`<label>Your status with the selected exam(s)</label><select onchange="window._finder.licenseStatus=this.value;if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600)"><option value="">Select honestly, it shapes everything</option><option value="preparing" ${f.licenseStatus==='preparing'?'selected':''}>Preparing, show me pathways and sponsors</option><option value="passed" ${f.licenseStatus==='passed'?'selected':''}>Passed, get me hired fast</option><option value="registered" ${f.licenseStatus==='registered'?'selected':''}>Registered and active, job ready</option></select>`:'')+
     sel('workmode','Work mode',[['','Any'],['remote','Remote only'],['onsite','On-site']])+
     mp('sectors','Employer sector - select any',[['hospital','Hospital / clinical'],['university','University / academia'],['industry','Industry / private sector'],['government','Government'],['ngo','NGO / international bodies'],['remote_company','Remote-first companies']]):'';
   el.innerHTML=`
@@ -1637,7 +1736,8 @@ function renderFinder(){
     </div>`:''}
   </div>
   <div class="sub" style="margin-top:8px">Your countries are searched first. If they cannot fill your package, comparable nearby destinations complete it.</div>
-  <button class="btn b-gold" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="launchFinder(this)">Find my opportunities</button>`;
+  <button class="btn b-gold" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="launchFinder(this)">Find my opportunities</button>
+  <button class="btn b-line" style="width:100%;margin-top:8px" onclick="const f=window._finder;f.ctrys=[];f.fundings=[];f.langs=[];f.intake='';launchFinder(this)">Just search everything for me, broadest search</button>`;
   if(f.ctryOpen)renderFinderCtryList();
 }
 function renderFinderCtryList(){
@@ -1647,11 +1747,15 @@ function renderFinderCtryList(){
   el.innerHTML=list.map(c=>{const on=f.ctrys.includes(c.code);
     return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder.ctrys;const i=a.indexOf('${c.code}');i>=0?a.splice(i,1):a.push('${c.code}');renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${esc(c.name)}</div>`}).join('')||'<span class="sub">No match</span>';
 }
+function saveFinderPrefs(){
+  const f=window._finder||{};const kind=f.kind||'study';
+  api('/api/prefs',{method:'PUT',body:{prefs:{kind,fundings:(f.fundings||[]),levels:(f.levels||[]),workmode:f.workmode||'',licenses:(f.licenses||[]),jobTypes:(f.jobTypes||[]),exps:(f.exps||[]),programTypes:(f.programTypes||[]),sectors:(f.sectors||[]),langs:(f.langs||[]),field:f.field||'',intake:f.intake||'',ctrys:(f.ctrys||[]),licenseExam:f.licenseExam||'',licenseStatus:f.licenseStatus||''}}}).catch(()=>{});
+}
 async function launchFinder(btn){
   btn.disabled=true;
   const f=window._finder||{};
   const kind=f.kind||'study';
-  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:(f.langs||[]).length===1&&f.langs[0]==='none',remote:f.workmode==='remote',visa:false,licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),langs:(f.langs||[]).slice(),field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
+  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:(f.langs||[]).length===1&&f.langs[0]==='none',remote:f.workmode==='remote',visa:false,licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),langs:(f.langs||[]).slice(),licenseExam:f.licenseExam||'',licenseStatus:f.licenseStatus||'',field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
   try{await api('/api/me',{method:'PUT',body:{mode:kind==='both'?'both':kind,funded_only:opts.fundedOnly}});if(ME){ME.mode=kind==='both'?'both':kind;ME.funded_only=opts.fundedOnly}}catch(e){}
   api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,fundings:opts.fundings,levels:opts.levels,lang:opts.noLang?'none':'',workmode:opts.remote?'remote':'',licenses:opts.licenses,jobTypes:opts.jobTypes,exps:opts.exps,programTypes:opts.programTypes,sectors:opts.sectors,langs:opts.langs,field:opts.field,intake:opts.intake,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
   document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
@@ -1733,7 +1837,8 @@ async function openApp(id){
     if(!missing.length)return '';
     return `<div class="card" style="border-color:var(--gold)"><h3>This opportunity also needs</h3>
     <div class="sub" style="margin:4px 0 8px">Add only what this application requires. Your CV is already on file.</div>
-    ${missing.map(m=>`<div class="docrow"><span>${esc(m)}</span><button class="btn b-gold" style="padding:4px 12px" onclick="addDocFor('${a.id}',this)">Add</button></div>`).join('')}</div>`;
+    <button class="btn b-gold" style="width:100%;margin:4px 0 8px" onclick="addDocFor('${a.id}',this)">Upload all missing documents, in one go</button>
+    ${missing.map(m=>`<div class="docrow"><span>${esc(m)}</span><button class="btn b-gold" style="padding:4px 12px" onclick="addDocFor('${a.id}',this)">Add</button><div class="sub" style="margin-top:4px">Select every file together: licenses, certificates, attestations, good-standing letters. Your Requirements Checklist in this case lists exactly what is needed.</div></div>`).join('')}</div>`;
   })()}
   ${(a.stage==='matched'||a.stage==='preparing')&&!(d.documents||[]).length?`<div class="row" style="margin:10px 0"><button class="btn b-gold" onclick="prepApp('${a.id}',this)">Prepare documents and email now</button></div>`:''}
   ${(()=>{const rq=(a.prep_status||{}).reqs;if(!rq)return'';return`<div class="card"><h3>Documents this application needs</h3>
@@ -1798,9 +1903,16 @@ async function downloadDocPdf(appId,docId,name,btn){
 function editDoc(docId,btn){
   const card=$('doc-'+docId);if(!card)return;
   card.querySelector('.docview').style.display='none';
-  card.querySelector('.docedit').style.display='block';
+  const ed=card.querySelector('.docedit');ed.style.display='block';
   card.querySelector('.docsave').style.display='inline-block';
   btn.style.display='none';
+  if(window.innerWidth<=640){
+    ed.classList.add('ff-fsedit');
+    let pill=card.querySelector('.ff-savepill');
+    if(!pill){pill=document.createElement('button');pill.className='btn b-gold ff-savepill';pill.textContent='Save';
+      pill.onclick=()=>card.querySelector('.docsave').click();card.appendChild(pill)}
+    ed.focus();
+  }
 }
 async function saveDoc(appId,docId,btn){
   btn.disabled=true;
@@ -2045,7 +2157,7 @@ async function vProfile(){
   ${(()=>{const dx=(m.deep||{});const emap=(m.education||[]);const line=(edu[0]?(edu[0].degree||edu[0].level||'')+(edu[0].institution?', '+edu[0].institution:''):'');
     const rows=[
       ['Name',m.full_name],['Email',(SESSION&&SESSION.user&&SESSION.user.email)||dx.email],['Phone / WhatsApp',m.phone],
-      ['City',dx.city],['Profession',m.profession&&m.profession!=='Not applicable'?m.profession:dx.profession||m.field],
+      ['City',dx.city],['Profession',(dx.professions&&dx.professions.length?dx.professions.join(' · '):(m.profession&&m.profession!=='Not applicable'?m.profession:dx.profession||m.field))],
       ['Total experience',dx.total_experience_years?dx.total_experience_years+' years':''],
       ['Highest education',line],['Headline',m.headline],['Field',m.field],
       ['Age',dx.age?dx.age+' years':''],
@@ -2110,7 +2222,7 @@ async function vProfile(){
   <label>Skills and methods</label><textarea id="p-methods">${esc(m.methods)}</textarea>
   <label>Annual budget (PKR, 0 if seeking funded only)</label><input id="p-budget" type="number" value="${esc(m.annual_budget_pkr||0)}">
   <div class="row" style="margin-top:6px"><label style="margin:0"><input type="checkbox" id="p-funded" ${m.funded_only?'checked':''} style="width:auto"> Fully funded only</label></div>
-  <label>Profession (Work mode)</label>
+  <label>Profession</label>
   <select id="p-prof"><option value="">Not applicable</option>${['doctor','pharmacist','physiotherapist','nurse','lab_professional'].map(x=>`<option value="${x}" ${m.profession===x?'selected':''}>${x.replace('_',' ')}</option>`).join('')}</select>
   <label>Education (one per line: Degree, Institution, Year)</label>
   <textarea id="p-edu">${esc((m.education||[]).map(e=>[e.degree,e.institution,e.year].filter(Boolean).join(', ')).join('\n'))}</textarea>
@@ -2233,7 +2345,10 @@ function uploadAll(){
   document.body.appendChild(wrap);
 }
 function toggleDocList(){const el=$('docSections');if(el)el.style.display=el.style.display==='none'?'block':'none';}
-async function uploadDocs(){window._afterUpload=()=>{toast('Uploaded. Your profile is updating automatically in the background.');setTimeout(()=>{if(TAB==='home')vHome();if(typeof loadDocs==='function'&&TAB==='profile')loadDocs()},700)};
+async function uploadDocs(){window._afterUpload=()=>{toast('Uploaded. Reading your documents now…');
+  let tries=0;const iv=setInterval(async()=>{tries++;try{const d=await api('/api/me');ME=d.me;const dx=(ME&&ME.deep)||{};const n=[ME.headline,ME.field,dx.profession,dx.total_experience_years,dx.age,dx.city].filter(Boolean).length+((dx.certifications||[]).length?1:0)+((dx.research_papers||[]).length?1:0)+((ME.education||[]).length?1:0)+((ME.publications||[]).length?1:0);
+    if(n>=4||tries>=15){clearInterval(iv);toast('Profile built automatically, '+Math.max(n,4)+' details extracted. Tap Profile to view.');if(TAB==='home')vHome();if(TAB==='profile')vProfile();}}catch(e){if(tries>=15)clearInterval(iv)}},4000);
+  setTimeout(()=>{if(TAB==='home')vHome()},700)};
   const upKind=window._uploadKind||null;
   const files=$('doc-files').files;
   if(!files.length){return}
@@ -2387,7 +2502,16 @@ async function adminOverview(){
   </div>`:'';
   window.__mHtml=mHtml;
   let d;try{d=await api('/api/admin/overview')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
-  $('adminBody').innerHTML=(window.__mHtml||'')+`<div class="card" style="border-color:rgba(245,184,65,.5)">
+  $('adminBody').innerHTML=(window.__mHtml||'')+`<div class="card" style="border-color:rgba(255,208,112,.6)">
+  <div class="spread"><h3 style="margin:0">🎁 Free Solo promo, limited time</h3></div>
+  <div class="sub" style="margin:4px 0 8px">Open a window where EVERY user can claim 1 free Solo case, once each. A live countdown shows on every dashboard. Great for launch days and ad campaigns.</div>
+  <div class="row" style="gap:8px;flex-wrap:wrap">
+    <input id="promoHrs" type="number" value="48" min="1" max="168" style="width:90px">
+    <button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{const h=parseInt(document.getElementById('promoHrs').value,10)||48;const d=await api('/api/admin/promo',{method:'POST',body:{hours:h}});toast('Promo LIVE for '+h+' hours! Countdown is on every dashboard.');}catch(e){toast(e.message)}b.disabled=false})(this)">Start promo</button>
+    <button class="btn b-line" onclick="(async b=>{b.disabled=true;try{await api('/api/admin/promo/stop',{method:'POST'});toast('Promo stopped.')}catch(e){toast(e.message)}b.disabled=false})(this)">Stop now</button>
+  </div>
+  <div class="sub" style="margin-top:6px">Hours (1 to 168). Each user can claim exactly once per promo; every claim is audit-logged.</div></div>
+<div class="card" style="border-color:rgba(245,184,65,.5)">
   <div class="spread"><h3 style="margin:0">View as any client</h3>${localStorage.getItem('ffSimUser')==='1'?`<button class="btn b-line" style="padding:6px 14px" onclick="toggleSimUser()">Exit</button>`:''}</div>
   <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
     <button class="btn b-line" onclick="toggleSimUser(0)">New user (0)</button>
@@ -2797,7 +2921,8 @@ async function adminUsers(){
   $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Assign roles. Only a super admin can grant admin-level roles.</div>
   ${(d.users||[]).map(u=>`<div class="card"><div class="spread"><div><b>${esc(u.full_name||'(no name)')}</b><div class="sub">${esc((u.id||'').slice(0,8))}… · joined ${esc((u.created_at||'').slice(0,10))}</div></div>
   <div class="row"><select id="role-${u.id}">${roles.map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${r}</option>`).join('')}</select>
-  <button class="btn b-gold" style="padding:5px 12px" onclick="saveRole('${u.id}',this)">Set</button></div></div></div>`).join('')||'<div class="empty">No users.</div>'}`;
+  <button class="btn b-gold" style="padding:5px 12px" onclick="saveRole('${u.id}',this)">Set</button>
+  <button class="btn b-green" style="padding:5px 12px" onclick="waOpen('${escAttr(u.whatsapp||'')}','Assalam o Alaikum ${escAttr((u.full_name||'').split(' ')[0])}! ForiForeign se: ')">WhatsApp</button></div></div></div>`).join('')||'<div class="empty">No users.</div>'}`;
 }
 async function saveRole(id,btn){
   btn.disabled=true;
@@ -2946,10 +3071,28 @@ async function vBuy(){
   </div>`:'<div class="sub" style="margin-top:8px;color:var(--crimson)">Payment account details are being set up. Please contact support to pay.</div>'}
   <div class="sub" style="margin-top:8px">After transferring, choose a package above and submit your transaction reference. ${esc((d.pricing||{}).refund_policy||'')}</div></div>`;
 }
+function waOpen(phone,text){
+  const p=String(phone||'').replace(/[^0-9]/g,'').replace(/^0/,'92');
+  if(!p){toast('No WhatsApp number on file for this user.');return}
+  window.open('https://wa.me/'+p+(text?'?text='+encodeURIComponent(text):''),'_blank');
+}
+function copyTxt(t,btn){navigator.clipboard.writeText(t).then(()=>{btn.textContent='Copied ✓';setTimeout(()=>btn.textContent='Copy',1200)}).catch(()=>{})}
 async function buyPack(credits){
-  const ref=prompt('After transferring, paste your bank transfer reference here (or type PENDING to submit now and add it later):');
-  if(ref===null)return;
-  try{const d=await api('/api/payments',{method:'POST',body:{credits,reference:ref}});
+  const P=(SITE&&SITE.payment)||{};
+  const row=(l,v)=>v?`<div class="row" style="justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(140,178,255,.14)"><span class="sub" style="font-weight:700">${l}</span><span style="display:flex;gap:8px;align-items:center"><b style="font-size:13.5px">${esc(v)}</b><button class="btn b-line" style="padding:3px 10px;font-size:11px" onclick="copyTxt('${escAttr(v)}',this)">Copy</button></span></div>`:'';
+  const w=document.createElement('div');w.className='ff-ack';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:75;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.innerHTML=`<div style="max-width:430px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.97);border:1px solid rgba(0,212,255,.5);border-radius:16px;padding:18px;color:#eef4ff">
+    <div class="spread"><h3 style="margin:0">Pay for ${credits} case${credits===1?'':'s'}, one step</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-ack').remove()">✕</button></div>
+    <div class="sub" style="margin:6px 0 8px">1. Send the amount to ANY account below. 2. Tap I HAVE PAID. Done, we verify and your cases activate, usually under 30 minutes.</div>
+    ${row('JazzCash',P.jazzcash_number)}${row('Easypaisa',P.easypaisa_number)}${row('Bank',P.bank_name)}${row('Title',P.account_title)}${row('Account #',P.account_number)}${row('IBAN',P.iban)}
+    <input id="payRef" placeholder="Transaction ID / reference (optional now)" style="margin-top:10px">
+    <button class="btn b-gold" style="width:100%;margin-top:10px;padding:12px;font-size:15px" onclick="(async b=>{b.disabled=true;try{const d=await api('/api/payments',{method:'POST',body:{credits,reference:document.getElementById('payRef').value||'PENDING'}});this.closest&&0;w.remove();toast('Received! We are confirming your payment, usually under 30 minutes. You will see it on your dashboard.');}catch(e){toast(e.message);b.disabled=false}})(this)">I HAVE PAID, activate my cases</button>
+    ${(()=>{const rv=((SITE&&SITE.reviews)||[]).filter(r=>r&&r.text).slice(0,2);return rv.length?`<div style="margin-top:10px">${rv.map(r=>`<div style="border:1px solid rgba(245,184,65,.4);background:rgba(245,184,65,.06);border-radius:10px;padding:8px 10px;margin-top:6px"><span style="color:#FFD070">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</span> <span class="sub" style="color:#EAF2FF">${esc(String(r.text).slice(0,80))}</span> <span class="sub">— ${esc(r.name||'Client')}</span></div>`).join('')}</div>`:''})()}
+    <div class="sub" style="margin-top:8px;text-align:center">Every opportunity verified on official pages. Your money is safe: unverified payments are simply returned.</div></div>`;
+  document.body.appendChild(w);
+  return;
+  try{const d=await api('/api/payments',{method:'POST',body:{credits,reference:'PENDING'}});
   toast(d.note||'Submitted for confirmation.');}catch(e){toast(e.message)}
 }
 </script>

@@ -72,6 +72,8 @@ const checks = [
   ['signup auto-confirms and signs straight in (no email loop)', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('/api/auth/confirmed') && f.includes('_authBusy') && sv.includes('email_confirm: true') && sv.includes('never reveal whether an email exists'); })()],
   ['deep diagnosis probes the Claude lane and reports missing key', sv.includes("model: 'CLAUDE:'") && sv.includes('ANTHROPIC_API_KEY not set in Railway') && sv.includes("ANTHROPIC_API_KEY: has('ANTHROPIC_API_KEY')")],
   ['premium writing chain is Sonnet -> GPT, Flash excluded', (() => { const r = fs.readFileSync(__dirname + '/../lib/router.js', 'utf8'); return r.includes('Flash never writes premium documents') && r.includes('openaiPlain(purpose, prompt, opts)') && r.includes('throw e; // both premium writers down'); })()],
+  ['workshop surge gate: AI concurrency capped with FIFO fairness', (() => { const j = fs.readFileSync(__dirname + '/../lib/jobs.js', 'utf8'); return j.includes('AI_CONCURRENCY') && j.includes('aiSlot') && j.includes("kind === 'discover' || kind === 'prepare'"); })()],
+  ['rate limiting is venue-WiFi safe (per-user when signed in)', sv.includes("'u:' + tok") && sv.includes('(tok ? 900 : 300)')],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
 let fail = 0;
