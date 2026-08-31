@@ -20,11 +20,15 @@ const ACCEPTED = ['levels', 'country', 'funding_type', 'job_type', 'exp', 'licen
 ACCEPTED.forEach(f => t('backend accepts filter: ' + f, sv.includes('req.query.' + f)));
 
 // ---------- HARD FILTERS must exclude, not merely down-rank ----------
-t('wrong target level is excluded, not ranked lower',
-  sv.includes("mt.status === 'wrong_target_level'") && sv.includes('return false'));
-t('below-your-level opportunities are excluded', sv.includes("mt.status === 'below_your_level'"));
-t('field mismatch is excluded', sv.includes("mt.status === 'field_mismatch'"));
-t('relevance floor is enforced server-side', sv.includes('mt.pct < RELEVANCE_FLOOR'));
+t('wrong target level is excluded from the primary tier',
+  sv.includes("o.match.status === 'wrong_target_level'") && sv.includes('!wrongLevel(o)'));
+t('below-your-level is excluded from the primary tier',
+  sv.includes("o.match.status === 'below_your_level'") && sv.includes('!belowLevel(o)'));
+t('field mismatch is excluded from the primary tier',
+  sv.includes("o.match.status === 'field_mismatch'") && sv.includes('!wrongField(o)'));
+t('relevance floor is enforced server-side', sv.includes('o.match.pct < RELEVANCE_FLOOR'));
+t('filters relax rather than returning an empty page', sv.includes('GRADUATED RELEVANCE GATE'));
+t('any relaxation is disclosed to the user', sv.includes('relaxed: req._relaxNote'));
 t('level gate applies at the database, not just in memory', sv.includes("query.or('level.in."));
 t('level gate does not zero-out work postings', sv.includes('academicLane'));
 

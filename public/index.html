@@ -2243,7 +2243,8 @@ async function showMatches(kind,opts){
   if(opts.workmode==='remote')push('remote','1');
   if(opts.field)push('q',opts.field);
   const extraQ=qp.length?'&'+qp.join('&'):'';
-  for(const k of kinds){try{const d=await api('/api/opportunities?kind='+k+'&match=1&sort=recent'+extraQ);list=list.concat(d.opportunities||[])}catch(e){}}
+  window._relaxNote=null;
+  for(const k of kinds){try{const d=await api('/api/opportunities?kind='+k+'&match=1&sort=recent'+extraQ);list=list.concat(d.opportunities||[]);if(d.relaxed)window._relaxNote=d.relaxed}catch(e){}}
   const seen=new Set();list=list.filter(o=>o.id&&!seen.has(o.id)&&seen.add(o.id));
   if(opts.remote)list=list.filter(o=>o.remote!==false);
   const pv=o=>(o.match&&o.match.pct!=null)?o.match.pct:-1;
@@ -2274,7 +2275,8 @@ async function showMatches(kind,opts){
     <div class="sub" style="margin:6px 0 10px">Your strongest opportunities are ready and reserved. Pick a package, and the moment your payment is confirmed your best matches open on the next screen, highest score first, ready to apply.</div>
     <div class="sub" style="margin-bottom:10px">Solo, your 2 best, apply to 1 · Smart, your 8 best, apply to 5 · Premium, your 15 best, apply to 10 + 6 months re-search.</div>
     <button class="btn b-gold" style="width:100%;font-size:15px;padding:12px" onclick="go('buy')">See packages &amp; unlock</button></div>`:'';
-  const sec=`<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(140,178,255,.35),transparent);margin:20px 0 4px"></div>
+  const relaxHtml=window._relaxNote?`<div class="sub" style="margin:12px 0 0;padding:8px 12px;border:1px solid rgba(245,184,65,.4);border-radius:9px;background:rgba(245,184,65,.07);color:#FFD070">${esc(window._relaxNote)} We keep searching for closer matches in the background.</div>`:'';
+  const sec=relaxHtml+`<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(140,178,255,.35),transparent);margin:20px 0 4px"></div>
   ${cta}
   ${noneOpen?'':`<h3 style="margin:12px 0 8px;color:#fff">Your best-matched opportunities <span class="sub">· highest score first</span></h3>`}`
   // Before a package is chosen we show NO opportunity list at all: only the analysis and
@@ -2289,7 +2291,8 @@ async function showMatches(kind,opts){
   ${(opts.countries||[]).length&&list.some(o=>!sel.has(o.country_code))?`<div class="sub" style="margin-top:6px">Your selected countries are listed first, with a few strong nearby matches to widen your options.</div>`:''}${sec}`
   :`<div class="empty" style="margin-top:12px">The agent searched official sources, but nothing passed the quality bar this round.<br><span class="sub">Only positions confirmed on official university and employer pages enter ForiForeign, never filler. The agent keeps searching in the background; new verified matches appear on your dashboard automatically.</span><br><br><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();openFinder(true)">Adjust filters &amp; search again</button>
   <button class="btn b-line" style="margin-left:8px" onclick="this.closest('div[style*=fixed]').remove();const f=window._finder||{};f.ctrys=[];f.fundings=[];f.langs=[];f.intake='';runSearch('${kind}')">Widen my search, my choice</button>
-  <div class="sub" style="margin-top:10px">Searching never uses your cases. Your package is spent only when YOU choose an opportunity and confirm.</div></div>`}
+  <div class="sub" style="margin-top:10px">We only show opportunities that genuinely match what you selected: your level, your field and your countries. We never pad the list with positions you cannot apply for.</div>
+  <div class="sub" style="margin-top:6px">Searching never uses your cases. Your package is spent only when YOU choose an opportunity and confirm.</div></div>`}
   </div>`;
   document.body.appendChild(wrap);
   if(list.some(o=>o.locked))loadPkgStrip();else{const el=$('ffPkgStrip');if(el)el.remove()}

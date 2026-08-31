@@ -111,7 +111,7 @@ const checks = [
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
     const mj = fs.readFileSync(__dirname + '/../lib/match.js', 'utf8');
     return mj.includes("status = 'below_your_level'") && mj.includes('fieldMismatch') &&
-      sv.includes('mt.overqualified') && sv.includes('mt.fieldMismatch') && sv.includes('opportunities.sort');
+      sv.includes('belowLevel(o)') && sv.includes('wrongField(o)') && sv.includes('opportunities.sort');
   })()],
   ['pre-purchase privacy: institution name and source URL hidden until owned', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
@@ -125,7 +125,7 @@ const checks = [
   ['field mismatch is a hard gate (never shown as 50% potentially eligible)', (() => {
     const m = fs.readFileSync(__dirname + '/../lib/match.js', 'utf8');
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
-    return m.includes("status = 'field_mismatch'") && sv.includes("mt.status === 'field_mismatch'");
+    return m.includes("status = 'field_mismatch'") && sv.includes("o.match.status === 'field_mismatch'");
   })()],
   ['no negative "Not stated" leaks in detail views', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
@@ -137,7 +137,7 @@ const checks = [
   })()],
   ['package-first reveal: 0 credits locks all, credits reveal 2/8/15, 60% floor', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
-    return sv.includes('effectiveTier') && sv.includes('effectiveTier < 1') && sv.includes('RELEVANCE_FLOOR = 60') && sv.includes('mt.pct < RELEVANCE_FLOOR');
+    return sv.includes('effectiveTier') && sv.includes('effectiveTier < 1') && sv.includes('RELEVANCE_FLOOR = 60') && sv.includes('o.match.pct < RELEVANCE_FLOOR');
   })()],
   ['downloads confirm to the user (no silent PDF)', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
@@ -175,7 +175,7 @@ const checks = [
     const m = fs.readFileSync(__dirname + '/../lib/match.js', 'utf8');
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
     return m.includes('wrongTarget') && m.includes("status = 'wrong_target_level'") &&
-      sv.includes('wantedLevels') && sv.includes("mt.status === 'wrong_target_level'");
+      sv.includes('wantedLevels') && sv.includes("o.match.status === 'wrong_target_level'");
   })()],
   ['prices and FAQs are admin-driven (no hardcoded Rs 2,000 in user text)', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');

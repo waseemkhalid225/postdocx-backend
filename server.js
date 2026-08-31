@@ -81,7 +81,7 @@ function pdfSafe(t) {
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R3660';
+const FF_BUILD = '2026-08-28-R3700';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -673,7 +673,8 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
       }
     } catch (e) {}
   }
-  res.json({ opportunities: list });
+  // Tell the client honestly if we widened the net, so the wording matches reality.
+  res.json({ opportunities: list, relaxed: req._relaxNote || null, broadened: !!req._broadened });
 });
 /* ---------- Spec 2: configurable university database (admin) ---------- */
 app.get('/api/admin/universities', auth, perm('countries.read'), async (req, res) => {
@@ -1673,6 +1674,26 @@ app.get('/api/opportunities', auth, async (req, res) => {
     else if (o.verified_at && now - new Date(o.verified_at).getTime() < 14 * day) o.freshness = 'verified_recently';
     else o.freshness = 'needs_reverification';
   });
+  /* If strict SQL filtering returned nothing, retry with only the essential constraints
+     (kind and country). An empty screen when inventory exists is a worse failure than a
+     slightly broader list, and the relevance gate below still ranks and labels results. */
+  if (!rows.length) {
+    try {
+      let q3 = admin().from('opportunities').select('*').eq('status', 'verified')
+        .order('deadline', { ascending: true }).limit(80);
+      if (kind === 'study') q3 = q3.in('kind', studyKinds);
+      else if (kind === 'scholarship') q3 = q3.eq('kind', 'scholarship');
+      else q3 = q3.eq('kind', kind);
+      const cc2 = multi(req.query.country).map(x => x.toUpperCase());
+      if (cc2.length) q3 = q3.in('country_code', cc2);
+      const { data: d3 } = await q3;
+      // The user's chosen countries and lane are kept. We only drop OUR optional
+      // refinements (sector, intake, language, licence hints); we never quietly search
+      // a country they did not ask for. If that still finds nothing, the empty state
+      // offers them the choice to widen.
+      if (d3 && d3.length) { rows = d3; req._broadened = true; }
+    } catch (e) {}
+  }
   rows = rows.filter(o => o.freshness !== 'deadline_passed');
 
   /* ENTITY DEDUPLICATION. The same opportunity is often listed twice with different ids
@@ -1714,7 +1735,10 @@ app.get('/api/opportunities', auth, async (req, res) => {
       if (/master|msc|mphil|m\.s\b/.test(x)) return 'masters';
       if (/bachelor|bsc|undergraduate/.test(x)) return 'bachelors';
       return null; };
-    rows = rows.filter(o => { if (o.level) return true; const g = infer(o.title); return !g || want.has(g); });
+    const kept = rows.filter(o => { if (o.level) return true; const g = infer(o.title); return !g || want.has(g); });
+    // Only apply the inference if it leaves something. It is a refinement, not a reason
+    // to show an empty page.
+    if (kept.length) rows = kept;
   }
   rows = rows.slice(0, 60);
   let opportunities = rows;
@@ -1738,15 +1762,40 @@ app.get('/api/opportunities', auth, async (req, res) => {
       //  - a clear field/profession mismatch (pharmacist must not see biochemistry-only roles)
       //  - not_eligible, or below the 50% relevance floor
       //  - criteria the source never published (we keep these ONLY if nothing else, and never labelled as weak)
-      opportunities = opportunities.filter(o => {
-        const mt = o.match;
-        if (!mt) return true;
-        if (mt.wrongTarget || mt.status === 'wrong_target_level') return false;
-        if (mt.overqualified || mt.status === 'below_your_level') return false;
-        if (mt.fieldMismatch || mt.status === 'field_mismatch' || mt.status === 'not_eligible') return false;
-        if (mt.pct != null && mt.pct < RELEVANCE_FLOOR) return false;
-        return true;
-      });
+      /* GRADUATED RELEVANCE GATE.
+         Strict filters are right when there is plenty of inventory, but stacking four of
+         them can eliminate EVERYTHING and leave the user staring at an empty screen while
+         genuinely useful opportunities exist. So we apply the strictest rule first and
+         relax one level at a time until we have something real to show, labelling each
+         result honestly. We never invent a match, and we never show a worse fit above a
+         better one. */
+      const all = opportunities.slice();
+      const notEligible = o => o.match && (o.match.status === 'not_eligible');
+      const wrongLevel  = o => o.match && (o.match.wrongTarget || o.match.status === 'wrong_target_level');
+      const belowLevel  = o => o.match && (o.match.overqualified || o.match.status === 'below_your_level');
+      const wrongField  = o => o.match && (o.match.fieldMismatch || o.match.status === 'field_mismatch');
+      const belowFloor  = o => o.match && o.match.pct != null && o.match.pct < RELEVANCE_FLOOR;
+
+      /* WHAT THE USER CHOSE IS ABSOLUTE. Level, lane and eligibility are never relaxed:
+         a postdoc applicant must never be shown a PhD place, and a pharmacist must never
+         be shown a biochemistry-only post. The ONLY thing that may relax is our own
+         internal score bar, which is our quality opinion, not the user's instruction.
+         If nothing genuinely fits, we say so and let the USER decide to widen. */
+      const tiers = [
+        // 1. Exactly what was asked for, at our full quality bar.
+        { note: null, keep: o => !notEligible(o) && !wrongLevel(o) && !belowLevel(o) && !wrongField(o) && !belowFloor(o) },
+        // 2. Same level, same field, same eligibility: only OUR score bar is eased.
+        { note: 'These match your level and field. Their scores are a little under our usual bar, so check the details carefully.',
+          keep: o => !notEligible(o) && !wrongLevel(o) && !belowLevel(o) && !wrongField(o) }
+      ];
+      let picked = [], relaxNote = null;
+      for (const t of tiers) {
+        picked = all.filter(t.keep);
+        if (picked.length) { relaxNote = t.note; break; }
+      }
+      opportunities = picked;
+      if (relaxNote) res.set('X-FF-Relaxed', '1');
+      req._relaxNote = relaxNote;
       // Highest match first, always.
       opportunities.sort((a, b) => ((b.match && b.match.pct) || 0) - ((a.match && a.match.pct) || 0));
     } catch (e) { /* matching is best-effort; never blocks the list */ }
