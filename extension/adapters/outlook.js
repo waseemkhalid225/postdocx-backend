@@ -15,6 +15,22 @@
   });
   const compose = await waitFor('div[role="textbox"][aria-label], div[contenteditable="true"]', 25000);
   if (!compose) return;
+
+  /* Insert the COMPLETE prepared body (URL parameters truncate long emails). */
+  try {
+    const full = String(pkg.body || '');
+    const current = (compose.innerText || '').trim();
+    if (full && full.length > current.length) {
+      compose.innerHTML = '';
+      full.split('\n').forEach(line => {
+        const div = document.createElement('div');
+        if (line.trim() === '') div.appendChild(document.createElement('br'));
+        else div.textContent = line;
+        compose.appendChild(div);
+      });
+      compose.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  } catch (e) {}
   const files = [];
   for (const a of (pkg.attachments || [])) {
     try {

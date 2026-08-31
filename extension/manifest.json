@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ForiForeign Apply Assistant",
-  "version": "1.4.0",
-  "description": "Places your ForiForeign-prepared application into your Gmail or Outlook for review. You always press Send yourself. No inbox access.",
+  "version": "1.6.0",
+  "description": "Opens the official application portal and fills your prepared details, with your permission. You always attach documents and press Submit yourself.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -13,7 +13,9 @@
     "https://www.foriforeign.com/*",
     "https://mail.google.com/*",
     "https://outlook.live.com/*",
-    "https://outlook.office.com/*"
+    "https://outlook.office.com/*",
+    "https://mail.yahoo.com/*",
+    "https://compose.mail.yahoo.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -47,6 +49,16 @@
         "adapters/outlook.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://mail.yahoo.com/*",
+        "https://compose.mail.yahoo.com/*"
+      ],
+      "js": [
+        "adapters/yahoo.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "action": {
@@ -56,5 +68,8 @@
   "icons": {
     "48": "icon48.png",
     "128": "icon128.png"
-  }
+  },
+  "optional_host_permissions": [
+    "https://*/*"
+  ]
 }

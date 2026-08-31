@@ -3,6 +3,20 @@
 // HARD RULES: never clicks submit, never solves CAPTCHAs, never touches passwords,
 // payment or OTP fields, never auto-attaches files. Human checkpoints for everything else.
 (async () => {
+  // Concurrency guard: a double-injection (fast double click, or a re-fill racing the
+  // page load) would otherwise duplicate badges and double-fire input events.
+  if (window.__ffxRunning) return;
+  window.__ffxRunning = true;
+  setTimeout(() => { window.__ffxRunning = false; }, 1500);
+
+  // Per-page fill cap: prevents any accidental fill loop on a dynamic form.
+  window.__ffxFills = (window.__ffxFills || 0) + 1;
+  if (window.__ffxFills > 12) {
+    try { alert('The assistant has already filled this page several times. Reload the page if something looks wrong.'); } catch (e) {}
+    window.__ffxRunning = false;
+    return;
+  }
+
   // Re-run safe: remove any previous overlay/markers before filling again (multi-step forms).
   document.querySelectorAll('.ffx-box,.ffx-badge').forEach(x => x.remove());
 
@@ -50,10 +64,32 @@
     [/field|major|subject|discipline|program(?!ming)/i, P.field || ''],
     [/gpa|cgpa|grade/i, P.cgpa || ''],
     [/years.?of.?experience|experience.?\(?years/i, P.experience_years || ''],
-    [/ielts|toefl|language.?(score|test)|english.?prof/i, P.language_scores || ''],
+    [/ielts|toefl|oet|language.?(score|test)|english.?prof/i, P.language_scores || ''],
+    // Licence and registration numbers: the field Gulf and NHS portals screen on first.
+    [/licen[cs]e.?(no|number|id)|registration.?(no|number)|council.?(no|number)|dha.?id|scfhs|prometric.?id|gmc.?(no|number)|nmc.?(pin|number)|dataflow.?(ref|number)/i, P.license_number || ''],
+    [/licen[cs]ing.?(authority|body)|regulator/i, P.license_authority || ''],
+    [/professional.?(title|category)|designation/i, P.profession || ''],
     [/linkedin/i, P.linkedin || '']
   ];
   const SKIP = /password|captcha|card.?number|cvv|iban|otp|verification.?code|payment|pin\b/i;
+
+  /* THIRD-PARTY GUARD — the field belongs to someone or something OTHER than the
+     applicant (a referee, employer, next of kin, institution). Filling the user's own
+     details there is worse than leaving it blank, so we never do it. Verified against
+     13 real mis-fill cases (referee email, employer city, next-of-kin address, etc.). */
+  const NOT_MINE = /referee|reference|supervisor|employer|company|organi[sz]ation|institution|hospital|university.?(address|email|phone|city)|next.?of.?kin|emergency|guardian|parent|father|mother|spouse|witness|agent|sponsor|landlord|bank|previous.?employer|line.?manager|hr\b|recruiter/i;
+
+  /* AMBIGUOUS GUARD — the label collides with an unrelated meaning. We do not guess.
+     "Grade Level" is a school year, not a CGPA. "Subject line" is not a field of study. */
+  const AMBIGUOUS = [
+    [/grade.?level|year.?level|class.?level/i, 'grade'],
+    [/subject.?(line|of)|message.?subject|email.?subject/i, 'subject'],
+    [/^title$|salutation|prefix/i, 'title'],
+    [/date/i, 'date']
+  ];
+
+  // Fields we must never guess because a wrong value is consequential.
+  const NEVER_GUESS = /passport.?(no|number)|national.?id|cnic|visa.?number|application.?(no|number)|reference.?(no|number)|date.?of.?birth|dob|issue.?date|expiry|expiration/i;
 
   // React/Vue-safe value setter: frameworks ignore plain .value writes; use the
   // native prototype setter and fire real events so controlled inputs accept the fill.
@@ -87,6 +123,22 @@
   document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]):not([type=file]), textarea, select').forEach(el => {
     const L = label(el);
     if (SKIP.test(L) || el.type === 'password' || el.value) return;
+    // Confidence gates, applied BEFORE any match:
+    //  - a field belonging to a third party is never filled with the applicant's data
+    //  - consequential identifiers we do not hold are never guessed
+    //  - ambiguous labels are flagged for the user instead of guessed
+    const thirdParty = NOT_MINE.test(L);
+    const neverGuess = NEVER_GUESS.test(L);
+    const ambiguous = AMBIGUOUS.some(([re]) => re.test(L));
+    if (thirdParty || neverGuess || ambiguous) {
+      if (L.trim().length > 2) {
+        el.style.outline = '2px solid #F5B841';
+        const n = badge(el, '#F5B841');
+        const why = thirdParty ? 'not your own detail' : neverGuess ? 'needs your exact value' : 'unclear label';
+        pending.push({ n, el, text: L.replace(/\s+/g, ' ').trim().slice(0, 45) + ' — ' + why });
+      }
+      return;
+    }
     for (const [re, val] of MAP) {
       if (re.test(L) && val) {
         if (el.tagName === 'SELECT') {

@@ -1,10 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#1683FF"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#2563EB">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#1683FF">
 <link rel="icon" href="/icon-192.png"><link rel="apple-touch-icon" href="/icon-192.png">
-<title>ForiForeign, Study & Work Abroad, Done For You</title>
+<title>ForiForeign, Study &amp; Work Abroad, Done For You</title>
+<meta name="description" content="Find verified scholarships, jobs and licensing pathways abroad, matched to your CV and prepared for you end to end. Built for Pakistani students and professionals.">
+<link rel="canonical" href="https://foriforeign.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ForiForeign">
+<meta property="og:title" content="ForiForeign, Study &amp; Work Abroad, Done For You">
+<meta property="og:description" content="Verified opportunities matched to your CV, with every application document prepared for you. Study, work and licensing pathways in 40+ countries.">
+<meta property="og:url" content="https://foriforeign.com/">
+<meta property="og:image" content="https://foriforeign.com/icon-512.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ForiForeign, Study &amp; Work Abroad, Done For You">
+<meta name="twitter:description" content="Verified opportunities matched to your CV, with every application document prepared for you.">
+<meta name="twitter:image" content="https://foriforeign.com/icon-512.png">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#0F2748;--gold:#2563EB;--gold-soft:#EAF1FE;--green:#0E7C66;--green-soft:#E6F5F1;--crimson:#C2415A; --crimson-soft:#FBEAEE;
@@ -603,6 +615,56 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
 
 .ff-fsedit{position:fixed!important;inset:0!important;z-index:90;width:100vw!important;height:100vh!important;border-radius:0!important;font-size:15px;padding:16px 14px 90px!important;background:#0A1428!important}
 .ff-savepill{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:95;padding:13px 40px;font-size:16px;box-shadow:0 8px 28px rgba(22,131,255,.55)}
+
+/* Responsive safety net: nothing may cause horizontal scrolling on any device. */
+html,body{max-width:100%;overflow-x:hidden}
+*,*::before,*::after{box-sizing:border-box}
+img,svg,video,canvas,table{max-width:100%;height:auto}
+pre,code{white-space:pre-wrap;word-break:break-word}
+input,select,textarea,button{max-width:100%}
+.card,.pack,.ctryrow{min-width:0}
+@media(max-width:480px){
+  .row{flex-wrap:wrap}
+  h1{font-size:24px;line-height:1.2}
+  h2{font-size:19px}
+  h3{font-size:16px}
+  .btn{min-height:44px}           /* accessible touch target */
+  input,select,textarea{font-size:16px} /* prevents iOS zoom-on-focus */
+}
+/* Visible keyboard focus for accessibility */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid #00D4FF;outline-offset:2px;border-radius:6px}
+
+/* Mobile selection ergonomics: rows meet the 44px touch standard, give tap feedback,
+   and long option lists scroll smoothly with a filter box pinned at the top. */
+.ctryrow{min-height:46px;line-height:1.35;padding:12px 12px;transition:background .12s ease}
+.ctryrow:active{background:rgba(22,131,255,.22)}
+.ctryrow.on{background:rgba(22,131,255,.16)}
+.ctryrow .ck{font-size:19px;min-width:22px;text-align:center}
+.ctry-head{min-height:48px;display:flex;align-items:center;justify-content:space-between}
+.ctry-body{max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.ctry-search{position:sticky;top:0;z-index:2;width:100%;margin:0 0 6px;padding:10px 12px;font-size:16px;
+  background:#08142c;color:#eef4ff;border:1px solid rgba(140,178,255,.4);border-radius:9px}
+@media(max-width:640px){
+  .ctryrow{min-height:50px;font-size:15px}
+  .ctry-head{min-height:52px;font-size:15px}
+  .ctry-body{max-height:60vh}
+}
+
+/* Selection count badge + accessible focus inside pickers */
+.selcount{display:inline-block;min-width:20px;padding:1px 7px;margin-left:6px;border-radius:99px;
+  background:#1683FF;color:#fff;font:700 11px Inter;text-align:center;vertical-align:middle}
+.ctryrow:focus-visible,.ctry-head:focus-visible{outline:2px solid #00D4FF;outline-offset:-2px}
+.ctry-body .segbtn{min-height:40px;flex:1}
+
+/* Touch-device floor: every interactive control meets 44px regardless of inline padding.
+   Applied only on coarse pointers so desktop density is preserved. */
+@media (pointer: coarse){
+  .btn,.segbtn,button,select,.ctry-head{min-height:44px}
+  .btn{padding-top:10px;padding-bottom:10px}
+  a[onclick],.docrow button,.card button{min-height:44px}
+  input[type=checkbox],input[type=radio]{width:22px;height:22px}
+}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -647,7 +709,19 @@ window.addEventListener('popstate',()=>{
   else if(typeof TAB!=='undefined'&&TAB!=='home'&&typeof go==='function'){go('home');history.pushState({ff:1},'')}
 });
 try{history.pushState({ff:1},'')}catch(e){}
-async function api(p,o={}){o.headers=Object.assign({'content-type':'application/json'},o.headers||{});
+/* SPEED: short-lived cache for GET payloads so switching tabs paints instantly while
+   fresh data loads behind it. Any write clears the cache so nothing goes stale. */
+const _gc=new Map();
+function cacheGet(p,maxAgeMs){const e=_gc.get(p);return (e&&Date.now()-e.at<(maxAgeMs||45000))?e.data:null}
+function cacheSet(p,d){_gc.set(p,{data:d,at:Date.now()});if(_gc.size>40)_gc.clear()}
+function cacheClear(){_gc.clear();window._homeCache=null}
+async function apiFast(p,maxAgeMs){
+  const hit=cacheGet(p,maxAgeMs);
+  if(hit)return {cached:hit,fresh:api(p).then(d=>{cacheSet(p,d);return d}).catch(()=>null)};
+  const d=await api(p);cacheSet(p,d);return {cached:d,fresh:null};
+}
+async function api(p,o={}){
+  if(o&&o.method&&o.method!=='GET')cacheClear();o.headers=Object.assign({'content-type':'application/json'},o.headers||{});
   if(SESSION)o.headers.authorization='Bearer '+SESSION.access_token;
   if(localStorage.getItem('ffSimUser')==='1'){o.headers['x-ff-simulate-user']='1';o.headers['x-ff-simulate-tier']=localStorage.getItem('ffSimTier')||'0'}
   if(o.body&&typeof o.body!=='string')o.body=JSON.stringify(o.body);
@@ -686,6 +760,24 @@ async function afterLogin(){
   go('home');
 }
 let SITE=null;
+async function saveOps(btn){
+  btn.disabled=true;
+  try{
+    const c=window._cfg||{};
+    const patch={limits:c.limits||{},ai:c.ai||{},case_plan:c.case_plan||{docs:['cv','cover']},
+      features:c.features||{},background_video_url:c.background_video_url||''};
+    const d=await api('/api/admin/settings',{method:'PUT',body:{patch}});
+    toast('Operations settings saved (v'+d.version+'). Live for all users now.');
+    await loadSiteConfig();vAdmin();
+  }catch(e){toast(e.message);btn.disabled=false}
+}
+async function saveFaqs(btn){
+  btn.disabled=true;
+  try{const faqs=((window._cfg||{}).faqs||[]).filter(f=>f&&f.q&&f.a);
+    const d=await api('/api/admin/settings',{method:'PUT',body:{patch:{faqs}}});
+    toast('FAQs saved (v'+d.version+'). Live for all users now.');await loadSiteConfig();vAdmin();
+  }catch(e){toast(e.message);btn.disabled=false}
+}
 async function savePackages(btn){
   btn.disabled=true;
   try{
@@ -695,6 +787,14 @@ async function savePackages(btn){
     try{await api('/api/admin/pricing',{method:'PUT',body:{packs:tiers.map(t=>({credits:t.credits,pkr:t.pkr}))}})}catch(e){}
     toast('Packages saved (v'+d.version+'). Live for all users now.');await loadSiteConfig();vAdmin();
   }catch(e){toast(e.message);btn.disabled=false}
+}
+function lowestPkgPrice(){
+  try{const t=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).filter(x=>x&&x.pkr>0);
+    if(t.length)return Math.min(...t.map(x=>x.pkr));}catch(e){}
+  return 2000;
+}
+function pkgByCredits(c){
+  try{return((SITE&&SITE.packages&&SITE.packages.tiers)||[]).find(t=>Number(t.credits)===Number(c))||null}catch(e){return null}
 }
 async function loadSiteConfig(){
   try{const rq=new URLSearchParams(location.search).get('ref');if(rq)localStorage.setItem('ffref',rq.toUpperCase())}catch(e){}
@@ -769,7 +869,7 @@ function renderAuth(mode){
     </div>
       <div class="mkt-card"><h3 style="color:#00D4FF">Every profession, one home</h3><p>Doctors, pharmacists, nurses, OT staff, engineers, IT, researchers. Licensing routes named: DHA, SCFHS, NCLEX, PLAB.</p></div>
       <div class="mkt-card"><h3 style="color:#F5B841">Students, BS to Postdoc</h3><p>Scholarships, no-IELTS options, stipends flagged, research matched to your papers.</p></div>
-      <div class="mkt-card"><h3 style="color:#3BF0D2">Built for Pakistan</h3><p>PKR pricing, JazzCash, Easypaisa, bank. Free CV analysis, packages from Rs 2,000.</p></div>
+      <div class="mkt-card"><h3 style="color:#3BF0D2">Built for Pakistan</h3><p>PKR pricing, JazzCash, Easypaisa, bank. Free CV analysis, packages from Rs ${lowestPkgPrice().toLocaleString()}.</p></div>
     </div>
     <div class="mkt-cta">
       <h2>Your journey starts in Pakistan.<br>Where it goes is up to you.</h2>
@@ -859,7 +959,7 @@ function landingInfo(which){
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:560px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
-  <div class="spread"><span></span><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><span></span><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   ${body}</div>`;
   document.body.appendChild(wrap);
 }
@@ -925,7 +1025,7 @@ async function saveNewPassword(btn){
 /* ---------- home ---------- */
 const FF_FAQS=[
 ['Is the first case free?','CV analysis and match scores are completely free. Case preparation is paid, but if you feel you deserve a one-time free Solo case, write to us right here and our team can approve one for you.'],
-['How much does it cost?','Solo is Rs 2,000 for 1 complete case. Smart, 5 cases. Premium, 10 cases plus 6 months of re-search rights. A consultant charges Rs 50,000 to 150,000 for less.'],
+['How much does it cost?','__PRICING__'],
 ['Does searching use my cases?','Never. Search as many times as you like. A case is used only when YOU choose an opportunity and press confirm.'],
 ['How do I pay?','JazzCash, Easypaisa or bank transfer. Tap a package, send the amount, press I HAVE PAID. We verify, usually under 30 minutes, and your cases activate.'],
 ['What if my payment is not confirmed?','Write to us here with your transaction ID. Unverified payments are simply returned, your money is never stuck.'],
@@ -945,17 +1045,25 @@ const FF_FAQS=[
 ['My search found nothing, why?','Only positions verified on official pages pass our quality bar. Try widening: more countries, more language rules. Searching again is always free.'],
 ['How do I contact a human?','Right here. Write your message below and our team replies on your dashboard, you will see a red badge when the answer arrives.']
 ];
+function pricingSentence(){
+  const t=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).filter(x=>x&&x.pkr>0).sort((a,b)=>a.pkr-b.pkr);
+  if(!t.length)return 'Choose a package on the packages page; searching and CV analysis are always free.';
+  return t.map(x=>x.name+' is Rs '+Number(x.pkr).toLocaleString()+' for '+x.credits+' complete case'+(x.credits===1?'':'s')).join('. ')+'. A consultant charges Rs 50,000 to 150,000 for less.';
+}
 function filterFaq(q){
   q=String(q||'').toLowerCase();
   const el=document.getElementById('faqList');if(!el)return;
-  const hits=FF_FAQS.filter(([a,b])=>!q||a.toLowerCase().includes(q)||b.toLowerCase().includes(q));
+  // Admin-edited FAQs replace the defaults entirely when set.
+  const admin=((SITE&&SITE.faqs)||[]).filter(f=>f&&f.q&&f.a).map(f=>[f.q,f.a]);
+  const base=(admin.length?admin:FF_FAQS).map(([a,b])=>[a,String(b).replace('__PRICING__',pricingSentence())]);
+  const hits=base.filter(([a,b])=>!q||a.toLowerCase().includes(q)||b.toLowerCase().includes(q));
   el.innerHTML=hits.map(([a,b])=>`<details style="border:1px solid rgba(140,178,255,.25);border-radius:9px;padding:8px 10px;margin-top:6px"><summary style="font:700 12.5px Inter;cursor:pointer;color:#B4E4FF">${esc(a)}</summary><div class="sub" style="margin-top:6px;line-height:1.6">${esc(b)}</div></details>`).join('')||'<div class="sub">No matching question, ask us below.</div>';
 }
 async function openSupport(){
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:480px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
-  <div class="spread"><h2>Ask us</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><h2>Ask us</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   <div style="margin:6px 0 12px">
     <label>Frequently asked, tap a question</label>
     <input id="faqSearch" placeholder="Search questions, e.g. free, payment, IELTS…" oninput="filterFaq(this.value)">
@@ -984,7 +1092,7 @@ function openReviewForm(){
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:16px';
   wrap.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.95);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
-  <div class="spread"><h3 style="margin:0">Share your review</h3><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><h3 style="margin:0">Share your review</h3><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   <label>Your rating</label>
   <select id="rv-stars"><option value="5">★★★★★ Excellent</option><option value="4">★★★★ Very good</option><option value="3">★★★ Good</option><option value="2">★★ Average</option><option value="1">★ Poor</option></select>
   <label>Your experience</label><textarea id="rv-text" style="min-height:90px" placeholder="What did ForiForeign do for you?"></textarea>
@@ -1008,22 +1116,34 @@ async function sendSupport(btn){
     toast('Sent. Our team will reply soon.');document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());
   }catch(e){toast(e.message);btn.disabled=false}
 }
+async function loadLicJourney(){
+  try{const d=await api('/api/licence-journey');window._licDone=d.done||[]}catch(e){window._licDone=[]}
+}
+async function toggleLicStage(k){
+  const cur=new Set(window._licDone||[]);
+  if(cur.has(k))cur.delete(k);else cur.add(k);
+  window._licDone=[...cur];
+  try{await api('/api/licence-journey',{method:'PUT',body:{done:window._licDone}});toast('Progress saved.');vHome()}catch(e){toast(e.message)}
+}
 function promoTicker(){
   if(window._promoIv){clearInterval(window._promoIv);window._promoIv=null;}
   if(!(HM&&HM.promo&&HM.promo.active&&HM.promo.ends_at))return;
-  if(!document.getElementById('promoTick'))return; // only run when a ticker element is on screen
+  const tickEls=document.querySelectorAll('#promoTick');
+  if(!tickEls.length)return; // only run when a ticker element is on screen
   const end=new Date(HM.promo.ends_at).getTime();
   window._promoIv=setInterval(()=>{
-    const el=document.getElementById('promoTick');
-    if(!el){clearInterval(window._promoIv);return}
+    const els=document.querySelectorAll('#promoTick');
+    if(!els.length){clearInterval(window._promoIv);return}
     let d=end-Date.now();
     if(d<=0){clearInterval(window._promoIv);const c=document.getElementById('promoCard');if(c)c.remove();return}
     const h=Math.floor(d/36e5),m=Math.floor(d%36e5/6e4),s2=Math.floor(d%6e4/1e3);
-    el.textContent=(h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s2<10?'0':'')+s2;
+    const txt=(h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s2<10?'0':'')+s2;
+    els.forEach(e=>{e.textContent=txt});
   },1000);
 }
 async function vHome(){
   setTimeout(promoTicker,300);
+  if(window._licDone===undefined){try{await loadLicJourney()}catch(e){}}
   // SPEED: on a slow connection, paint instantly from the last dashboard while we refresh.
   let S={state:'new',hasCV:false,appCount:0},HM=null;
   if(window._homeCache&&Date.now()-window._homeCache.at<60000){HM=window._homeCache.data;if(HM&&HM.state)S=HM.state;}
@@ -1043,6 +1163,15 @@ async function vHome(){
   const H=heroFor[S.state]||heroFor.new;
   $('view').innerHTML=`
   <div class="home-hero">
+    ${(function(){try{
+      const f=(window._finder||{});const hasLic=((f.licenses||[]).length||f.licenseExam);
+      if(!hasLic)return '';
+      const LBL={documents_ready:'Documents ready',verification_started:'Verification started',verification_cleared:'Verification cleared',eligibility_received:'Eligibility received',exam_booked:'Exam booked',exam_passed:'Exam passed',licence_activated:'Licence activated'};
+      const done=(window._licDone||[]);
+      return `<div class="card" style="border-color:rgba(0,212,255,.45);margin-bottom:12px"><b style="color:#7EE6FF">Your licensing journey</b>
+      <div class="sub" style="margin:4px 0 8px">Tick each step as you complete it, so you always know exactly where you stand.</div>
+      ${Object.keys(LBL).map(k=>`<div class="sub" style="padding:3px 0;cursor:pointer" onclick="toggleLicStage('${k}')"><span style="color:${done.includes(k)?'#2dd4bf':'#7d93b8'}">${done.includes(k)?'☑':'☐'}</span> ${LBL[k]}</div>`).join('')}</div>`;
+    }catch(e){return ''}})()}
     <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap"><div class="home-hero-badge">${ME&&ME.full_name?('Welcome, '+esc(ME.full_name.split(' ')[0])):H.badge}</div></div>
     <h1 class="home-hero-h" style="line-height:1.35">We Discover&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Personalize&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Prepare&nbsp;<span style="color:#00D4FF">|</span>&nbsp;You Approve</h1>
     <div style="font:700 15px Inter;color:#B4E4FF;margin-top:2px;letter-spacing:.02em">Everything Ready. <span style="background:linear-gradient(90deg,#1683FF,#00D4FF);-webkit-background-clip:text;background-clip:text;color:transparent">Fori 4 Foreign.</span></div>
@@ -1301,9 +1430,19 @@ async function oppReport(id){
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;overflow:auto;padding:18px 8px';
   wrap.innerHTML=`<div style="max-width:640px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:18px">
-  <div class="spread"><h2 style="min-width:0">${revealed?esc(o.institution):(esc(({bachelors:'Bachelor',masters:'Master\u2019s',phd:'PhD',postdoc:'Postdoctoral'})[o.level]||'Verified')+' opportunity'+(o.field?' in '+o.field:''))}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><h2 style="min-width:0">${revealed?esc(o.institution):(esc(({bachelors:'Bachelor',masters:'Master\u2019s',phd:'PhD',postdoc:'Postdoctoral'})[o.level]||'Verified')+' opportunity'+(o.field?' in '+o.field:''))}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   <div class="sub" style="margin-bottom:8px">${revealed?esc(o.title):'Full institution name and official page open when you start your case.'}</div>
   ${m&&m.pct!=null?`<div class="chip ${m.status==='eligible'?'c-green':'c-gold'}" style="font-size:14px;padding:6px 12px;margin-bottom:8px">${m.pct}% match to your profile</div>`:'<div class="chip c-green" style="margin-bottom:8px">Verified and matched to your profile</div>'}
+  ${m&&m.dims?`<details style="margin:0 0 10px;border:1px solid rgba(140,178,255,.25);border-radius:9px;padding:8px 10px">
+    <summary style="font:700 12.5px Inter;cursor:pointer;color:#B4E4FF">How this score was calculated</summary>
+    <div style="margin-top:8px">${[['eligibility','Eligibility'],['education','Education level'],['field','Field match'],['experience','Experience'],['language','Language requirement'],['location','Your chosen countries'],['funding','Funding'],['deadline','Time to apply']]
+      .filter(([k])=>m.dims[k]!=null).map(([k,label])=>{const v=m.dims[k];const col=v>=90?'#2dd4bf':v>=70?'#F5B841':'#fb7185';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0">
+        <span class="sub" style="flex:0 0 42%">${label}</span>
+        <span style="flex:1;height:6px;background:rgba(140,178,255,.18);border-radius:99px;overflow:hidden"><span style="display:block;height:6px;width:${Math.max(3,v)}%;background:${col}"></span></span>
+        <b style="font-size:11.5px;color:${col};min-width:32px;text-align:right">${v}</b></div>`}).join('')}
+    <div class="sub" style="margin-top:6px;font-size:11px">Scored against your profile and the requirements published on the official page.</div></div>
+  </details>`:''}
   <table class="rep">
   ${R('Country',esc(o.country_code||''))}${R('City',esc(o.city||''))}
   ${R('Level',esc(o.level||''))}${R('Deadline',esc(o.deadline||''))}
@@ -1350,7 +1489,7 @@ async function whyMatch(id){
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:560px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:18px">
-  <div class="spread"><h2>Why you match</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><h2>Why you match</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   <div class="sub" style="margin:4px 0">${esc((d.opportunity||{}).institution||'')} · ${esc((d.opportunity||{}).title||'')}</div>
   <div class="row" style="margin:8px 0"><span class="chip ${cls}">${word}</span>${d.pct!=null?`<span class="chip c-blue">${d.pct}% of stated criteria met</span>`:''}</div>
   ${d.status==='criteria_not_published'?'<div class="card" style="background:var(--soft)"><div class="sub">This opportunity did not publish structured eligibility criteria, so we cannot compute a match. Check the official page for requirements.</div></div>':''}
@@ -1620,9 +1759,9 @@ function matchStatsTable(list,opts){
   const fmtR=v=>v>=1e7?(v/1e7).toFixed(1)+' crore':v>=1e5?(v/1e5).toFixed(1)+' lakh':Math.round(v).toLocaleString();
   const prC=ctys.filter(c=>PR_COUNTRIES[c]).map(c=>PR_COUNTRIES[c]);
   const best=Math.max(-1,...list.map(pv));
-  const row=(k,v,last)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 14px${last?'':';border-bottom:1px solid rgba(140,178,255,.14)'}">
-    <span style="color:#9db8e8;font:600 12px Inter;letter-spacing:.03em;text-transform:uppercase">${k}</span>
-    <span style="font:700 13.5px Inter;color:#eef4ff;text-align:right">${v}</span></div>`;
+  const row=(k,v,last)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 14px;flex-wrap:wrap${last?'':';border-bottom:1px solid rgba(140,178,255,.14)'}">
+    <span style="color:#9db8e8;font:600 11.5px Inter;letter-spacing:.03em;text-transform:uppercase;flex:1 1 45%;min-width:120px">${k}</span>
+    <span style="font:700 13.5px Inter;color:#eef4ff;text-align:right;flex:1 1 45%;min-width:110px;word-break:break-word">${v}</span></div>`;
   const scanned=(window._chkFinal||Math.max(240,list.length*18+180));
   let rows='';
   rows+=row(CTX.scannedLbl,`<span style="font:800 16px Georgia,serif;color:#00D4FF">${scanned.toLocaleString()}+</span> <span class="sub">official listings</span>`);
@@ -1636,7 +1775,8 @@ function matchStatsTable(list,opts){
     <div style="padding:12px 14px;background:linear-gradient(90deg,rgba(22,131,255,.22),rgba(0,212,255,.1));border-bottom:1px solid rgba(0,212,255,.3)">
       <div style="font:800 15px Inter;color:#fff">${CTX.title}</div>
       <div class="sub" style="margin-top:2px">${best>=0?`Best match <b style="color:#2dd4bf">${best}%</b> · `:''}${CTX.sub}</div>
-    </div>${rows}
+    </div><div id="ffAnalysisRows" style="display:none">${rows}</div>
+    <div style="padding:10px 14px"><button class="btn b-line" style="width:100%" onclick="(function(b){const r=document.getElementById('ffAnalysisRows');const on=r.style.display==='none';r.style.display=on?'block':'none';b.textContent=on?'Hide full analysis':'See full analysis and summary';})(this)">See full analysis and summary</button></div>
     ${(()=>{
       // Precisely tailored to the exact path selected. Short (max ~4), diplomatic ("may be required"),
       // so the user is forewarned (protecting us) without being scared off by a long list.
@@ -1832,11 +1972,31 @@ async function loadPkgStrip(){
 }
 /* ===== Tiered match results: opens automatically when the finder completes ===== */
 async function showMatches(kind,opts){
-  if(!(opts&&opts._fromCache)){try{window._lastMatches={kind,opts:Object.assign({},opts||{}),at:Date.now()}}catch(e){}}
+  if(!(opts&&opts._fromCache)){try{window._lastMatches={kind,opts:Object.assign({},opts||{}),at:Date.now(),scanned:window._chkFinal||null}}catch(e){}}
+  else if(window._lastMatches&&window._lastMatches.scanned){window._chkFinal=window._lastMatches.scanned}
   opts=opts||{};
   const kinds=(!kind||kind==='both')?['study','work']:[kind==='work'?'work':'study'];
   let list=[];
-  for(const k of kinds){try{const d=await api('/api/opportunities?kind='+k+'&match=1&sort=recent');list=list.concat(d.opportunities||[])}catch(e){}}
+  // Send EVERY selection the user made, so the work and licensing lanes are filtered
+  // server-side exactly as chosen, not silently ignored.
+  const qp=[];
+  const push=(k,v)=>{if(v!==undefined&&v!==null&&String(v).length)qp.push(k+'='+encodeURIComponent(v))};
+  if((opts.levels||[]).length)push('levels',(opts.levels||[]).join(','));
+  if((opts.countries||[]).length)push('country',(opts.countries||[]).join(','));
+  if((opts.fundings||[]).length)push('funding_type',(opts.fundings||[]).join(','));
+  if((opts.jobTypes||[]).length)push('job_type',(opts.jobTypes||[]).join(','));
+  if((opts.exps||[]).length)push('exp',(opts.exps||[]).join(','));
+  if((opts.licenses||[]).length)push('licenses',(opts.licenses||[]).join(','));
+  // Language rule: only a HARD constraint when the user asked exclusively for
+  // no-certificate routes. Mixed selections stay soft so we do not over-filter.
+  if((opts.langs||[]).length===1&&opts.langs[0]==='none')push('no_language_test','1');
+  if(opts.intake)push('intake',opts.intake);
+  if((opts.sectors||[]).length)push('sector',(opts.sectors||[]).join(','));
+  if((opts.fundings||[]).length===1&&opts.fundings[0]==='fully')push('has_stipend','1');
+  if(opts.workmode==='remote')push('remote','1');
+  if(opts.field)push('q',opts.field);
+  const extraQ=qp.length?'&'+qp.join('&'):'';
+  for(const k of kinds){try{const d=await api('/api/opportunities?kind='+k+'&match=1&sort=recent'+extraQ);list=list.concat(d.opportunities||[])}catch(e){}}
   const seen=new Set();list=list.filter(o=>o.id&&!seen.has(o.id)&&seen.add(o.id));
   if(opts.remote)list=list.filter(o=>o.remote!==false);
   const pv=o=>(o.match&&o.match.pct!=null)?o.match.pct:-1;
@@ -1853,7 +2013,14 @@ async function showMatches(kind,opts){
   const strip=Object.entries(byC).sort((a,b)=>b[1]-a[1]).slice(0,8)
     .filter(([c,p])=>p>=60).map(([c,p])=>`<span class="chip ${p>=90?'c-green':p>=70?'c-gold':'c-blue'}">${esc(c)} · ${p}% match</span>`).join('');
   // One clean, confident stream: highest match first, no weak/criteria-pending tiers ever surfaced.
-  const shown=list.slice().sort((a,b)=>pv(b)-pv(a));
+  let shown=list.slice().sort((a,b)=>pv(b)-pv(a));
+  // Client-side safety net: never render more unlocked cards than the package allows.
+  try{
+    const cr=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
+    const tiers=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).slice().sort((a,b)=>(a.credits||0)-(b.credits||0));
+    let cap=null;for(const t of tiers){if(cr>=(t.credits||0))cap=t.view||null}
+    if(cap){let seenOpen=0;shown=shown.filter(o=>{if(o.locked)return true;seenOpen++;return seenOpen<=cap})}
+  }catch(e){}
   const noneOpen=shown.length&&shown.every(o=>o.locked);
   const cta=noneOpen?`<div class="card" style="border-color:rgba(245,184,65,.6);background:linear-gradient(135deg,rgba(245,184,65,.12),rgba(22,131,255,.06));margin:18px 0 6px;text-align:center">
     <b style="color:#FFD070;font-size:16px">Choose your package to unlock your matches</b>
@@ -1862,11 +2029,14 @@ async function showMatches(kind,opts){
     <button class="btn b-gold" style="width:100%;font-size:15px;padding:12px" onclick="go('buy')">See packages &amp; unlock</button></div>`:'';
   const sec=`<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(140,178,255,.35),transparent);margin:20px 0 4px"></div>
   ${cta}
-  <h3 style="margin:12px 0 8px;color:#fff">${noneOpen?'A glimpse of what is waiting':'Your best-matched opportunities'} <span class="sub">· highest score first</span></h3>`+shown.map(o=>oppCard(o)).join('');
+  ${noneOpen?'':`<h3 style="margin:12px 0 8px;color:#fff">Your best-matched opportunities <span class="sub">· highest score first</span></h3>`}`
+  // Before a package is chosen we show NO opportunity list at all: only the analysis and
+  // the package choice. Opportunities appear on the next view, after activation.
+  +(noneOpen?'':shown.map(o=>oppCard(o)).join(''));
   const wrap=document.createElement('div');wrap.className='ffmatches';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:65;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
-  <div class="spread"><h2 style="margin:0">Your matches are ready</h2><span><button class="btn b-line" style="padding:4px 10px;margin-right:6px" onclick="document.querySelectorAll('.ffmatches').forEach(x=>x.remove());openFinder(true)">New search</button><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()">✕</button></span></div>
+  <div class="spread"><h2 style="margin:0">Your matches are ready</h2><span><button class="btn b-line" style="padding:4px 10px;margin-right:6px" onclick="document.querySelectorAll('.ffmatches').forEach(x=>x.remove());openFinder(true)">New search</button><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></span></div>
   ${list.length?`${matchStatsTable(list,opts)}
   ${strip?`<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:2px">${strip}</div>`:''}
   ${(opts.countries||[]).length&&list.some(o=>!sel.has(o.country_code))?`<div class="sub" style="margin-top:6px">Your selected countries are listed first, with a few strong nearby matches to widen your options.</div>`:''}${sec}`
@@ -1921,7 +2091,7 @@ function openFinder(afterUpload){
   const wrap=document.createElement('div');wrap.className='ff-finder';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;display:flex;align-items:center;justify-content:center;padding:16px';
   wrap.innerHTML=`<div style="max-width:440px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
-  <div class="spread"><h3 style="margin:0">${afterUpload?'Documents received':'Find my opportunities'}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-finder').remove()">✕</button></div>
+  <div class="spread"><h3 style="margin:0">${afterUpload?'Documents received':'Find my opportunities'}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-finder').remove()" aria-label="Close">✕</button></div>
   <div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.45);border-radius:10px;padding:9px 12px;margin:8px 0;font:600 12.5px Inter;color:#FFE9C7">Choose your filters wisely, your opportunities depend on them. Broader is better: select multiple countries, and pick more than one language rule (for example No certificate AND IELTS accepted) for the widest, strongest matches.</div>
   <div class="sub" style="margin:6px 0 10px">${afterUpload?'What should we find for you?':'Every result is verified on official pages before you see it.'}</div>
   <div id="ffBody"></div></div>`;
@@ -1937,13 +2107,24 @@ function renderFinder(){
   f.lang=f.lang||'';f.workmode=f.workmode||'';f.visaSel=f.visaSel||'';f.field=f.field||'';f.intake=f.intake||'';f._open=f._open||{};
   const sel=(key,label2,opts2)=>`<label>${label2}</label><select onchange="window._finder['${key}']=this.value;renderFinder()">${opts2.map(([v,t])=>`<option value="${v}" ${f[key]===v?'selected':''}>${t}</option>`).join('')}</select>`;
   // Generic multi-select picker: tap the head to open, tick any number of options.
+  window._optAll=window._optAll||{};
   const mp=(key,label2,opts2)=>{
+    window._optAll[key]=opts2.map(([v])=>v);
     const cur=f[key]||[],open=!!f._open[key];
     const head=cur.length?opts2.filter(([v])=>cur.includes(v)).map(([,t])=>t.split(' (')[0]).join(', ').slice(0,34)+(cur.length>2?'…':''):'Any, tap to choose';
     return `<label>${label2}</label><div class="ctry-picker">
-    <div class="ctry-head" onclick="window._finder._open['${key}']=!window._finder._open['${key}'];renderFinder()"><span>${esc(head)}</span><span>${open?'▲':'▼'}</span></div>
-    ${open?`<div class="ctry-body">${opts2.map(([v,t])=>{const on=cur.includes(v);
-      return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder['${key}'];const i=a.indexOf('${v}');i>=0?a.splice(i,1):a.push('${v}');window._finder._open['${key}']=false;if('${key}'==='licenses')autoPickExamCountry('${v}');if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${t}</div>`}).join('')}
+    <div class="ctry-head" tabindex="0" role="button" aria-expanded="${open}" aria-label="${escAttr(label2)}"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"
+      onclick="window._finder._open['${key}']=!window._finder._open['${key}'];renderFinder()"><span>${esc(head)}${cur.length?` <span class="selcount">${cur.length}</span>`:''}</span><span>${open?'▲':'▼'}</span></div>
+    ${open?`<div class="ctry-body">${opts2.length>10?`<input class="ctry-search" placeholder="Type to filter…" value="${escAttr((f._q||{})[key]||'')}" oninput="window._finder._q=window._finder._q||{};window._finder._q['${key}']=this.value;renderFinder();setTimeout(()=>{const el=document.querySelector('.ctry-body .ctry-search');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length)}},0)" onclick="event.stopPropagation()">`:''}${opts2.filter(([v,t])=>{const q=String((f._q||{})[key]||'').toLowerCase();return !q||t.toLowerCase().includes(q)||cur.includes(v)}).map(([v,t])=>{const on=cur.includes(v);
+      return `<div class="ctryrow ${on?'on':''}" tabindex="0" role="checkbox" aria-checked="${on}"
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"
+        onclick="(function(){const a=window._finder['${key}'];const i=a.indexOf('${v}');i>=0?a.splice(i,1):a.push('${v}');window._finder._open['${key}']=false;if('${key}'==='licenses')autoPickExamCountry('${v}');if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${t}</div>`}).join('')}
+      <div class="row" style="gap:8px;margin-top:8px;position:sticky;bottom:0;background:#08142c;padding-top:6px">
+        <button class="segbtn" onclick="event.stopPropagation();window._finder['${key}']=opts2All('${key}');if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()">Select all</button>
+        <button class="segbtn" onclick="event.stopPropagation();window._finder['${key}']=[];if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()">Clear</button>
+        <button class="segbtn" onclick="event.stopPropagation();window._finder._open['${key}']=false;renderFinder()">Done</button>
+      </div>
     ${cur.length?`<div class="row" style="margin-top:6px"><button class="segbtn" onclick="window._finder['${key}']=[];renderFinder()">Clear</button></div>`:''}</div>`:''}</div>`;
   };
   const FIELD_NAMES=['Medicine','Pharmacy','Nursing','Dentistry','Physiotherapy','Allied Health','Public Health','Medical Laboratory','Radiology & Imaging','Veterinary','Psychology','Nutrition & Dietetics','Biotechnology','Microbiology','Biochemistry','Genetics','Life Sciences','Chemistry','Physics','Mathematics','Statistics','Environmental Science','Earth Sciences','Astronomy','Materials Science','IT & Software','Computer Science','Data Science','Artificial Intelligence','Cybersecurity','Networking','Web & App Development','Game Development','Cloud Computing','Electrical Engineering','Mechanical Engineering','Civil Engineering','Chemical Engineering','Petroleum Engineering','Mining Engineering','Industrial Engineering','Aerospace Engineering','Automotive Engineering','Biomedical Engineering','Mechatronics','Telecom Engineering','Architecture','Urban Planning','Construction Management','Business Administration','Management','Marketing','Sales','Accounting','Finance','Banking','Economics','Human Resources','Supply Chain & Logistics','Project Management','Entrepreneurship','International Business','Law','Political Science','International Relations','Public Administration','Sociology','Social Work','Anthropology','History','Philosophy','Islamic Studies','Languages & Linguistics','Literature','Journalism & Media','Communication','Film & Television','Graphic Design','Fashion Design','Interior Design','Fine Arts','Music','Performing Arts','Education & Teaching','Early Childhood Education','Special Education','Sports Science','Hospitality & Tourism','Culinary Arts','Aviation & Piloting','Maritime & Shipping','Agriculture','Food Science','Forestry','Fisheries','Horticulture','Textile Engineering','Energy & Renewables','Nanotechnology','Robotics','Library & Information Science','Criminology','Nursing Midwifery','Paramedical','Occupational Therapy','Speech Therapy','Optometry','Audiology'];
@@ -1996,6 +2177,23 @@ function renderFinderCtryList(){
 }
 const EXAM_CC={PLAB:'GB',USMLE:'US',MCCQE:'CA',AMC:'AU',NZREX:'NZ',DHA:'AE',DOH:'AE',MOHAP:'AE',SCFHS:'SA',QCHP:'QA',OMSB:'OM',NHRA:'BH',MOH:'KW',NCLEX:'US',CBT:'GB',CGFNS:'US',AHPRA:'AU',PEBC:'CA',FPGEE:'US',OSPAP:'GB',KAPS:'AU',ORE:'GB',NDEB:'CA',ADC:'AU',INBDE:'US',NPTE:'US',HCPC:'GB',PE:'US',CENG:'GB',PENG:'CA',SCE:'SA',UPDA:'QA'};
 function autoPickExamCountry(v){try{const cc=EXAM_CC[v];const f=window._finder;if(cc&&f&&f.licenses&&f.licenses.indexOf(v)>=0){f.ctrys=f.ctrys||[];if(f.ctrys.indexOf(cc)<0){f.ctrys.push(cc);if(typeof toast==='function')toast('Country set to '+cc+' for this exam, you can still change it.')}}}catch(e){}}
+/* Opens the official portal through the Apply Assistant when it is installed: the
+   assistant asks Chrome for permission for that one site, opens it, and fills your
+   prepared details. Without the assistant we simply open the portal normally. */
+function openPortalAssisted(url){
+  if(!url)return;
+  if(!window.FF_ASSIST){window.open(url,'_blank');toast('Portal opened. Install the Apply Assistant to have it filled automatically.');return}
+  let answered=false;
+  const onResult=e=>{
+    if(e.origin!==location.origin||!e.data||e.data.type!=='FF_PORTAL_RESULT')return;
+    answered=true;window.removeEventListener('message',onResult);
+    toast(e.data.autofill?'Portal opening, your details will be filled automatically. You attach documents and press Submit.':'Portal opened. Tap the assistant icon and choose Fill to complete it.');
+  };
+  window.addEventListener('message',onResult);
+  window.postMessage({type:'FF_OPEN_PORTAL',url},location.origin);
+  setTimeout(()=>{if(!answered){window.removeEventListener('message',onResult);window.open(url,'_blank')}},2500);
+}
+function opts2All(key){return ((window._optAll||{})[key]||[]).slice()}
 function saveFinderPrefs(){
   const f=window._finder||{};const kind=f.kind||'study';
   api('/api/prefs',{method:'PUT',body:{prefs:{kind,fundings:(f.fundings||[]),levels:(f.levels||[]),workmode:f.workmode||'',licenses:(f.licenses||[]),jobTypes:(f.jobTypes||[]),exps:(f.exps||[]),programTypes:(f.programTypes||[]),sectors:(f.sectors||[]),langs:(f.langs||[]),field:f.field||'',intake:f.intake||'',ctrys:(f.ctrys||[]),licenseExam:f.licenseExam||'',licenseStatus:f.licenseStatus||''}}}).catch(()=>{});
@@ -2029,12 +2227,26 @@ async function openApp(id){
     <div><div style="font:700 14.5px Inter">Preparing your case, live</div>
     <div class="sub" id="prepDone" style="margin-top:3px">${(ps.done||[]).join(' · ')||'Analysing the position…'}</div>
     <div class="sub" style="margin-top:3px;font-size:11.5px">Each document is written one by one. This page updates itself, no refresh needed.</div></div></div>`:''}
-  <div class="spread"><h2>${esc(opp.institution||'')}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><h2>${esc(opp.institution||'')}</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   <div class="sub">${esc(opp.title||'')} · ${esc(a.case_no)} · <span class="chip c-gold">${esc(a.stage.replace(/_/g,' '))}</span></div>
   <div style="border:1px solid rgba(0,184,169,.5);border-radius:12px;padding:10px 14px;margin-top:10px;background:rgba(0,184,169,.07)">
     <b style="color:#2dd4bf;font-size:13px">Verified opportunity</b>
     <div class="sub" style="margin-top:2px">${opp.verified_at?`Checked ${(d2=>{const h=Math.max(1,Math.round((Date.now()-new Date(opp.verified_at).getTime())/36e5));return h<48?h+'h ago':Math.round(h/24)+' days ago'})()}`:'Verified'} on the official page${opp.deadline?` · deadline ${esc(opp.deadline)} confirmed`:''}${opp.url?` · <a href="${escAttr(opp.url)}" target="_blank" rel="noopener" style="color:#00D4FF">see it yourself ↗</a>`:''}</div>
   </div>
+  ${a.stage==='portal_apply'||(a.opportunities||{}).apply_via==='portal'?`<div class="card" style="margin-top:10px;border:2px solid #F5B841;background:linear-gradient(160deg,rgba(245,184,65,.14),rgba(22,131,255,.05))">
+    <b style="color:#FFD070;font-size:15px">This position applies through its official portal</b>
+    <div class="sub" style="margin:6px 0 8px">Your details are already prepared. Follow these three steps and the assistant fills the portal for you.</div>
+    <div class="sub" style="padding:3px 0"><b style="color:#00D4FF">1.</b> Download and enable the Apply Assistant (one minute, once only).</div>
+    <div class="sub" style="padding:3px 0"><b style="color:#00D4FF">2.</b> Open the official portal and click the assistant. It fills your name, contacts, education, experience and other details automatically.</div>
+    <div class="sub" style="padding:3px 0"><b style="color:#00D4FF">3.</b> You attach your documents, complete any code or verification step, review, and press submit yourself.</div>
+    <details style="margin-top:8px;border:1px solid rgba(140,178,255,.25);border-radius:9px;padding:8px 10px">
+      <summary style="font:700 12.5px Inter;cursor:pointer;color:#B4E4FF">See exactly what will be filled for you</summary>
+      <div class="sub" style="margin-top:6px;line-height:1.6">${['Full name and contact details','Nationality, date of birth and passport details where asked','Education: degrees, institutions, years and grades','Work experience: employers, roles and dates','Professional licence and registration numbers','Language test scores where already provided'].map(x=>'• '+esc(x)).join('<br>')}
+      <div style="margin-top:6px">Anything the assistant cannot fill is outlined for you to complete. Passwords, codes and payment details are never touched.</div></div>
+    </details>
+    <button class="btn b-gold" style="width:100%;margin-top:10px;padding:12px;font-size:15px" onclick="installGuide()">Download &amp; enable the Apply Assistant</button>
+    ${(a.opportunities||{}).url?`<button class="btn b-line" style="width:100%;margin-top:8px" onclick="openPortalAssisted('${escAttr((a.opportunities||{}).url)}')">Open the official portal and fill it for me</button>`:''}
+  </div>`:''}
   ${(()=>{const steps=['Prepared','Sent','Reply window (2–6 wks)','Interview','Offer'];
     const idx=a.stage==='application_sent'||a.stage==='submitted'?1:['awaiting_authorization','prepared','portal_apply'].includes(a.stage)?0:a.stage==='interview'?3:a.stage==='offer'?4:0;
     return `<div class="row" style="margin-top:10px;gap:0;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px">${steps.map((t,i)=>`
@@ -2268,7 +2480,13 @@ function addDocFor(appId,btn){
 }
 /* ---------- ForiForeign Apply Assistant (client side) ---------- */
 let FF_ASSIST=false;
-window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.data.type==='FF_ASSIST_HELLO'){FF_ASSIST=true}});
+window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.data.type==='FF_ASSIST_HELLO'){
+  FF_ASSIST=true;
+  // Push the safe profile subset as soon as the assistant announces itself, so portal
+  // autofill works immediately instead of only after a case is opened.
+  if(SESSION&&!window._ffProfilePushed){window._ffProfilePushed=true;
+    api('/api/profile/assist').then(d=>{if(d&&d.profile)window.postMessage({type:'FF_PROFILE',profile:d.profile},location.origin)}).catch(()=>{window._ffProfilePushed=false});}
+}});
 setTimeout(()=>{try{window.postMessage({type:'FF_ASSIST_PING'},location.origin)}catch(e){}},1200);
 function showThanks(appId){
   const w=document.createElement('div');
@@ -2299,7 +2517,7 @@ async function applyNow(appId,btn){window._thanksFor=appId;
   }
   if(btn)btn.disabled=true;
   let d;
-  try{d=await api('/api/applications/'+appId+'/package');if(d&&d.profile)window.postMessage({type:'FF_PROFILE',profile:d.profile},'*')}
+  try{d=await api('/api/applications/'+appId+'/package');if(d&&d.profile)window.postMessage({type:'FF_PROFILE',profile:d.profile},location.origin)}
   catch(e){
     // Portal-only opportunity: no email recipient, offer the official portal, never a blank compose.
     let pe;try{pe=JSON.parse(e.message)}catch(_){}
@@ -2332,7 +2550,7 @@ function applyFallback(p){
   const yahooUrl='https://compose.mail.yahoo.com/?to='+encodeURIComponent(p.recipient)+'&subject='+encodeURIComponent(p.subject)+'&body='+encodeURIComponent(p.body.slice(0,1800));
   const aa=(SITE&&SITE.apply_assistant)||{};const prov=aa.providers||{};
   wrap.innerHTML=`<div style="max-width:620px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
-  <div class="spread"><h3 style="margin:0">Your application is ready</h3><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><h3 style="margin:0">Your application is ready</h3><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   <div class="sub" style="margin:8px 0">To: <b>${esc(p.recipientName||p.recipient)}</b> · ${esc(p.organization)}</div>
   <div class="sub" style="margin:6px 0"><b>Step 1.</b> Download your prepared documents:</div>
   <div class="row" style="flex-wrap:wrap;gap:6px">${(p.attachments||[]).map(a2=>`<a class="btn b-line" style="text-decoration:none" href="${escAttr(a2.url)}" download>${esc(a2.filename)}</a>`).join('')||'<span class="sub">No documents in this case.</span>'}</div>
@@ -2388,8 +2606,11 @@ async function doStartApp(id,btn){
 
 /* ---------- applications ---------- */
 async function vApps(){
-  $('view').innerHTML='<div class="empty">Loading…</div>';
-  let d;try{d=await api('/api/applications')}catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  let d;
+  const c=cacheGet('/api/applications');
+  if(!c)$('view').innerHTML='<div class="empty">Loading…</div>';
+  try{const r=await apiFast('/api/applications');d=r.cached;if(r.fresh)r.fresh.then(nd=>{if(nd&&TAB==='apps')vApps()})}
+  catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const apps=d.applications||[];
   const stageChip=s=>({matched:'c-gray',preparing:'c-gold',prepared:'c-green',awaiting_authorization:'c-gold',submitted_email:'c-blue',submitted_portal:'c-blue',replied:'c-green',interview:'c-green',offer:'c-green',closed:'c-gray',archived:'c-gray'}[s]||'c-gray');
   const crLeft=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
@@ -2405,7 +2626,40 @@ async function vApps(){
 }
 
 /* ---------- profile ---------- */
+async function loadConflicts(){
+  try{const d=await api('/api/profile/conflicts');window._conf=d}catch(e){window._conf=null}
+}
+function conflictPanel(){
+  const d=window._conf;if(!d||!(d.conflicts||[]).length)return '';
+  return `<div class="card" style="border:2px solid #F5B841;background:rgba(245,184,65,.08)">
+    <b style="color:#FFD070">Please confirm ${d.conflicts.length} detail${d.conflicts.length===1?'':'s'}</b>
+    <div class="sub" style="margin:4px 0 8px">Some details need your eye: either two documents disagree, or a value was hard to read in a scan. We never guess on your identity numbers, so please confirm.</div>
+    ${d.conflicts.slice(0,6).map(c=>c.reason==='low_confidence'
+      ? `<div style="border-top:1px solid rgba(140,178,255,.2);padding:8px 0">
+      <div class="sub" style="font-weight:700;text-transform:uppercase;font-size:11px">${esc(String(c.field).replace(/_/g,' '))}</div>
+      <div class="sub" style="margin:4px 0">${esc(c.note||'This was hard to read. Please check it.')}</div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <input id="lc-${escAttr(c.field)}" value="${escAttr(c.current)}" style="flex:1;min-width:160px">
+        <button class="btn b-gold" style="padding:8px 16px" onclick="resolveConflict('${escAttr(c.field)}',document.getElementById('lc-${escAttr(c.field)}').value)">Confirm</button>
+      </div></div>`
+      : `<div style="border-top:1px solid rgba(140,178,255,.2);padding:8px 0">
+      <div class="sub" style="font-weight:700;text-transform:uppercase;font-size:11px">${esc(String(c.field).replace(/_/g,' '))}</div>
+      <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap">
+        <button class="segbtn" onclick="resolveConflict('${escAttr(c.field)}','${escAttr(c.current)}')">${esc(c.current)} <span class="sub">(in use)</span></button>
+        <button class="segbtn" onclick="resolveConflict('${escAttr(c.field)}','${escAttr(c.incoming)}')">${esc(c.incoming)} <span class="sub">(${esc(String(c.source||'newer document').slice(0,24))})</span></button>
+      </div></div>`).join('')}</div>`;
+}
+async function resolveConflict(field,value){
+  try{await api('/api/profile/conflicts/resolve',{method:'POST',body:{field,value}});toast('Thank you, saved.');await loadConflicts();vProfile()}
+  catch(e){toast(e.message)}
+}
 async function vProfile(){
+  // Paint immediately. Conflicts load in the background and re-render only if any
+  // exist, so opening Profile never waits on a network round-trip.
+  if(window._conf===undefined){
+    window._conf=null;
+    loadConflicts().then(()=>{if(TAB==='profile'&&window._conf&&(window._conf.conflicts||[]).length)vProfile()}).catch(()=>{});
+  }
   const m=ME||{};
   window._pmode=m.mode||'study';
   const yearOf=v=>{const x=String(v&&(v.year||v.years)||'').match(/(19|20)\d{2}/g);return x?parseInt(x[x.length-1]):0};
@@ -2414,6 +2668,7 @@ async function vProfile(){
   const initials=(m.full_name||'?').split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
   const isNew=!(m.headline||'').trim()&&!(m.education||[]).length;
   $('view').innerHTML=`
+  ${conflictPanel()}
   ${isNew?`<div class="card" style="border-color:var(--gold);background:var(--gold-soft);margin-bottom:12px"><b>Welcome! Here's how to start:</b>
   <div class="sub" style="margin-top:6px;line-height:1.7">1. Upload your <b>CV</b> below, the agent reads it and fills your profile automatically.<br>2. Add degrees and transcripts when you have them; every document makes your applications stronger.<br>3. Then go to <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="go('browse')">Opportunities</a>, see your match scores free, then choose a package.</div></div>`:''}`+`
   ${(()=>{const dx=(m.deep||{});const emap=(m.education||[]);const line=(edu[0]?(edu[0].degree||edu[0].level||'')+(edu[0].institution?', '+edu[0].institution:''):'');
@@ -2655,7 +2910,7 @@ async function reviewExtraction(){
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:640px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:18px">
-  <div class="spread"><h2>Review before saving</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">✕</button></div>
+  <div class="spread"><h2>Review before saving</h2><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   <div class="sub" style="margin:6px 0">The agent extracted these from your documents. Nothing is saved until you confirm. Untick anything you don't want.</div>
   ${keys.map(k=>`<div class="checkrow"><label style="margin:0;flex:1;min-width:0"><input type="checkbox" checked style="width:auto" onchange="window._review.keep['${k}']=this.checked"> <b style="color:var(--ink)">${esc(k)}</b>
   <div class="sub" style="margin-top:2px">${esc(fmt(patch[k])).slice(0,300)}</div></label>
@@ -2839,6 +3094,58 @@ async function adminSettings(){
   <div class="row" style="margin-top:6px">
     <button class="btn b-line" onclick="window._cfg.packages=window._cfg.packages||{tiers:[]};window._cfg.packages.tiers.push({key:'tier'+Date.now(),name:'New Package',credits:1,view:2,pkr:2000,feats:[]});adminSettings()">+ Add package</button>
     <button class="btn b-gold" onclick="savePackages(this)">Save packages, deploy now</button>
+  </div></div>
+  <div class="card" style="border-color:rgba(0,212,255,.5)"><h3>⚙️ Operations &amp; limits</h3>
+  <div class="sub" style="margin-bottom:8px">Live controls. Every change applies to all users the moment you save.</div>
+  <div class="row" style="gap:10px;flex-wrap:wrap">
+    <div style="flex:1;min-width:120px"><label style="font-size:11px">Max upload size (MB)</label>
+      <input type="number" min="1" max="50" value="${((window._cfg||{}).limits||{}).max_upload_mb||10}" oninput="window._cfg.limits=window._cfg.limits||{};window._cfg.limits.max_upload_mb=parseInt(this.value)||10"></div>
+    <div style="flex:1;min-width:120px"><label style="font-size:11px">Max files per upload</label>
+      <input type="number" min="1" max="20" value="${((window._cfg||{}).limits||{}).max_files_per_upload||6}" oninput="window._cfg.limits.max_files_per_upload=parseInt(this.value)||6"></div>
+    <div style="flex:1;min-width:120px"><label style="font-size:11px">Search cooldown (min)</label>
+      <input type="number" min="0" max="240" value="${((window._cfg||{}).limits||{}).search_cooldown_minutes||30}" oninput="window._cfg.limits.search_cooldown_minutes=parseInt(this.value)||0"></div>
+  </div>
+  <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
+    <div style="flex:1;min-width:140px"><label style="font-size:11px">USD to PKR rate</label>
+      <input type="number" value="${((window._cfg||{}).ai||{}).usd_to_pkr||278}" oninput="window._cfg.ai=window._cfg.ai||{};window._cfg.ai.usd_to_pkr=parseInt(this.value)||278"></div>
+    <div style="flex:1;min-width:160px"><label style="font-size:11px">Background video URL</label>
+      <input value="${escAttr((window._cfg||{}).background_video_url||'')}" oninput="window._cfg.background_video_url=this.value"></div>
+  </div>
+  <label style="font-size:11px;margin-top:10px;display:block">Documents prepared in every case</label>
+  <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">
+    ${['cv','cover','sop','research_proposal','scholarship_statement','checklist','licensing_plan','visa_summary'].map(d=>{
+      const on=((((window._cfg||{}).case_plan||{}).docs)||[]).includes(d);
+      return `<button class="segbtn ${on?'on':''}" onclick="(function(){const c=window._cfg.case_plan=window._cfg.case_plan||{docs:[]};c.docs=c.docs||[];const i=c.docs.indexOf('${d}');i>=0?c.docs.splice(i,1):c.docs.push('${d}');adminSettings()})()">${on?'☑':'☐'} ${d.replace(/_/g,' ')}</button>`;
+    }).join('')}
+  </div>
+  <label style="font-size:11px;margin-top:10px;display:block">Feature switches</label>
+  <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">
+    ${['signup_enabled','payments','discovery_enabled','prepare_enabled','opportunity_search','free_first_case','reviews'].map(f=>{
+      const on=(((window._cfg||{}).features||{})[f])!==false;
+      return `<button class="segbtn ${on?'on':''}" onclick="(function(){const x=window._cfg.features=window._cfg.features||{};x['${f}']=!(x['${f}']!==false);adminSettings()})()">${on?'ON':'OFF'} ${f.replace(/_/g,' ')}</button>`;
+    }).join('')}
+  </div>
+  <button class="btn b-gold" style="width:100%;margin-top:12px" onclick="saveOps(this)">Save operations settings, deploy now</button></div>
+  <div class="card"><h3>🔔 Notification wording</h3>
+  <div class="sub" style="margin-bottom:6px">Used for WhatsApp notifications. Placeholders: {name}, {n} (matches found), {credits}.</div>
+  <label style="font-size:11px">Payment confirmed</label><textarea rows="2" oninput="window._cfg.notify=window._cfg.notify||{};window._cfg.notify.payment_confirmed=this.value">${esc(((window._cfg||{}).notify||{}).payment_confirmed||'')}</textarea>
+  <label style="font-size:11px;margin-top:6px;display:block">Results ready</label><textarea rows="2" oninput="window._cfg.notify=window._cfg.notify||{};window._cfg.notify.results_ready=this.value">${esc(((window._cfg||{}).notify||{}).results_ready||'')}</textarea>
+  <div class="row" style="margin-top:8px">
+    <button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{const d=await api('/api/admin/settings',{method:'PUT',body:{patch:{notify:(window._cfg||{}).notify||{}}}});toast('Notification wording saved (v'+d.version+').');await loadSiteConfig()}catch(e){toast(e.message)}b.disabled=false})(this)">Save wording</button>
+    <a class="btn b-line" style="text-decoration:none" href="/api/admin/settings/export" target="_blank">⬇ Export settings backup</a>
+  </div></div>
+  <div class="card"><h3>❓ FAQs (shown in Ask us)</h3>
+  <div class="sub" style="margin-bottom:8px">Edit the questions and answers users see. Leave empty to use the built-in defaults. Use __PRICING__ inside an answer to insert live package prices automatically.</div>
+  <div id="faqEditor">${((window._cfg||{}).faqs||[]).map((f,i)=>`
+    <div class="card" style="background:var(--soft);margin-bottom:8px">
+      <label style="font-size:11px">Question</label><input value="${escAttr(f.q||'')}" oninput="window._cfg.faqs[${i}].q=this.value">
+      <label style="font-size:11px;margin-top:6px;display:block">Answer</label><textarea rows="3" oninput="window._cfg.faqs[${i}].a=this.value">${esc(f.a||'')}</textarea>
+      <button class="btn b-line" style="padding:3px 10px;margin-top:6px;color:#fb7185;border-color:#fb7185" onclick="window._cfg.faqs.splice(${i},1);adminSettings()">Remove</button>
+    </div>`).join('')||'<div class="sub">No custom FAQs yet, the built-in list is being shown to users.</div>'}</div>
+  <div class="row" style="margin-top:6px">
+    <button class="btn b-line" onclick="window._cfg.faqs=window._cfg.faqs||[];window._cfg.faqs.push({q:'New question',a:'Answer here.'});adminSettings()">+ Add FAQ</button>
+    <button class="btn b-line" onclick="if(confirm('Load the 20 built-in FAQs so you can edit them?')){window._cfg.faqs=FF_FAQS.map(([q,a])=>({q,a}));adminSettings()}">Load defaults to edit</button>
+    <button class="btn b-gold" onclick="saveFaqs(this)">Save FAQs, deploy now</button>
   </div></div>
   <div class="card"><h3>Social links</h3>
   ${F('social','facebook','Facebook')}${F('social','instagram','Instagram')}${F('social','linkedin','LinkedIn')}${F('social','youtube','YouTube')}${F('social','google_business','Google Business')}${F('social','website','Website')}</div>
@@ -3078,7 +3385,7 @@ async function adminBusiness(){
     <input type="number" value="${x.amount}" style="flex:1;min-width:70px" onchange="window._expenses[${i}].amount=parseFloat(this.value)||0">
     <select style="width:auto" onchange="window._expenses[${i}].currency=this.value"><option ${x.currency==='PKR'?'selected':''}>PKR</option><option ${x.currency==='USD'?'selected':''}>USD</option></select>
     <select style="width:auto" onchange="window._expenses[${i}].period=this.value"><option value="monthly" ${x.period==='monthly'?'selected':''}>per month</option><option value="yearly" ${x.period==='yearly'?'selected':''}>per year</option></select>
-    <button class="btn b-line" style="padding:4px 10px" onclick="window._expenses.splice(${i},1);refreshBiz()">✕</button></div>`).join('')}</div>
+    <button class="btn b-line" style="padding:4px 10px" onclick="window._expenses.splice(${i},1);refreshBiz()" aria-label="Close">✕</button></div>`).join('')}</div>
   <div class="row" style="margin-top:10px">
     <button class="btn b-line" onclick="window._expenses.push({name:'',amount:0,currency:'PKR',period:'monthly'});refreshBiz()">Add expense</button>
     <button class="btn b-gold" onclick="saveExpenses(this)">Save expenses</button></div>
@@ -3197,8 +3504,21 @@ async function saveTicket(id,btn){
 }
 async function adminUsers(){
   let d;try{d=await api('/api/admin/users')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  let dem=null,aud=null,inv=null;
+  try{dem=await api('/api/admin/demand')}catch(e){}
+  try{inv=await api('/api/admin/inventory')}catch(e){}
+  try{aud=await api('/api/admin/audit')}catch(e){}
+  const bar=(pairs,label)=>pairs&&pairs.length?`<div style="margin-top:6px"><div class="sub" style="font-weight:700;color:#B4E4FF">${label}</div>${pairs.slice(0,8).map(([k,n])=>`<div class="sub" style="display:flex;justify-content:space-between"><span>${esc(k)}</span><b>${n}</b></div>`).join('')}</div>`:'';
   const roles=window._adminRoles||['user','staff','admin'];
-  $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">${(d.users||[]).length} registered user${(d.users||[]).length===1?'':'s'}. Assign roles, message on WhatsApp, or remove an account. Only a super admin can grant admin-level roles.</div>
+  $('adminBody').innerHTML=`${inv?`<div class="card" style="border-color:rgba(45,212,191,.5)"><h3 style="margin-top:0">📦 Inventory health</h3>
+    <div class="sub"><b style="color:#2dd4bf;font-size:15px">${(inv.total||0).toLocaleString()}</b> verified opportunities live · <b>${inv.fresh_last_7_days||0}</b> added in the last 7 days</div>
+    ${bar(inv.kinds,'By type')}${bar(inv.countries,'By country')}${bar(inv.levels,'By level')}
+    <div class="sub" style="margin-top:6px;opacity:.8">If a country or level looks thin, run a broad search for it or let the harvester cycle.</div></div>`:''}
+  ${dem?`<div class="card" style="border-color:rgba(0,212,255,.5)"><h3 style="margin-top:0">📊 What your users are asking for</h3>
+    <div class="sub">Live demand from ${dem.users||0} saved searches, use it to target your ads.</div>
+    ${bar(dem.exams,'Top licensing exams')}${bar(dem.countries,'Top countries')}${bar(dem.levels,'Top levels')}${bar(dem.kinds,'Study vs work')}</div>`:''}
+  ${aud&&(aud.entries||[]).length?`<div class="card"><h3 style="margin-top:0">🧾 Recent admin activity</h3>${(aud.entries||[]).slice(0,12).map(e=>`<div class="sub" style="padding:3px 0;border-bottom:1px solid rgba(140,178,255,.12)"><b>${esc(e.event||'')}</b> · ${esc(String(e.detail||'').slice(0,90))} <span style="opacity:.7">${esc(String(e.created_at||'').slice(0,16).replace('T',' '))}</span></div>`).join('')}</div>`:''}
+  <div class="sub" style="margin-bottom:8px">${(d.users||[]).length} registered user${(d.users||[]).length===1?'':'s'}. Assign roles, message on WhatsApp, or remove an account. Only a super admin can grant admin-level roles.</div>
   ${(d.users||[]).map(u=>`<div class="card"><div class="spread"><div><b>${esc(u.full_name||'(no name)')}</b><div class="sub">${esc((u.id||'').slice(0,8))}… · joined ${esc((u.created_at||'').slice(0,10))}${u.role&&u.role!=='user'?' · <span style="color:#F5B841">'+esc(u.role)+'</span>':''}</div></div>
   <div class="row" style="flex-wrap:wrap;gap:6px"><select id="role-${u.id}">${roles.map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${r}</option>`).join('')}</select>
   <button class="btn b-gold" style="padding:5px 12px" onclick="saveRole('${u.id}',this)">Set</button>
@@ -3334,8 +3654,10 @@ async function loadRefBox(){
   }catch(e){}
 }
 async function vBuy(){
-  $('view').innerHTML='<div class="empty">Loading credit packs…</div>';
-  let d;try{d=await api('/api/pricing')}catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
+  let d;
+  if(!cacheGet('/api/pricing',300000))$('view').innerHTML='<div class="empty">Loading packages…</div>';
+  try{const r=await apiFast('/api/pricing',300000);d=r.cached}
+  catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const packs=((d.pricing||{}).packs)||[];
   // Named, benefit-rich packages. Featured = Smart (best value), highlighted in gold.
   const cfgTiers=((SITE&&SITE.packages&&SITE.packages.tiers)||[]);
@@ -3345,17 +3667,17 @@ async function vBuy(){
   const packCard=p=>{const m=META[p.credits]||{name:p.credits+(p.credits===1?' case':' cases'),view:p.credits<=1?2:p.credits*2,apply:p.credits,tag:'',feats:['See your '+(p.credits<=1?2:p.credits*2)+' best-matched opportunities','Prepare and apply to any '+p.credits,'Every document tailored to each position, verified from official pages']};const feat=m.tag==='MOST POPULAR';
     return `<div class="card" style="position:relative;border:${feat?'2px solid #F5B841':'1px solid rgba(140,178,255,.3)'};background:${feat?'linear-gradient(160deg,rgba(245,184,65,.12),rgba(22,131,255,.05))':'rgba(10,22,44,.6)'};margin-bottom:12px;overflow:hidden">
       ${m.tag?`<div style="position:absolute;top:0;right:0;background:${feat?'#F5B841':'#1683FF'};color:${feat?'#3a2a00':'#fff'};font:800 10px Inter;padding:4px 12px;border-radius:0 0 0 10px;letter-spacing:.05em">${m.tag}</div>`:''}
-      <div style="font:800 22px Georgia,serif;color:${feat?'#FFD070':'#fff'}">${m.name}</div>
+      <div style="font:800 22px Georgia,serif;color:${feat?'#FFD070':'#fff'}">${esc(m.name)}</div>
       <div style="margin:2px 0 8px"><span style="font:800 20px Inter;color:#2dd4bf">${p.pkr>0?'Rs '+p.pkr.toLocaleString():'Soon'}</span> <span class="sub">one-time</span></div>
       <div style="display:flex;gap:16px;margin-bottom:8px">
         <div><div style="font:800 18px Inter;color:#00D4FF">${m.view}</div><div class="sub" style="font-size:10.5px">matches shown</div></div>
         <div><div style="font:800 18px Inter;color:#00D4FF">${m.apply}</div><div class="sub" style="font-size:10.5px">you can apply</div></div>
       </div>
-      ${m.feats.map(f=>`<div class="sub" style="padding:2px 0;line-height:1.5"><span style="color:#2dd4bf">✓</span> ${esc(f)}</div>`).join('')}
-      <button class="btn ${feat?'b-gold':'b-line'}" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="buyPack(${p.credits})">Choose ${m.name}</button>
+      ${(m.feats||[]).map(f=>`<div class="sub" style="padding:2px 0;line-height:1.5"><span style="color:#2dd4bf">✓</span> ${esc(f)}</div>`).join('')}
+      <button class="btn ${feat?'b-gold':'b-line'}" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="buyPack(${p.credits})">Choose ${esc(m.name)}</button>
     </div>`;};
   setTimeout(promoTicker,300);
-  $('view').innerHTML=`<div class="spread" style="margin-bottom:6px"><h2 style="margin:0">Choose your package</h2><button class="btn b-line" style="padding:4px 12px" onclick="go('home')">✕</button></div>
+  $('view').innerHTML=`<div class="spread" style="margin-bottom:6px"><h2 style="margin:0">Choose your package</h2><button class="btn b-line" style="padding:4px 12px" onclick="go('home')" aria-label="Close">✕</button></div>
   <div id="refBox"></div>
   <div style="border:1px solid rgba(0,212,255,.4);background:linear-gradient(135deg,rgba(0,212,255,.1),rgba(22,131,255,.05));border-radius:12px;padding:12px 14px;margin-bottom:14px">
     <b style="color:#7EE6FF;font-size:14px">These are not random listings, they are hand-picked for you.</b>
@@ -3373,7 +3695,7 @@ async function vBuy(){
   </div>`:''}
   ${packs.map(packCard).join('')}
   <div style="border:1px solid rgba(245,184,65,.35);background:rgba(245,184,65,.06);border-radius:12px;padding:10px 14px;margin:4px 0 12px;font-size:12.5px">
-    A consultant in Pakistan charges <b>Rs 50,000–150,000</b> per application, verifies nothing, and you still write everything yourself. <b style="color:#F5B841">ForiForeign starts at Rs 2,000</b>, fully prepared, officially verified, you simply press Send.
+    A consultant in Pakistan charges <b>Rs 50,000–150,000</b> per application, verifies nothing, and you still write everything yourself. <b style="color:#F5B841">ForiForeign starts at Rs ${lowestPkgPrice().toLocaleString()}</b>, fully prepared, officially verified, you simply press Send.
   </div>
   ${(()=>{const rv=((SITE&&SITE.reviews)||[]).filter(r=>r&&r.text).slice(0,2);const n=(SITE&&SITE.stats&&SITE.stats.cases_prepared)||null;
     return (rv.length||n)?`<div style="border:1px solid rgba(0,184,169,.4);background:rgba(0,184,169,.06);border-radius:12px;padding:11px 14px;margin-bottom:12px">
@@ -3406,7 +3728,7 @@ async function buyPack(credits){
   const w=document.createElement('div');w.className='ff-ack';
   w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:75;display:flex;align-items:center;justify-content:center;padding:16px';
   w.innerHTML=`<div style="max-width:430px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.97);border:1px solid rgba(0,212,255,.5);border-radius:16px;padding:18px;color:#eef4ff">
-    <div class="spread"><h3 style="margin:0">Pay for ${credits} case${credits===1?'':'s'}, one step</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-ack').remove()">✕</button></div>
+    <div class="spread"><h3 style="margin:0">Pay for ${credits} case${credits===1?'':'s'}, one step</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-ack').remove()" aria-label="Close">✕</button></div>
     <div class="sub" style="margin:6px 0 8px">1. Send the amount to ANY account below. 2. Tap I HAVE PAID. Done, we verify and your cases activate, usually under 30 minutes.</div>
     ${row('JazzCash',P.jazzcash_number)}${row('Easypaisa',P.easypaisa_number)}${row('Bank',P.bank_name)}${row('Title',P.account_title)}${row('Account #',P.account_number)}${row('IBAN',P.iban)}
     <input id="payRef" placeholder="Transaction ID / reference (optional now)" style="margin-top:10px">

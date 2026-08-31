@@ -1,11 +1,9 @@
-// gmail.js — Gmail compose adapter. Attaches the prepared documents by fetching the
-// short-lived signed URLs and dropping them into the compose window. Never reads
-// mail, never presses Send.
+// yahoo.js — Yahoo Mail compose adapter. Same rules as Gmail/Outlook: writes the
+// prepared draft and attaches the prepared documents. Never reads mail, never sends.
 (async function () {
   const { ff_pending } = await chrome.storage.session.get('ff_pending');
   if (!ff_pending || Date.now() - ff_pending.ts > 15 * 60 * 1000) return;
   const pkg = ff_pending.pkg;
-  // wait for a compose window
   const waitFor = (sel, ms) => new Promise((res) => {
     const t0 = Date.now();
     (function look() {
@@ -15,12 +13,10 @@
       setTimeout(look, 400);
     })();
   });
-  const compose = await waitFor('div[aria-label="Message Body"], div[g_editable="true"]', 25000);
+  const compose = await waitFor('div[data-test-id="rte"], div[contenteditable="true"][role="textbox"], div[contenteditable="true"]', 25000);
   if (!compose) return;
 
-  /* Insert the COMPLETE prepared body. The URL parameter can only carry an opening
-     portion before hitting browser URL limits, so the full text is written here.
-     Plain text with real line breaks, exactly as prepared. Nothing is sent. */
+  // Full prepared body (URL parameters truncate long emails).
   try {
     const full = String(pkg.body || '');
     const current = (compose.innerText || '').trim();
@@ -35,7 +31,8 @@
       compose.dispatchEvent(new Event('input', { bubbles: true }));
     }
   } catch (e) {}
-  // fetch prepared documents as files
+
+  // Prepared documents, dropped into the compose window for the user to review.
   const files = [];
   for (const a of (pkg.attachments || [])) {
     try {
@@ -48,7 +45,7 @@
   if (files.length) {
     const dt = new DataTransfer();
     files.forEach(f => dt.items.add(f));
-    const target = compose.closest('div[role="dialog"]') || compose;
+    const target = compose.closest('form') || compose;
     ['dragenter', 'dragover', 'drop'].forEach(type => {
       target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
     });

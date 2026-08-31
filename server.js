@@ -50,10 +50,38 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+/* PDF typography. PDFKit's built-in Times-* fonts are WinAnsi-encoded: any character
+   outside that set renders as garbage glyphs (verified: Arabic and CJK produced
+   unreadable output). We embed DejaVu Serif, which covers Latin-extended, accents,
+   punctuation, currency and Cyrillic, and we sanitize anything still unsupported so a
+   document can never ship with broken characters. */
+const PDF_FONTS = { regular: __dirname + '/assets/fonts/DejaVuSerif.ttf', bold: __dirname + '/assets/fonts/DejaVuSerif-Bold.ttf' };
+let _pdfFontsOk = null;
+function pdfFontsAvailable() {
+  if (_pdfFontsOk === null) {
+    try { _pdfFontsOk = require('fs').existsSync(PDF_FONTS.regular) && require('fs').existsSync(PDF_FONTS.bold); }
+    catch (e) { _pdfFontsOk = false; }
+  }
+  return _pdfFontsOk;
+}
+function usePdfFonts(pdf) {
+  if (!pdfFontsAvailable()) return { R: 'Times-Roman', B: 'Times-Bold' };
+  try { pdf.registerFont('FFR', PDF_FONTS.regular); pdf.registerFont('FFB', PDF_FONTS.bold); return { R: 'FFR', B: 'FFB' }; }
+  catch (e) { return { R: 'Times-Roman', B: 'Times-Bold' }; }
+}
+/* Replace characters the embedded font cannot draw. Latin, accents, punctuation,
+   currency, Greek and Cyrillic pass through; anything else (Arabic, CJK, emoji) is
+   removed rather than rendered as meaningless glyphs. */
+function pdfSafe(t) {
+  return String(t == null ? '' : t)
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[^\u0000-\u024F\u0370-\u04FF\u2000-\u206F\u20A0-\u20BF\u2122\u00B7\u2022\n\r\t]/g, '')
+    .replace(/[ \t]{2,}/g, ' ');
+}
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R2960';
+const FF_BUILD = '2026-08-28-R3440';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -112,6 +140,25 @@ app.get('/api/health/full', async (req, res) => {
 app.use(express.json({ limit: '2mb' }));
 const multer = require('multer');
 const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 20 } });
+/* Admin-configured upload limits, enforced per request. multer holds the hard ceiling;
+   these apply the operator's chosen values on top so the setting is real, not cosmetic. */
+function enforceUploadLimits(req, res, next) {
+  try {
+    const lim = ((require('./lib/settings').cache() || {}).limits) || {};
+    const maxMb = Number(lim.max_upload_mb) || 10;
+    const maxFiles = Number(lim.max_files_per_upload) || 6;
+    const files = req.files || (req.file ? [req.file] : []);
+    if (files.length > maxFiles) {
+      return res.status(413).json({ error: 'Please upload up to ' + maxFiles + ' files at a time.' });
+    }
+    for (const f of files) {
+      if (f && f.size > maxMb * 1024 * 1024) {
+        return res.status(413).json({ error: 'Each file must be under ' + maxMb + ' MB. "' + String(f.originalname || 'file').slice(0, 40) + '" is larger.' });
+      }
+    }
+  } catch (e) {}
+  next();
+}
 // Long-cache heavy static assets (video/icons); HTML always fresh.
 app.use(express.static('public', { maxAge: '7d', etag: true, lastModified: true, setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache, must-revalidate'); } }));
 app.get('/health', (req, res) => res.json({ ok: true, up: process.uptime() | 0 }));
@@ -380,8 +427,8 @@ app.get('/api/opportunities/:id/report', auth, async (req, res) => {
     if (o.kind === 'work') {
       const role = /pharmac/i.test(o.title) ? 'Pharmacist' : /nurse|midwif/i.test(o.title) ? 'Nurse' : /doctor|physician|medical officer|resident|consultant/i.test(o.title) ? 'Doctor' : /dent/i.test(o.title) ? 'Dentist' : /engineer/i.test(o.title) ? 'Engineer' : /lab|technologist|technician/i.test(o.title) ? 'Lab/Allied' : null;
       if (role) {
-        const rq = await fetch('http://localhost:' + (process.env.PORT || 3000) + '/api/salary-intel?role=' + role + '&cc=' + (o.country_code || ''), { headers: { authorization: req.headers.authorization || '' } }).then(r => r.json()).catch(() => null);
-        if (rq && rq.band) financial.market_band = { label: role + ' in ' + (o.country_code || ''), range: rq.band.currency + ' ' + rq.band.low.toLocaleString() + ' - ' + rq.band.high.toLocaleString() + ' /month', based_on: rq.band.n + ' verified positions in our inventory' };
+        const band = await salaryBandFor(role, o.country_code || '');
+        if (band) financial.market_band = { label: role + ' in ' + (o.country_code || ''), range: band.currency + ' ' + band.low.toLocaleString() + ' - ' + band.high.toLocaleString() + ' /month', based_on: band.n + ' verified positions in our inventory' };
       }
     }
   } catch (e) {}
@@ -404,6 +451,96 @@ function _moneyNums(txt) {
   let m2; while ((m2 = re.exec(String(txt || '')))) { const v = parseInt(m2[2].replace(/,/g, ''), 10); if (v >= 800 && v <= 90000) out.push({ cur: m2[1].toUpperCase(), v }); }
   return out;
 }
+async function computeSalaryBands() {
+  if (Date.now() - _salIntel.at > 3600e3) {
+    const { data: rows } = await admin().from('opportunities').select('country_code,title,salary_note,stipend').eq('kind', 'work').eq('status', 'verified').limit(1000);
+    const agg = {};
+    for (const o of (rows || [])) {
+      const role = /pharmac/i.test(o.title) ? 'Pharmacist' : /nurse|midwif/i.test(o.title) ? 'Nurse' : /doctor|physician|medical officer|resident|consultant/i.test(o.title) ? 'Doctor' : /dent/i.test(o.title) ? 'Dentist' : /engineer/i.test(o.title) ? 'Engineer' : /lab|technologist|technician/i.test(o.title) ? 'Lab/Allied' : 'Other';
+      for (const n of _moneyNums((o.salary_note || '') + ' ' + (o.stipend || ''))) {
+        const k = role + '|' + (o.country_code || '??') + '|' + n.cur.replace('£', 'GBP').replace('$', 'USD').replace('€', 'EUR');
+        (agg[k] = agg[k] || []).push(n.v);
+      }
+    }
+    const bands = {};
+    for (const [k, vs] of Object.entries(agg)) {
+      if (vs.length < 2) continue;
+      vs.sort((a, b) => a - b);
+      bands[k] = { low: vs[Math.floor(vs.length * .25)], high: vs[Math.floor(vs.length * .75)], n: vs.length };
+    }
+    _salIntel = { at: Date.now(), data: bands };
+  }
+  return _salIntel.data;
+}
+async function salaryBandFor(role, cc) {
+  try {
+    const data = await computeSalaryBands();
+    const hit = Object.entries(data).find(([k]) => k.startsWith(role + '|' + String(cc).toUpperCase() + '|'));
+    return hit ? { currency: hit[0].split('|')[2], ...hit[1] } : null;
+  } catch (e) { return null; }
+}
+const LIC_STAGES = ['documents_ready', 'verification_started', 'verification_cleared', 'eligibility_received', 'exam_booked', 'exam_passed', 'licence_activated'];
+app.get('/api/licence-journey', auth, async (req, res) => {
+  try {
+    const { data } = await admin().from('app_settings').select('value').eq('key', 'licjourney:' + req.userId).single();
+    res.json({ stages: LIC_STAGES, done: (data && data.value && data.value.done) || [], updated_at: (data && data.value && data.value.updated_at) || null });
+  } catch (e) { res.json({ stages: LIC_STAGES, done: [] }); }
+});
+app.put('/api/licence-journey', auth, async (req, res) => {
+  try {
+    const done = Array.isArray(req.body && req.body.done) ? req.body.done.filter(x => LIC_STAGES.includes(x)) : [];
+    await admin().from('app_settings').upsert({ key: 'licjourney:' + req.userId, value: { done, updated_at: new Date().toISOString() } });
+    res.json({ ok: true, done });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Safe profile subset for the browser assistant: the exact fields a portal form needs.
+   Never documents, never credentials, never payment data. */
+/* Profile conflicts: where two documents disagree, the user decides. Nothing is
+   auto-resolved, and the established value stays in place until they choose. */
+app.get('/api/profile/conflicts', auth, async (req, res) => {
+  try {
+    const { data } = await admin().from('app_settings').select('value').eq('key', 'profilex:' + req.userId).single();
+    const x = (data && data.value && data.value.x) || {};
+    const list = (x._conflicts || []).filter(c => c && c.status !== 'resolved');
+    res.json({ conflicts: list, completeness: (data && data.value && data.value.completeness) || null, sources: x._sources || [] });
+  } catch (e) { res.json({ conflicts: [], completeness: null, sources: [] }); }
+});
+app.post('/api/profile/conflicts/resolve', auth, async (req, res) => {
+  try {
+    const field = String((req.body && req.body.field) || '');
+    const choose = String((req.body && req.body.value) || '');
+    if (!field || !choose) return res.status(400).json({ error: 'Choose which value is correct.' });
+    const { data } = await admin().from('app_settings').select('value').eq('key', 'profilex:' + req.userId).single();
+    const val = (data && data.value) || {}; const x = val.x || {};
+    x[field] = choose;
+    x._conflicts = (x._conflicts || []).map(c => c.field === field ? Object.assign({}, c, { status: 'resolved', chosen: choose }) : c);
+    x._provenance = Object.assign({}, x._provenance || {}, { [field]: { source: 'user confirmed', at: new Date().toISOString(), status: 'user_confirmed' } });
+    await admin().from('app_settings').upsert({ key: 'profilex:' + req.userId, value: Object.assign({}, val, { x, conflicts: x._conflicts.filter(c => c.status !== 'resolved').length }) });
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/profile/assist', auth, async (req, res) => {
+  try {
+    const { data: pr } = await admin().from('profiles').select('*').eq('id', req.userId).single();
+    if (!pr) return res.json({ profile: null });
+    let licNum = '', licAuth = '', profession = '';
+    try {
+      const { data: pf } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single();
+      const pv = (pf && pf.value) || {};
+      licAuth = (pv.licenses || [])[0] || pv.licenseExam || '';
+      const { data: px } = await admin().from('app_settings').select('value').eq('key', 'profilex:' + req.userId).single();
+      const x = (px && px.value && px.value.x) || {};
+      licNum = x.license_number || '';
+      profession = (x.professions && x.professions[0]) || x.profession || pr.field || '';
+    } catch (e) {}
+    res.json({ profile: {
+      full_name: pr.full_name, email: pr.email, phone: pr.phone, city: pr.city, address: pr.address,
+      last_institution: pr.last_institution, degree_level: pr.degree_level, field: pr.field, cgpa: pr.cgpa,
+      experience_years: pr.experience_years, language_scores: pr.language_scores, linkedin: pr.linkedin,
+      license_number: licNum, license_authority: licAuth, profession
+    } });
+  } catch (e) { res.json({ profile: null }); }
+});
 app.get('/api/salary-intel', auth, async (req, res) => {
   try {
     if (Date.now() - _salIntel.at > 3600e3) {
@@ -514,11 +651,11 @@ app.post('/api/admin/universities/import', auth, perm('countries.write'), up.sin
   const EMAIL = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
   let lines = [];
   try {
-    if (['xlsx', 'xls', 'csv'].includes(ext)) {
-      const XLSX = require('xlsx');
-      const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      lines = XLSX.utils.sheet_to_json(sheet, { header: 1 }).map(r => (r || []).map(c => String(c || '').trim()).filter(Boolean).join(' , '));
+    if (['xlsx', 'xlsm', 'csv', 'tsv'].includes(ext)) {
+      // Dependency-free reader (lib/sheet.js) — removes the vulnerable xlsx package.
+      const { readRows } = require('./lib/sheet');
+      const rows = readRows(req.file.buffer, ext);
+      lines = rows.map(r => (r || []).map(c => String(c == null ? '' : c).trim()).filter(Boolean).join(' , '));
     } else if (ext === 'docx') {
       const AdmZip = require('adm-zip');
       const xml = new AdmZip(req.file.buffer).readAsText('word/document.xml') || '';
@@ -640,6 +777,20 @@ app.get('/api/admin/me', auth, staffOnly, async (req, res) => {
   const { permissionsFor, ROLE_PERMISSIONS } = require('./lib/rbac');
   res.json({ role: req.userRole, permissions: [...permissionsFor(req.userRole)], roles: Object.keys(ROLE_PERMISSIONS) });
 });
+app.get('/api/admin/settings/export', auth, perm('settings.write'), async (req, res) => {
+  try {
+    const cfg = await siteSettings.getConfig(true);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="foriforeign-settings-backup.json"');
+    res.send(JSON.stringify(cfg, null, 2));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/admin/audit', auth, perm('users.read'), async (req, res) => {
+  try {
+    const { data } = await admin().from('audit_log').select('*').order('created_at', { ascending: false }).limit(100);
+    res.json({ entries: data || [] });
+  } catch (e) { res.json({ entries: [] }); }
+});
 app.get('/api/admin/users', auth, perm('users.read'), async (req, res) => {
   const q = String(req.query.q || '').trim();
   let query = admin().from('profiles').select('id,full_name,role,created_at,whatsapp').order('created_at', { ascending: false }).limit(100);
@@ -661,6 +812,14 @@ app.delete('/api/admin/users/:id', auth, perm('users.write'), async (req, res) =
     }
     try { await admin().from('app_settings').delete().eq('key', 'profilex:' + targetId); } catch (e) {}
     try { await admin().from('app_settings').delete().eq('key', 'prefs:' + targetId); } catch (e) {}
+    // Remove their uploaded files from storage as well, not just the rows.
+    try {
+      const { BUCKET } = require('./lib/docs');
+      const { data: files } = await admin().storage.from(BUCKET).list(targetId, { limit: 200 });
+      if (files && files.length) await admin().storage.from(BUCKET).remove(files.map(f => targetId + '/' + f.name));
+      const { data: tf } = await admin().storage.from(BUCKET).list(targetId + '/tailored', { limit: 200 });
+      if (tf && tf.length) await admin().storage.from(BUCKET).remove(tf.map(f => targetId + '/tailored/' + f.name));
+    } catch (e) {}
     try { await admin().from('profiles').delete().eq('id', targetId); } catch (e) {}
     try { await admin().auth.admin.deleteUser(targetId); } catch (e) {}
     try { await admin().from('audit_log').insert({ actor: req.userId, event: 'USER_DELETED', detail: 'Deleted user ' + (target.full_name || targetId) }); } catch (e) {}
@@ -746,8 +905,14 @@ async function activePromo() {
   } catch (e) {}
   return null;
 }
-app.post('/api/promo/claim', auth, async (req, res) => {
+const _promoHits = new Map();
+app.post('/api/promo/claim', auth, (req, res) => withUserLock(req.userId, () => claimPromo(req, res)));
+async function claimPromo(req, res) {
   try {
+    // Light abuse guard on top of the once-per-promo ledger check.
+    const n = (_promoHits.get(req.userId) || 0) + 1; _promoHits.set(req.userId, n);
+    if (_promoHits.size > 5000) _promoHits.clear();
+    if (n > 8) return res.status(429).json({ error: 'Too many attempts. Please refresh and try again.' });
     if (simUser(req)) return res.status(400).json({ error: 'Exit user-view simulation to claim on your real account.' });
     const promo = await activePromo();
     if (!promo) return res.status(400).json({ error: 'No free promo is running right now.' });
@@ -758,7 +923,7 @@ app.post('/api/promo/claim', auth, async (req, res) => {
     await admin().from('audit_log').insert({ actor: req.userId, event: 'PROMO_CLAIM', detail: note }).then(() => {}, () => {});
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
-});
+}
 /* Free Solo grant from support: one tap approves 1 case for the requester
    (idempotent per ticket), replies warmly, and the user can apply immediately. */
 app.post('/api/admin/support/:id/grant-solo', auth, perm('support.write'), async (req, res) => {
@@ -1133,17 +1298,27 @@ app.get('/api/me/state', auth, async (req, res) => {
   catch (e) { res.json({ state: 'new', hasCV: false, appCount: 0, matches: 0, deadlineSoon: 0, appsReady: 0 }); }
 });
 /* ---------- consolidated home payload: one call paints the whole dashboard ---------- */
+const _homeMatchCache = new Map();
 app.get('/api/home', auth, async (req, res) => {
   const uid = req.userId;
   const out = { state: null, credits: null, myMatches: null, discover: null };
-  try { out.state = await computeMeState(uid); } catch (e) {}
+  // SPEED: everything the dashboard needs is fetched in PARALLEL. On mobile networks this
+  // turns ten sequential round-trips into roughly one.
+  const [stateR, balR, ledR, casesR, promoR] = await Promise.all([
+    computeMeState(uid).catch(() => null),
+    balance(uid).catch(() => 0),
+    admin().from('credit_ledger').select('delta').eq('user_id', uid).then(r => r, () => ({ data: [] })),
+    admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', uid).then(r => r, () => ({ count: 0 })),
+    activePromo().catch(() => null)
+  ]);
+  out.state = stateR;
   try {
-    const bal = await balance(uid);
-    const { data: led } = await admin().from('credit_ledger').select('delta').eq('user_id', uid);
+    const bal = balR;
+    const led = ledR && ledR.data;
     const purchased = (led || []).filter(l => Number(l.delta) > 0).reduce((sm, l) => sm + Number(l.delta), 0);
-    const { count: casesUsed } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', uid);
+    const casesUsed = casesR && casesR.count;
     try {
-      const promo = await activePromo();
+      const promo = promoR;
       if (promo) {
         const note = 'promo:' + promo.ends_at;
         const { data: cl } = await admin().from('credit_ledger').select('id').eq('user_id', req.userId).eq('note', note).limit(1);
@@ -1157,15 +1332,22 @@ app.get('/api/home', auth, async (req, res) => {
   try {
     // Personalized: how many CURRENT verified opportunities score >=70% for THIS user.
     const { matchMany } = require('./lib/match');
+    // Cached for 5 minutes per user: scoring 60 opportunities on every dashboard load was
+    // the single slowest step. The number changes rarely, so a short cache is safe.
+    const mcKey = 'mm:' + uid;
+    const cachedMM = _homeMatchCache.get(mcKey);
+    if (cachedMM && Date.now() - cachedMM.at < 300000) { out.myMatches = cachedMM.val; throw { _skip: true }; }
     const { data: opps } = await admin().from('opportunities').select('*').eq('status', 'verified').order('created_at', { ascending: false }).limit(60);
     if (opps && opps.length) {
       const m = await matchMany(uid, opps);
+      // same relevance floor as the main endpoint (single source of truth)
       const pcts = (m || []).map(x => x.pct).filter(p => p != null);
       out.myMatches = { count70: pcts.filter(p => p >= 70).length, best: pcts.length ? Math.max(...pcts) : null, scored: pcts.length, live: opps.length };
     } else out.myMatches = { count70: 0, best: null, scored: 0, live: 0 };
-  } catch (e) {}
+    try { _homeMatchCache.set('mm:' + uid, { val: out.myMatches, at: Date.now() }); if (_homeMatchCache.size > 3000) _homeMatchCache.clear(); } catch (e) {}
+  } catch (e) { if (!(e && e._skip)) { /* non-fatal */ } }
   try {
-    const { count: ans } = await admin().from('support_tickets').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('status', 'answered');
+    const { count: ans } = await admin().from('support_tickets').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('status', 'answered').then(r => r, () => ({ count: 0 }));
     out.support = { answered: ans || 0 };
   } catch (e) {}
   try {
@@ -1316,7 +1498,7 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
   try {
     if (process.env.ZAINAB_NOTIFY_URL) {
       const { data: pf } = await admin().from('profiles').select('whatsapp,full_name').eq('id', p.user_id).single();
-      if (pf && pf.whatsapp) fetch(process.env.ZAINAB_NOTIFY_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: pf.whatsapp, text: 'ForiForeign: your payment is verified and ' + p.credits + ' case credit' + (p.credits === 1 ? ' is' : 's are') + ' now active. Open your dashboard to pick your best match. foriforeign.com' }) }).catch(() => {});
+      if (pf && pf.whatsapp) fetch(process.env.ZAINAB_NOTIFY_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: pf.whatsapp, text: (((await siteSettings.getConfig()).notify || {}).payment_confirmed || 'ForiForeign: your payment is verified and {credits} case credit(s) are now active. foriforeign.com').replace('{credits}', String(p.credits)).replace('{name}', String(pf.full_name || '')) }) }).catch(() => {});
     }
   } catch (e) {}
   // Manual-verification era: the moment credits land, the user sees a dashboard
@@ -1371,11 +1553,49 @@ app.get('/api/opportunities', auth, async (req, res) => {
   // Multi-select filters (spec 16), each backed by a real column:
   const cc = multi(req.query.country).map(s => s.toUpperCase());
   if (cc.length) query = query.in('country_code', cc);
-  const lvls = multi(req.query.level).filter(l => ['bachelors', 'masters', 'phd', 'postdoc'].includes(l));
-  if (lvls.length) query = query.in('level', lvls);
+  // Accept both ?level= and ?levels= (the finder sends the plural form). This is the
+  // database-level gate: a postdoc seeker never even loads PhD or Master's rows.
+  const ALL_LEVELS = ['bachelors', 'masters', 'phd', 'postdoc', 'diploma', 'short_course', 'fellowship', 'observership', 'licensing_exam'];
+  const lvls = multi(req.query.level).concat(multi(req.query.levels)).filter(l => ALL_LEVELS.includes(l));
+  // The level gate applies to ACADEMIC lanes only. Work and licensing postings carry no
+  // academic level, so filtering them by level would wrongly return nothing.
+  const academicLane = !(kind === 'work' || kind === 'job');
+  if (lvls.length && academicLane) {
+    const wanted = Array.from(new Set(lvls));
+    // Keep rows whose level matches, and rows with no level set (unclassified but valid).
+    query = query.or('level.in.(' + wanted.join(',') + '),level.is.null');
+    // Null-level rows are allowed through the SQL gate (many adverts are unclassified),
+    // but we then infer their level from the title so a postdoc search cannot leak PhD ads.
+    req._inferLevels = wanted;
+  }
+  // LICENSE GATE: when the applicant holds/targets specific credentials, prefer roles that
+  // name one of them. Rows with no stated licence still pass (many adverts omit it).
+  const licsQ = multi(req.query.licenses).map(x => String(x).toUpperCase()).filter(x => /^[A-Z]{2,10}$/.test(x));
+  if (licsQ.length) {
+    const ors = licsQ.map(l => 'req_license.ilike.%' + l + '%').concat(['req_license.is.null']);
+    query = query.or(ors.join(','));
+  }
   const fts = multi(req.query.funding_type).filter(f => ['fully', 'partial', 'self'].includes(f));
   if (fts.length) query = query.in('funding_type', fts);
   if (String(req.query.no_language_test) === '1') query = query.or('req_language.is.null,req_language.eq.none');
+  // Intake year: the user picked a specific intake, so only show opportunities whose
+  // deadline or stated intake belongs to it. Rows with no date stay (unclassified).
+  // Intake year: applications for a September Y intake typically close in late Y-1, so
+  // the valid window opens the year BEFORE the intake and closes at the end of it.
+  // (Filtering deadline >= Y-01-01 excluded precisely the right opportunities.)
+  const intakeY = String(req.query.intake || '').match(/^(20\d{2})$/);
+  if (intakeY) {
+    const y = parseInt(intakeY[1], 10);
+    query = query.or('and(deadline.gte.' + (y - 1) + '-01-01,deadline.lte.' + y + '-12-31),deadline.is.null');
+  }
+  // Sector is not a stored column: opportunities carry req_field instead. We match the
+  // sector against that, keeping rows with no stated field so nothing valid is lost.
+  // (Filtering a non-existent column made the whole query fail and return nothing.)
+  const sectorQ = multi(req.query.sector).filter(x => /^[a-z_]{2,20}$/.test(x));
+  if (sectorQ.length) {
+    const terms = sectorQ.map(x => x.replace(/_/g, ' '));
+    query = query.or(terms.map(x => 'req_field.ilike.%' + x + '%').concat(['req_field.is.null']).join(','));
+  }
   if (String(req.query.has_stipend) === '1') query = query.neq('stipend', '');
   if (String(req.query.has_deadline) === '1') query = query.not('deadline', 'is', null);
   if (String(req.query.remote) === '1') query = query.eq('remote', true);
@@ -1386,7 +1606,13 @@ app.get('/api/opportunities', auth, async (req, res) => {
   if (exps.length) query = query.in('experience_level', exps);
   if (q) query = query.textSearch('search_blob', q.split(/\s+/).join(' & '));
   let { data, error } = await query;
-  if (error && /funding_type|level|req_language|column/.test(error.message || '')) {
+  // ANY query failure degrades to an unfiltered fetch rather than an empty result set.
+  // A single malformed condition (or a column that does not exist) otherwise kills the
+  // whole query and the user sees "no opportunities" when hundreds are available.
+  if (error) {
+    try { require('./lib/oblog').errlog('opportunities:query', new Error(error.message || 'query failed'), { userId: req.userId }); } catch (e) {}
+  }
+  if (error) {
     let q2 = admin().from('opportunities').select('*').eq('status', 'verified').order('deadline', { ascending: true }).limit(80);
     if (kind === 'study') q2 = q2.in('kind', studyKinds); else q2 = q2.eq('kind', kind);
     ({ data } = await q2);
@@ -1406,15 +1632,66 @@ app.get('/api/opportunities', auth, async (req, res) => {
     else if (o.verified_at && now - new Date(o.verified_at).getTime() < 14 * day) o.freshness = 'verified_recently';
     else o.freshness = 'needs_reverification';
   });
-  rows = rows.filter(o => o.freshness !== 'deadline_passed').slice(0, 60);
+  rows = rows.filter(o => o.freshness !== 'deadline_passed');
+
+  /* ENTITY DEDUPLICATION. The same opportunity is often listed twice with different ids
+     (an aggregator copy and the official page). We collapse them on institution + title
+     + deadline, keeping the entry with the most authoritative source and the richest
+     detail, so the user never sees the same job twice. */
+  {
+    // Institution names are canonicalised first ("Riphah Intl. Univ." and "Riphah
+    // International University" are one organisation), so duplicates actually collapse.
+    const { canonicalKey } = require('./lib/entity');
+    const key = o => [canonicalKey(o.institution).slice(0, 60),
+                      String(o.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60),
+                      String(o.deadline || '')].join('|');
+    const authority = o => {
+      const u = String(o.url || '').toLowerCase();
+      if (/\.edu|\.ac\.|\.gov|\.nhs\.|\.int\b/.test(u)) return 3;   // official
+      if (/careers|jobs\.|recruit/.test(u)) return 2;                    // employer portal
+      return 1;                                                          // aggregator
+    };
+    const richness = o => Object.values(o).filter(v => v != null && String(v).trim() !== '').length;
+    const best = new Map();
+    for (const o of rows) {
+      const k = key(o);
+      if (!k.replace(/\|/g, '')) { best.set('u:' + o.id, o); continue; }
+      const cur = best.get(k);
+      if (!cur) { best.set(k, o); continue; }
+      const better = (authority(o) - authority(cur)) || (richness(o) - richness(cur));
+      if (better > 0) best.set(k, o);
+    }
+    rows = [...best.values()];
+  }
+  // Null-level rows: infer the level from the title so an unclassified PhD advert can
+  // never leak into a postdoc search (and vice versa).
+  if (req._inferLevels && req._inferLevels.length) {
+    const want = new Set(req._inferLevels);
+    const infer = t => { const x = String(t || '').toLowerCase();
+      if (/post[- ]?doc/.test(x)) return 'postdoc';
+      if (/\bphd\b|doctoral|doctorate/.test(x)) return 'phd';
+      if (/master|msc|mphil|m\.s\b/.test(x)) return 'masters';
+      if (/bachelor|bsc|undergraduate/.test(x)) return 'bachelors';
+      return null; };
+    rows = rows.filter(o => { if (o.level) return true; const g = infer(o.title); return !g || want.has(g); });
+  }
+  rows = rows.slice(0, 60);
   let opportunities = rows;
   // Phase 4: annotate with match status when requested (?match=1)
   if (String(req.query.match || '') === '1' && opportunities.length) {
     try {
       const { matchMany } = require('./lib/match');
-      const m = await matchMany(req.userId, opportunities);
+      // The user's own selected target levels gate the results: a postdoc seeker must
+      // never receive PhD admissions, a PhD seeker never Master's, and so on.
+      let wantedLevels = [];
+      try {
+        if (req.query.levels) wantedLevels = String(req.query.levels).split(',').map(x => x.trim()).filter(Boolean);
+        if (!wantedLevels.length) { const { data: pf } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single(); wantedLevels = ((pf && pf.value && pf.value.levels) || []); }
+      } catch (e) {}
+      const wantedCountries = multi(req.query.country).map(x => String(x).toUpperCase());
+      const m = await matchMany(req.userId, opportunities, wantedLevels, wantedCountries);
       const byId = {}; m.forEach(x => { byId[x.id] = x; });
-      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct, overqualified: byId[o.id].overqualified, fieldMismatch: byId[o.id].fieldMismatch } : null }));
+      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct, dims: byId[o.id].dims, overqualified: byId[o.id].overqualified, fieldMismatch: byId[o.id].fieldMismatch, wrongTarget: byId[o.id].wrongTarget } : null }));
       // HARD RELEVANCE GATE (never show the user anything that is not a real fit):
       //  - below the applicant's own level (PhD holder must never see MPhil/Masters/Bachelors)
       //  - a clear field/profession mismatch (pharmacist must not see biochemistry-only roles)
@@ -1423,6 +1700,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
       opportunities = opportunities.filter(o => {
         const mt = o.match;
         if (!mt) return true;
+        if (mt.wrongTarget || mt.status === 'wrong_target_level') return false;
         if (mt.overqualified || mt.status === 'below_your_level') return false;
         if (mt.fieldMismatch || mt.status === 'field_mismatch' || mt.status === 'not_eligible') return false;
         if (mt.pct != null && mt.pct < RELEVANCE_FLOOR) return false;
@@ -1453,8 +1731,28 @@ app.get('/api/opportunities', auth, async (req, res) => {
   res.json({ opportunities });
 });
 
+/* Per-user serialization for credit-spending actions. Two requests from the same user
+   can otherwise both pass the balance check and each create a case from one credit
+   (reproduced: 2 cases, balance -1). Requests queue per user; different users never wait. */
+const _userLocks = new Map();
+async function withUserLock(userId, fn) {
+  const prev = _userLocks.get(userId) || Promise.resolve();
+  let release;
+  const next = new Promise(r => { release = r; });
+  _userLocks.set(userId, prev.then(() => next));
+  try { await prev; } catch (e) {}
+  try { return await fn(); }
+  finally {
+    release();
+    if (_userLocks.get(userId) === next || _userLocks.size > 2000) {
+      // best-effort cleanup so the map cannot grow without bound
+      setTimeout(() => { const cur = _userLocks.get(userId); if (cur === next) _userLocks.delete(userId); }, 0);
+    }
+  }
+}
 /* ---------- applications: 1 credit = 1 application (consume on create) ---------- */
-app.post('/api/applications', auth, async (req, res) => {
+app.post('/api/applications', auth, (req, res) => withUserLock(req.userId, () => createApplication(req, res)));
+async function createApplication(req, res) {
   const { opportunityId } = req.body || {};
   const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
   const isAdmin = prof && ['admin', 'staff'].includes(prof.role) && !simUser(req);
@@ -1470,22 +1768,27 @@ app.post('/api/applications', auth, async (req, res) => {
   const { data: opp } = await admin().from('opportunities').select('id,institution').eq('id', opportunityId).single();
   if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
   const caseNo = 'FF-' + Date.now().toString(36).toUpperCase();
+  // DEBIT FIRST, then create. Combined with the per-user lock this removes the
+  // check-then-act window entirely; if creation fails we refund immediately.
+  let debited = false;
+  if (!isAdmin) {
+    const balNow = await balance(req.userId);
+    if (balNow < 1) return res.status(402).json({ error: 'Your matches are ready. Choose a package to start this case.' });
+    const { error: dErr } = await admin().from('credit_ledger').insert({ user_id: req.userId, delta: -1, reason: 'consume', note: opp.institution });
+    if (dErr) return res.status(400).json({ error: 'Could not start this case. Please try again.' });
+    debited = true;
+  }
   const { data: appRow, error } = await admin().from('applications')
     .insert({ user_id: req.userId, opportunity_id: opp.id, case_no: caseNo, stage: 'preparing', credits_consumed: isAdmin ? 0 : 1 })
     .select().single();
-  if (error) return res.status(400).json({ error: error.message.includes('duplicate') ? 'You already have an application for this opportunity' : error.message });
-  if (!isAdmin) {
-    // Re-check after insert: if a racing request drained the last credit, roll back.
-    const balNow = await balance(req.userId);
-    if (balNow < 1) {
-      try { await admin().from('applications').delete().eq('id', appRow.id); } catch (e) {}
-      return res.status(402).json({ error: 'That credit was just used by another action. Please choose a package to continue.' });
-    }
-    await admin().from('credit_ledger').insert({ user_id: req.userId, delta: -1, reason: 'consume', application_id: appRow.id, note: opp.institution });
+  if (error) {
+    if (debited) { try { await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 1, reason: 'refund', note: 'Case could not be created' }); } catch (e) {} }
+    return res.status(400).json({ error: error.message.includes('duplicate') ? 'You already have an application for this opportunity' : error.message });
   }
+  if (debited) { try { await admin().from('credit_ledger').update({ application_id: appRow.id }).eq('user_id', req.userId).eq('reason', 'consume').is('application_id', null); } catch (e) {} }
   if (req.body && req.body.requirements_acknowledged) admin().from('audit_log').insert({ actor: req.userId, event: 'REQ_ACK', detail: 'Requirements acknowledged before case ' + appRow.case_no + ' (' + opp.institution + ')' }).then(() => {}, () => {});
   res.json({ application: appRow, freeCase: false });
-});
+}
 app.get('/api/applications', auth, async (req, res) => {
   const { data } = await admin().from('applications').select('*, opportunities(title,institution,country_code,deadline,url)').eq('user_id', req.userId).order('updated_at', { ascending: false });
   res.json({ applications: data || [] });
@@ -1496,7 +1799,7 @@ app.get('/api/applications', auth, async (req, res) => {
 /* ---------- documents: upload, read, view, delete + auto profile fill ---------- */
 // (multer defined near the top so every upload route can use it)
 const { saveUpload, signedUrl, extractProfile } = require('./lib/docs');
-app.post('/api/documents', auth, up.array('files', 20), async (req, res) => {
+app.post('/api/documents', auth, up.array('files', 20), enforceUploadLimits, async (req, res) => {
   try {
     // Optional section override: when the user adds files from a specific profile
     // section, that section's kind wins over filename-based classification.
@@ -1737,9 +2040,22 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
   await admin().from('audit_log').insert({ actor: req.userId, event: 'APPLY_PACKAGE', detail: a.id });
   // Safe profile subset for the extension form-filler (Phase 2) - never documents, never credentials.
   let pr = {}; try { const { data: prof } = await admin().from('profiles').select('full_name,email,phone,city,address,last_institution,degree_level,field,cgpa,experience_years,language_scores,linkedin').eq('id', req.userId).single(); pr = prof || {}; } catch (e) {}
+  // Licence details are the fields Gulf and NHS portals screen on first, so the assistant
+  // can fill them too. Still never documents, passwords or payment data.
+  let licInfo = {};
+  try {
+    const { data: pf } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single();
+    const pv = (pf && pf.value) || {};
+    licInfo.license_authority = (pv.licenses || [])[0] || pv.licenseExam || '';
+    const { data: px } = await admin().from('app_settings').select('value').eq('key', 'profilex:' + req.userId).single();
+    const x = (px && px.value && px.value.x) || {};
+    licInfo.license_number = x.license_number || '';
+    licInfo.profession = (x.professions && x.professions[0]) || x.profession || pr.field || '';
+  } catch (e) {}
   pkg.profile = { full_name: pr.full_name, email: pr.email, phone: pr.phone, city: pr.city, address: pr.address,
     last_institution: pr.last_institution, degree_level: pr.degree_level, field: pr.field, cgpa: pr.cgpa,
-    experience_years: pr.experience_years, language_scores: pr.language_scores, linkedin: pr.linkedin };
+    experience_years: pr.experience_years, language_scores: pr.language_scores, linkedin: pr.linkedin,
+    license_number: licInfo.license_number || '', license_authority: licInfo.license_authority || '', profession: licInfo.profession || '' };
   res.json(pkg);
 });
 // Short-lived signed PDF fetch for one prepared document (used by the assistant to attach files).
@@ -1794,6 +2110,38 @@ app.post('/api/referral/claim', auth, async (req, res) => {
   res.json({ ok: true });
 });
 /* ---------- Dormant hygiene: keep Supabase lean; admin removes unused accounts ---------- */
+app.get('/api/admin/inventory', auth, perm('users.read'), async (req, res) => {
+  try {
+    const { count: total } = await admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified');
+    const { data: rows } = await admin().from('opportunities').select('kind,country_code,level,created_at').eq('status', 'verified').limit(2000);
+    const byKind = {}, byCountry = {}, byLevel = {};
+    let fresh7 = 0; const wk = Date.now() - 7 * 864e5;
+    for (const r of (rows || [])) {
+      byKind[r.kind || '?'] = (byKind[r.kind || '?'] || 0) + 1;
+      byCountry[r.country_code || '??'] = (byCountry[r.country_code || '??'] || 0) + 1;
+      byLevel[r.level || 'unclassified'] = (byLevel[r.level || 'unclassified'] || 0) + 1;
+      if (r.created_at && new Date(r.created_at).getTime() > wk) fresh7++;
+    }
+    const top = o => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, 12);
+    res.json({ total: total || 0, fresh_last_7_days: fresh7, kinds: top(byKind), countries: top(byCountry), levels: top(byLevel) });
+  } catch (e) { res.json({ total: 0, fresh_last_7_days: 0, kinds: [], countries: [], levels: [] }); }
+});
+app.get('/api/admin/demand', auth, perm('users.read'), async (req, res) => {
+  try {
+    const { data } = await admin().from('app_settings').select('key,value').like('key', 'prefs:%').limit(2000);
+    const exams = {}, countries = {}, levels = {}, kinds = {};
+    for (const r of (data || [])) {
+      const v = r.value || {};
+      (v.licenses || []).forEach(x => { exams[x] = (exams[x] || 0) + 1; });
+      if (v.licenseExam) { const k = String(v.licenseExam).toUpperCase(); exams[k] = (exams[k] || 0) + 1; }
+      (v.ctrys || []).forEach(x => { countries[x] = (countries[x] || 0) + 1; });
+      (v.levels || []).forEach(x => { levels[x] = (levels[x] || 0) + 1; });
+      if (v.kind) kinds[v.kind] = (kinds[v.kind] || 0) + 1;
+    }
+    const top = o => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, 15);
+    res.json({ exams: top(exams), countries: top(countries), levels: top(levels), kinds: top(kinds), users: (data || []).length });
+  } catch (e) { res.json({ exams: [], countries: [], levels: [], kinds: [], users: 0 }); }
+});
 app.get('/api/admin/dormant', auth, perm('users.read'), async (req, res) => {
   const months = Math.min(36, Math.max(6, Number(req.query.months) || 12));
   const cutoff = new Date(Date.now() - months * 30 * 864e5).toISOString();
@@ -1869,6 +2217,44 @@ const FUTURE_PATH = {
   HU: { name: 'Hungary', embassy: 'Embassy of Hungary Islamabad', portal: 'Stipendium Hungaricum via apply.stipendiumhungaricum.hu (deadline mid-January), then D visa', funds: 'Stipendium is fully funded: tuition, stipend, housing allowance, insurance', extra: 'HEC Pakistan co-nominates - watch hec.gov.pk for the parallel window.' },
   NZ: { name: 'New Zealand', embassy: 'New Zealand visas are processed online (no local embassy visit needed)', portal: 'Student visa via immigration.govt.nz with offer of place', funds: 'NZD 20,000/year evidence plus tuition', extra: 'Post-study work rights up to 3 years; Manaaki New Zealand Scholarships are fully funded.' }
 };
+const EXAM_GUIDE = {
+  DHA: { auth: 'Dubai Health Authority, via the Sheryan portal', verify: 'DataFlow primary-source verification', steps: ['Create your Sheryan account and select the correct professional category', 'Submit degree, transcripts, experience and licence documents for DataFlow verification (30-45 days typical)', 'Receive eligibility, then book the Prometric/CBT assessment for your category', 'On passing, activate the licence and request the eligibility letter used for job applications'], docs: ['Degree and transcripts', 'Experience certificates from each employer', 'Current registration and good-standing certificate', 'Passport and professional photograph'], note: 'The DHA eligibility letter has a validity window, track its expiry and start job applications immediately after passing.' },
+  DOH: { auth: 'Department of Health Abu Dhabi (formerly HAAD)', verify: 'DataFlow primary-source verification', steps: ['Register on the DOH/TAMM licensing portal', 'Complete DataFlow verification of every credential', 'Book and pass the DOH assessment for your category', 'Employer completes the activation once you hold an offer'], docs: ['Degree and transcripts', 'Experience letters', 'Good-standing certificate', 'Passport copy and photograph'], note: 'Abu Dhabi activation is usually employer-linked, so secure the offer while your eligibility is valid.' },
+  MOHAP: { auth: 'Ministry of Health and Prevention, UAE (northern emirates)', verify: 'DataFlow primary-source verification', steps: ['Apply on the MOHAP licensing portal', 'Complete DataFlow verification', 'Pass the MOHAP assessment', 'Activate the licence with your employer'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'MOHAP covers Sharjah, Ajman, Fujairah, RAK and UAQ; Dubai and Abu Dhabi have their own authorities.' },
+  SCFHS: { auth: 'Saudi Commission for Health Specialties, via Mumaris Plus', verify: 'DataFlow primary-source verification', steps: ['Create a Mumaris Plus account and apply for professional classification', 'Complete DataFlow verification of degree and experience', 'Receive classification, then sit the Prometric examination for your specialty', 'Registration is completed once you hold a Saudi employment offer'], docs: ['Degree and transcripts', 'Experience certificates covering the required years', 'Good-standing certificate', 'Passport and photograph'], note: 'Classification typically follows 2-6 weeks after DataFlow clears; book Prometric early as Pakistan slots fill weeks ahead.' },
+  QCHP: { auth: 'Qatar Council for Healthcare Practitioners (DHP)', verify: 'DataFlow primary-source verification', steps: ['Submit the QCHP application with your sponsoring employer', 'Complete DataFlow verification', 'Sit the Prometric examination where your category requires it', 'Licence issued and linked to the employer'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'Qatar evaluation commonly takes 3-8 weeks; most categories are employer-sponsored.' },
+  OMSB: { auth: 'Oman Medical Specialty Board / Ministry of Health', verify: 'DataFlow primary-source verification', steps: ['Employer or you submit the OMSB application', 'Complete DataFlow verification', 'Sit the required assessment', 'Ministry issues the practice licence'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'Oman roles are usually employer-driven, keep documents verification-ready.' },
+  NHRA: { auth: 'National Health Regulatory Authority, Bahrain', verify: 'DataFlow primary-source verification', steps: ['Apply through NHRA with employer support', 'Complete DataFlow verification', 'Sit the assessment where required', 'Licence issued on approval'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'Bahrain often moves faster than larger Gulf markets once documents are verified.' },
+  PLAB: { auth: 'General Medical Council, UK', verify: 'Primary-source checks by the GMC', steps: ['Achieve the English requirement (IELTS Academic 7.5 overall or OET grade B)', 'Pass PLAB 1, then PLAB 2 (PLAB 2 is taken in the UK)', 'Apply for GMC registration with licence to practise and attend the ID check', 'Apply for posts on NHS Jobs or Trac and obtain a Certificate of Sponsorship'], docs: ['Primary medical qualification and transcripts', 'Internship/experience certificates', 'English test certificate under two years old', 'Passport and identification'], note: 'Registration decisions typically take 5-15 working days once the application is complete; most IMGs begin in trust-grade or SHO posts.' },
+  CBT: { auth: 'Nursing and Midwifery Council, UK', verify: 'NMC verification of qualification and registration', steps: ['Achieve IELTS or OET at the NMC standard', 'Pass the CBT (can be taken from Pakistan)', 'Receive the decision letter, secure a UK employer and visa', 'Pass the OSCE in the UK within the permitted window after arrival'], docs: ['Nursing qualification and transcripts', 'Current registration and good-standing certificate', 'English test certificate', 'Passport'], note: 'The OSCE is only taken in the UK, so plan finances and timing for that stage.' },
+  USMLE: { auth: 'ECFMG, then state medical boards, USA', verify: 'EPIC credential verification', steps: ['Create ECFMG and EPIC accounts and submit credentials for verification (2-8 weeks)', 'Pass USMLE Step 1 and Step 2 CK', 'Obtain ECFMG certification', 'Apply through ERAS for the residency Match'], docs: ['Medical degree and transcripts', 'Internship certificate', 'Passport and identification', 'Letters of recommendation for ERAS'], note: 'The Match runs on a fixed calendar: interviews October to January, Match in March, start in July. Align your timeline to it or lose a year.' },
+  NCLEX: { auth: 'State Board of Nursing, USA (with CGFNS where required)', verify: 'CGFNS credential evaluation and VisaScreen', steps: ['Choose a state board and submit the credential evaluation (CGFNS or equivalent, 6-12 weeks)', 'Receive the Authorization to Test and book NCLEX-RN', 'Pass NCLEX-RN and obtain licensure by examination', 'Complete VisaScreen for the immigration stage'], docs: ['Nursing degree and transcripts', 'Current registration and good-standing certificate', 'English test where the state requires it', 'Passport'], note: 'VisaScreen is required for the visa, not the licence; start it in parallel to save months.' },
+  PEBC: { auth: 'Pharmacy Examining Board of Canada', verify: 'PEBC document evaluation', steps: ['Submit documents for PEBC evaluation', 'Pass the Evaluating Examination', 'Pass the Qualifying Examination Parts I and II', 'Register with the provincial college where you will practise'], docs: ['Pharmacy degree and transcripts', 'Licence and good-standing certificate', 'English test (IELTS or CELPIP)', 'Passport'], note: 'Provincial colleges have their own bridging and language requirements on top of PEBC.' },
+  AMC: { auth: 'Australian Medical Council, then AHPRA', verify: 'AMC primary-source verification', steps: ['Verify your primary medical qualification with the AMC', 'Pass the AMC CAT MCQ examination', 'Complete the clinical examination or an approved workplace-based assessment', 'Register with AHPRA and apply for posts'], docs: ['Medical degree and transcripts', 'Internship and experience certificates', 'English test (IELTS or OET) at the AHPRA standard', 'Passport'], note: 'AHPRA English requirements are strict and must be met before registration.' },
+  AHPRA: { auth: 'AHPRA and the relevant national board, Australia', verify: 'Qualification and registration verification', steps: ['Confirm your qualification is recognised or complete the required assessment', 'Meet the English requirement', 'Apply for registration with the national board', 'Apply for roles once registered'], docs: ['Qualification and transcripts', 'Registration and good-standing certificate', 'English test at the board standard', 'Passport'], note: 'Each profession has its own national board under AHPRA with specific criteria.' },
+  KAPS: { auth: 'Australian Pharmacy Council / Pharmacy Board of Australia', verify: 'APC document assessment', steps: ['Submit documents for APC skills assessment', 'Pass the KAPS examination', 'Complete supervised practice as required', 'Register with the Pharmacy Board of Australia'], docs: ['Pharmacy degree and transcripts', 'Registration and good-standing certificate', 'English test at the board standard', 'Passport'], note: 'Supervised practice hours are a distinct stage after KAPS, plan for the additional time.' },
+  MCCQE: { auth: 'Medical Council of Canada, then provincial colleges', verify: 'physiciansapply.ca source verification', steps: ['Create a physiciansapply.ca account and verify credentials', 'Pass MCCQE Part I', 'Complete the required assessments and residency route', 'Register with the provincial college'], docs: ['Medical degree and transcripts', 'Internship certificates', 'English test (IELTS or CELPIP)', 'Passport'], note: 'Provincial routes differ significantly, choose your target province early.' },
+  ORE: { auth: 'General Dental Council, UK', verify: 'GDC verification', steps: ['Meet the English requirement', 'Pass ORE Part 1 and Part 2', 'Apply for GDC registration', 'Apply for NHS or private dental posts'], docs: ['Dental degree and transcripts', 'Experience certificates', 'English test certificate', 'Passport'], note: 'ORE places are limited and book out quickly, register for exam sittings as early as possible.' },
+  NZREX: { auth: 'Medical Council of New Zealand', verify: 'MCNZ primary-source verification', steps: ['Verify your primary medical qualification with MCNZ', 'Meet the English requirement (IELTS or OET)', 'Pass NZREX Clinical', 'Complete supervised practice and register'], docs: ['Medical degree and transcripts', 'Internship and experience certificates', 'English test certificate', 'Passport'], note: 'NZREX sittings are limited each year, plan your application around the published dates.' },
+  CGFNS: { auth: 'CGFNS International (for USA nursing routes)', verify: 'CGFNS credential evaluation and VisaScreen', steps: ['Submit your credentials for CGFNS evaluation', 'Complete the English requirement where applicable', 'Obtain the certificate or evaluation your state board requires', 'Complete VisaScreen for the immigration stage'], docs: ['Nursing degree and transcripts', 'Registration and good-standing certificate', 'English test certificate', 'Passport'], note: 'Evaluation commonly takes 6-12 weeks; start it in parallel with NCLEX preparation.' },
+  FPGEE: { auth: 'NABP, then the state Board of Pharmacy, USA', verify: 'NABP/FPGEC credential review', steps: ['Apply for FPGEC certification with NABP', 'Meet the English requirement (TOEFL iBT where required)', 'Pass the FPGEE examination', 'Complete internship hours and sit NAPLEX and MPJE for your state'], docs: ['Pharmacy degree and transcripts', 'Licence and good-standing certificate', 'English test certificate', 'Passport'], note: 'Requirements differ by state; choose your target state before starting.' },
+  OSPAP: { auth: 'General Pharmaceutical Council, UK', verify: 'GPhC qualification assessment', steps: ['Apply to GPhC for eligibility to enrol on an OSPAP course', 'Meet the English requirement (IELTS or OET)', 'Complete the OSPAP postgraduate diploma', 'Complete the foundation training year and pass the registration assessment'], docs: ['Pharmacy degree and transcripts', 'Registration and good-standing certificate', 'English test certificate', 'Passport'], note: 'OSPAP is a taught course, so budget for tuition and a full academic year.' },
+  NDEB: { auth: 'National Dental Examining Board of Canada', verify: 'NDEB document evaluation', steps: ['Submit credentials for NDEB assessment', 'Pass the Assessment of Fundamental Knowledge', 'Complete the Assessment of Clinical Judgement and Clinical Skills', 'Register with the provincial dental regulatory authority'], docs: ['Dental degree and transcripts', 'Registration and good-standing certificate', 'English or French test', 'Passport'], note: 'The equivalency process runs in stages over more than one year, plan accordingly.' },
+  ADC: { auth: 'Australian Dental Council, then AHPRA', verify: 'ADC document assessment', steps: ['Submit your qualification for ADC assessment', 'Pass the written examination', 'Pass the practical examination', 'Register with the Dental Board of Australia via AHPRA'], docs: ['Dental degree and transcripts', 'Registration and good-standing certificate', 'English test at AHPRA standard', 'Passport'], note: 'Practical examination places are limited, register as soon as you pass the written stage.' },
+  INBDE: { auth: 'Joint Commission on National Dental Examinations, USA', verify: 'ECE/credential evaluation by your target programme', steps: ['Have your dental degree evaluated', 'Pass the INBDE', 'Apply to an Advanced Standing programme', 'Obtain state licensure after graduation'], docs: ['Dental degree and transcripts', 'English test certificate', 'Letters of recommendation', 'Passport'], note: 'Most international dentists must complete a two to three year Advanced Standing programme in the USA.' },
+  NPTE: { auth: 'FSBPT and the state physical therapy board, USA', verify: 'Credentialing evaluation (FCCPT or equivalent)', steps: ['Complete a credentials evaluation of your degree', 'Meet the English requirement', 'Pass the NPTE', 'Apply for licensure in your chosen state'], docs: ['Physiotherapy degree and transcripts', 'Registration and good-standing certificate', 'English test certificate', 'Passport'], note: 'Each state sets its own additional requirements, confirm them before you apply.' },
+  ASCPI: { auth: 'ASCP Board of Certification International', verify: 'ASCPi credential evaluation', steps: ['Confirm your eligibility route for your laboratory speciality', 'Submit transcripts and experience for evaluation', 'Book and pass the ASCPi examination', 'Use the credential for Gulf and international laboratory roles'], docs: ['Degree and transcripts', 'Laboratory experience certificates', 'Passport', 'Professional photograph'], note: 'ASCPi is widely recognised in the Gulf and often paired with DataFlow verification for licensing.' },
+  PE: { auth: 'NCEES and the state engineering board, USA', verify: 'Credential evaluation of your engineering degree', steps: ['Have your degree evaluated for equivalence', 'Pass the FE examination', 'Accumulate the required supervised experience', 'Pass the PE examination and register with the state board'], docs: ['Engineering degree and transcripts', 'Experience records and referee details', 'Passport'], note: 'Supervised experience requirements are strict; keep detailed, verifiable project records.' },
+  CENG: { auth: 'Engineering Council, UK, through a licensed institution', verify: 'Institution assessment of qualifications and competence', steps: ['Join a relevant professional institution', 'Have your academic qualifications assessed', 'Prepare a competence report against the UK-SPEC standard', 'Attend the professional review interview'], docs: ['Engineering degree and transcripts', 'Detailed project and competence evidence', 'Referee details', 'Passport'], note: 'The competence report is the decisive document, allow real time to prepare it well.' },
+  PENG: { auth: 'The provincial engineering regulator in Canada (for example PEO or APEGA)', verify: 'Academic and experience assessment by the regulator', steps: ['Apply to the provincial regulator', 'Complete the academic assessment, with confirmatory examinations if required', 'Document the required years of engineering experience', 'Pass the professional practice examination and register'], docs: ['Engineering degree and transcripts', 'Detailed experience records with referees', 'English or French test where required', 'Passport'], note: 'Each province assesses separately; apply to the one where you intend to work.' },
+  SCE: { auth: 'Saudi Council of Engineers', verify: 'SCE membership verification of degree and experience', steps: ['Create an SCE account and submit your degree and experience', 'Complete verification and pay the membership fee', 'Sit the professional assessment where your grade requires it', 'Receive the membership grade used for work permits'], docs: ['Engineering degree and transcripts', 'Experience certificates', 'Passport and photograph'], note: 'SCE membership is normally required before a Saudi work permit is issued.' },
+  UPDA: { auth: 'MMUP / UPDA, Qatar', verify: 'Document verification by the ministry', steps: ['Submit your degree and experience for UPDA registration', 'Book and pass the UPDA examination for your discipline', 'Receive the engineer grade', 'Employers use the grade for project approvals and permits'], docs: ['Engineering degree and transcripts', 'Experience certificates', 'Passport and photograph'], note: 'The UPDA grade directly affects the roles and salary band you can be hired into.' },
+  MOH_KW: { auth: 'Ministry of Health, Kuwait', verify: 'DataFlow primary-source verification', steps: ['Employer or agency submits your application to the Ministry', 'Complete DataFlow verification', 'Sit the assessment where your category requires it', 'Licence issued and linked to the employer'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'Kuwait roles are almost always employer-sponsored, so secure the offer first.' },
+  OET: { auth: 'OET (accepted by GMC, NMC, AHPRA, DHA and most Gulf regulators)', verify: 'Direct result verification by the regulator', steps: ['Choose the profession-specific OET version', 'Book a test date early, centres fill weeks ahead', 'Achieve the grade your regulator requires (commonly B)', 'Send the result directly to the regulator'], docs: ['Passport for registration and identification'], note: 'Most regulators require the result to be under two years old at the time of registration.' },
+  DATAFLOW: { auth: 'DataFlow Group (primary-source verification for Gulf regulators)', verify: 'Direct verification with your universities and employers', steps: ['Create the DataFlow case for your target regulator', 'Upload degree, transcripts, experience and licence documents', 'Alert your university and past employers that DataFlow will contact them', 'Track the report and share it with the regulator'], docs: ['Degree and transcripts', 'Experience certificates from every employer', 'Current licence and good-standing certificate', 'Passport'], note: 'Delays are almost always caused by institutions not replying; contacting them in advance is the single biggest time-saver.' },
+  PROMETRIC: { auth: 'Prometric (test delivery for Gulf regulators and others)', verify: 'Eligibility issued by your regulator before booking', steps: ['Obtain eligibility from your regulator', 'Create a Prometric account and choose your exam and centre', 'Book early, Pakistan centres fill two to four weeks ahead', 'Sit the exam and share the result with your regulator'], docs: ['Eligibility letter from the regulator', 'Passport matching your registration exactly'], note: 'Your passport name must match the regulator record exactly or you can be refused entry to the test centre.' },
+  HCPC: { auth: 'Health and Care Professions Council, UK', verify: 'HCPC international application checks', steps: ['Submit the international registration application', 'Provide evidence your training meets UK standards', 'Meet the English requirement', 'Register and apply for posts'], docs: ['Professional qualification and transcripts', 'Experience and registration evidence', 'English test certificate', 'Passport'], note: 'Assessment of equivalence can take several months, apply well before you plan to move.' }
+};
 const INSIDER = {
   GULF_LICENSE: [
     ['DataFlow PSV', '30-45 days typical; premium 10-12 days where offered. Delays almost always come from universities and past employers not replying - warn your referees TODAY that DataFlow will contact them.'],
@@ -1921,13 +2307,15 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   const PDFDocument = require('pdfkit');
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="Future Path Guide - ' + clean(opp.institution || 'Your Case').replace(/[^A-Za-z0-9 .-]/g, '').slice(0, 60) + '.pdf"');
-  const pdf = new PDFDocument({ size: 'A4', margins: { top: 60, bottom: 60, left: 58, right: 58 } });
+  const pdf = new PDFDocument({ size: 'A4', margins: { top: 60, bottom: 60, left: 58, right: 58 },
+    info: { Title: 'Your Future Path', Author: 'ForiForeign', Creator: 'ForiForeign' } });
   pdf.pipe(res);
-  const H = t => { pdf.moveDown(0.6).font('Times-Bold').fontSize(13).fillColor('#000').text(t); pdf.moveDown(0.2); };
-  const P = t => pdf.font('Times-Roman').fontSize(11.5).fillColor('#000').text(clean(t), { align: 'justify' });
-  const B = t => pdf.font('Times-Roman').fontSize(11.5).text('•  ' + clean(t), { indent: 12 });
-  pdf.font('Times-Bold').fontSize(17).text('Your Future Path', { align: 'center' });
-  pdf.font('Times-Roman').fontSize(11.5).text(clean((opp.institution || '') + (g ? ' · ' + g.name : '')) + ((pr && pr.full_name) ? '  -  prepared for ' + pr.full_name : ''), { align: 'center' });
+  const FT = usePdfFonts(pdf);
+  const H = t => { pdf.moveDown(0.6).font(FT.B).fontSize(13).fillColor('#000').text(pdfSafe(t)); pdf.moveDown(0.2); };
+  const P = t => pdf.font(FT.R).fontSize(11.5).fillColor('#000').text(pdfSafe(t), { align: 'justify' });
+  const B = t => pdf.font(FT.R).fontSize(11.5).text('•  ' + pdfSafe(t), { indent: 12 });
+  pdf.font(FT.B).fontSize(17).text('Your Future Path', { align: 'center' });
+  pdf.font(FT.R).fontSize(11.5).text(clean((opp.institution || '') + (g ? ' · ' + g.name : '')) + ((pr && pr.full_name) ? '  -  prepared for ' + pr.full_name : ''), { align: 'center' });
   pdf.moveDown(0.5);
   P('Congratulations on reaching this stage. The distance between you and ' + clean(g ? g.name : 'your destination') + ' is now a checklist, not a dream' + (opp.funding_type === 'fully' ? ' - and this position is fully funded, so the numbers are already on your side' : '') + (opp.stipend ? '. Your stated stipend: ' + clean(String(opp.stipend).slice(0, 40)) + '.' : '.'));
   P('This guide covers what happens after you are accepted, step by step, until you land and secure your position. ForiForeign does not provide visa or document-processing services, and you do not need any agent: every step below is designed for you to do yourself, easily and officially. Thousands of Pakistani students and professionals complete these exact steps every year. So will you.');
@@ -1957,13 +2345,31 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
       n++;
       if (pdf.y > 720) pdf.addPage();
       const y0 = pdf.y;
-      pdf.font('Times-Bold').fontSize(11).fillColor('#000').text(n + '.  ' + t, 40, y0, { width: 150 });
-      pdf.font('Times-Roman').fontSize(10.5).text(dtl, 200, y0, { width: 355, align: 'justify' });
+      pdf.font(FT.B).fontSize(11).fillColor('#000').text(n + '.  ' + t, 40, y0, { width: 150 });
+      pdf.font(FT.R).fontSize(10.5).text(dtl, 200, y0, { width: 355, align: 'justify' });
       pdf.moveTo(40, pdf.y + 4).lineTo(555, pdf.y + 4).strokeColor('#BBBBBB').lineWidth(0.5).stroke();
       pdf.y = pdf.y + 9; pdf.x = 40;
     }
     pdf.moveDown(0.6);
   }
+  // LICENSING PATHWAY, customised to the exam(s) this applicant actually selected.
+  try {
+    const { data: pfx } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single();
+    const chosen = ((pfx && pfx.value && pfx.value.licenses) || []).map(x => String(x).toUpperCase());
+    const named = String((pfx && pfx.value && pfx.value.licenseExam) || '').toUpperCase();
+    const alias = k => (k === 'MOH' ? 'MOH_KW' : k);
+    const keys = Array.from(new Set(chosen.concat(named ? [named] : []).map(alias))).filter(k => EXAM_GUIDE[k]).slice(0, 3);
+    for (const k of keys) {
+      const g = EXAM_GUIDE[k];
+      H('Your licensing pathway: ' + k);
+      P('Authority: ' + g.auth + '. Verification: ' + g.verify + '.');
+      P('Steps, in order:');
+      g.steps.forEach((st, i) => B((i + 1) + '. ' + st));
+      P('Documents to keep ready:');
+      g.docs.forEach(d => B(d));
+      P(g.note);
+    }
+  } catch (e) {}
   H('Insider timeline: what actually happens next, and when');
   {
     const wk2 = (opp && opp.kind) === 'work';
@@ -2003,9 +2409,9 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   B('Learn the part-time work rules of your visa before accepting any work; keep every payslip and document.');
   B('Stay in touch with your department or HR in the first month - early visibility becomes references, assistantships and renewals.');
   pdf.moveDown(0.5);
-  pdf.font('Times-Bold').fontSize(12).text('You have done the hardest part already. Follow the list, keep your documents tidy, and go claim it.', { align: 'center' });
+  pdf.font(FT.B).fontSize(12).text('You have done the hardest part already. Follow the list, keep your documents tidy, and go claim it.', { align: 'center' });
   pdf.moveDown(0.8);
-  pdf.font('Times-Roman').fontSize(10.5).fillColor('#333').text('Every fact above follows official channels current at preparation time; always confirm on the linked official pages, which are the only authority. ForiForeign · foriforeign.com', { align: 'center' });
+  pdf.font(FT.R).fontSize(10.5).fillColor('#333').text('Every fact above follows official channels current at preparation time; always confirm on the linked official pages, which are the only authority. ForiForeign · foriforeign.com', { align: 'center' });
   pdf.end();
 });
 /* ---------- Professional PDF of a case document (editable content -> elegant PDF) ---------- */
@@ -2014,37 +2420,100 @@ app.get('/api/applications/:id/documents/:docId/pdf', auth, async (req, res) => 
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
   const { data: doc } = await admin().from('application_documents').select('*').eq('id', req.params.docId).eq('application_id', a.id).single();
   if (!doc) return res.status(404).json({ error: 'Document not found' });
-  const { data: pr } = await admin().from('profiles').select('full_name').eq('id', req.userId).single();
+  const { data: pr } = await admin().from('profiles').select('full_name,email,phone,city').eq('id', req.userId).single();
   const person = (pr && pr.full_name) || '';
+  const isCV = /cv|resume|curriculum/i.test(String(doc.kind || '') + ' ' + String(doc.title || ''));
+  const contactLine = [ (pr && pr.email) || '', (pr && pr.phone) || '', (pr && pr.city) ? pr.city + ', Pakistan' : '' ]
+    .filter(Boolean).join('  ·  ');
   const clean = str => String(str || '').replace(/[\u2013\u2014]/g, '-');
   const fname = (clean(doc.title || 'Document') + (person ? ' - ' + person : '')).replace(/[^A-Za-z0-9 .-]/g, '').replace(/\s+/g, ' ').trim() + '.pdf';
   const PDFDocument = require('pdfkit');
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="' + fname + '"');
-  const pdf = new PDFDocument({ size: 'A4', margins: { top: 64, bottom: 64, left: 60, right: 60 } });
+  const pdf = new PDFDocument({ size: 'A4', margins: { top: 64, bottom: 64, left: 60, right: 60 },
+    info: { Title: String(doc.title || 'Document'), Author: person || 'ForiForeign', Creator: 'ForiForeign' } });
   pdf.pipe(res);
-  // Title block: black, academic, elegant.
-  pdf.font('Times-Bold').fontSize(17).fillColor('#000000').text(clean(doc.title || ''), { align: 'center' });
-  if (person) pdf.moveDown(0.2).font('Times-Roman').fontSize(11.5).text(person, { align: 'center' });
-  pdf.moveDown(0.8);
-  const lines = clean(doc.content || '').split(/\r?\n/);
+  const FT = usePdfFonts(pdf);
+  // Header block. A CV must lead with the applicant's NAME and carry a contact line:
+  // recruiters and ATS parsers look for both in the first block.
+  if (isCV && person) {
+    pdf.font(FT.B).fontSize(19).fillColor('#000000').text(pdfSafe(person), { align: 'center' });
+    if (contactLine) pdf.moveDown(0.25).font(FT.R).fontSize(10.5).fillColor('#222').text(pdfSafe(contactLine), { align: 'center' });
+    // A thin rule separates the header from the body, the convention in professional CVs.
+    pdf.moveDown(0.5);
+    const y = pdf.y, L = pdf.page.margins.left, R = pdf.page.width - pdf.page.margins.right;
+    pdf.moveTo(L, y).lineTo(R, y).lineWidth(0.8).strokeColor('#000').stroke();
+    pdf.moveDown(0.7);
+  } else {
+    pdf.font(FT.B).fontSize(17).fillColor('#000000').text(pdfSafe(doc.title || ''), { align: 'center' });
+    if (person) pdf.moveDown(0.2).font(FT.R).fontSize(11.5).text(pdfSafe(person), { align: 'center' });
+    pdf.moveDown(0.8);
+  }
+  pdf.fillColor('#000');
+  // Page numbers on multi-page documents (a CV that runs to two pages must be
+  // identifiable if the pages are separated).
+  let _pageCount = 1;
+  pdf.on('pageAdded', () => {
+    _pageCount++;
+    try {
+      const b = pdf.page.height - pdf.page.margins.bottom + 22;
+      pdf.font(FT.R).fontSize(9).fillColor('#666')
+        .text(pdfSafe(person || '') + '  ·  page ' + _pageCount, pdf.page.margins.left, b,
+          { width: pdf.page.width - pdf.page.margins.left - pdf.page.margins.right, align: 'right' });
+      pdf.fillColor('#000');
+    } catch (e) {}
+  });
+  const lines = pdfSafe(doc.content || '').split(/\r?\n/);
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) { pdf.moveDown(0.45); continue; }
     const hd = line.match(/^\*\*(.+)\*\*:?\s*$/);
-    if (hd || (line.length < 42 && /^[A-Z][A-Za-z &/-]+$/.test(line) && !/[.]$/.test(line))) {
-      pdf.moveDown(0.3).font('Times-Bold').fontSize(12.5).text((hd ? hd[1] : line).replace(/\*\*/g, ''), { align: 'left' });
-      pdf.moveDown(0.15); continue;
+    const isCaps = /^[A-Z][A-Z &,'\-\/()]{3,}$/.test(line);
+    if (hd || isCaps || (line.length < 42 && /^[A-Z][A-Za-z &/-]+$/.test(line) && !/[.]$/.test(line))) {
+      // Section heading: small-caps weight, letter-spaced, with a hairline rule beneath.
+      // This is the difference between a plain text dump and a designed document.
+      const htxt = (hd ? hd[1] : line).replace(/\*\*/g, '');
+      if (pdf.y > pdf.page.height - pdf.page.margins.bottom - 70) pdf.addPage();
+      pdf.moveDown(0.55).font(FT.B).fontSize(11.5).fillColor('#111')
+        .text(htxt.toUpperCase(), { align: 'left', characterSpacing: 0.9 });
+      const hy = pdf.y + 2, HL = pdf.page.margins.left, HR = pdf.page.width - pdf.page.margins.right;
+      pdf.moveTo(HL, hy).lineTo(HR, hy).lineWidth(0.5).strokeColor('#9aa6b8').stroke();
+      pdf.moveDown(0.45); pdf.fillColor('#000');
+      continue;
     }
     const body = line.replace(/\*\*/g, '');
-    if (/^[-•]\s+/.test(body)) pdf.font('Times-Roman').fontSize(11.5).text(body.replace(/^[-•]\s+/, '•  '), { align: 'left', indent: 14 });
-    else pdf.font('Times-Roman').fontSize(11.5).text(body, { align: 'justify' });
+    if (/^[-•]\s+/.test(body)) {
+      // Hanging indent so wrapped bullet text aligns under the text, not the bullet.
+      pdf.font(FT.R).fontSize(11).fillColor('#000')
+        .text('•   ' + body.replace(/^[-•]\s+/, ''), { align: 'left', indent: 10, lineGap: 1.2 });
+    } else {
+      pdf.font(FT.R).fontSize(11).fillColor('#000').text(body, { align: 'left', lineGap: 1.6 });
+    }
   }
   pdf.end();
 });
 /* ---------- pipeline endpoints ---------- */
 const { discoverForUser, prepareApplication } = require('./lib/engine');
-app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.discovery_enabled===false)return res.status(503).json({error:'Search is briefly paused for maintenance. Please try again soon.'});next();}, async (req, res) => {
+/* Admin-configured search cooldown: protects AI spend and stops rapid repeat searches.
+   Staff are exempt so support can always reproduce a user's search. */
+const _lastSearch = new Map();
+function searchCooldown(req, res, next) {
+  try {
+    const mins = Number(((require('./lib/settings').cache() || {}).limits || {}).search_cooldown_minutes);
+    if (!mins || mins <= 0) return next();
+    // Staff are exempt: support must be able to reproduce a user's search on demand.
+    if (req.userRole && ['admin', 'super_admin', 'staff'].includes(req.userRole)) return next();
+    const prev = _lastSearch.get(req.userId);
+    if (prev && Date.now() - prev < mins * 60000) {
+      const wait = Math.ceil((mins * 60000 - (Date.now() - prev)) / 60000);
+      return res.status(429).json({ error: 'Your last search is still fresh. You can search again in about ' + wait + ' minute' + (wait === 1 ? '' : 's') + ', and your saved matches are ready on your dashboard now.' });
+    }
+    _lastSearch.set(req.userId, Date.now());
+    if (_lastSearch.size > 5000) _lastSearch.clear();
+  } catch (e) {}
+  next();
+}
+app.post('/api/run', auth, searchCooldown, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.discovery_enabled===false)return res.status(503).json({error:'Search is briefly paused for maintenance. Please try again soon.'});next();}, async (req, res) => {
   // Search preferences + package fulfillment: paid credits define how many verified
   // opportunities the agent must deliver (min 5, max 20). Priority countries are
   // searched first; comparable nearby destinations complete the set only if needed.
@@ -2102,7 +2571,7 @@ app.post('/api/run', auth, (req,res,next)=>{const f=(require('./lib/settings').c
     discoverForUser(req.userId, b.kind, prefs)
       .then(async n => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'done', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: n, prefsHash: prefs.prefsHash } }); } catch (e) {}
         // Pull-back notification: if a WhatsApp bridge is configured, ping the user.
-        try { if (process.env.ZAINAB_NOTIFY_URL && n > 0) { const { data: pf } = await admin().from('profiles').select('whatsapp,full_name').eq('id', req.userId).single(); if (pf && pf.whatsapp) fetch(process.env.ZAINAB_NOTIFY_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: pf.whatsapp, text: 'ForiForeign: your matches are ready! ' + n + ' verified opportunities are waiting on your dashboard. foriforeign.com' }) }).catch(() => {}); } } catch (e) {}
+        try { if (process.env.ZAINAB_NOTIFY_URL && n > 0) { const { data: pf } = await admin().from('profiles').select('whatsapp,full_name').eq('id', req.userId).single(); if (pf && pf.whatsapp) fetch(process.env.ZAINAB_NOTIFY_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: pf.whatsapp, text: (((await siteSettings.getConfig()).notify || {}).results_ready || 'ForiForeign: your matches are ready! {n} verified opportunities are waiting. foriforeign.com').replace('{n}', String(n)).replace('{name}', String(pf.full_name || '')) }) }).catch(() => {}); } } catch (e) {}
         return n; })
       .catch(async e => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'error', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, message: String(e.message).slice(0, 160), prefsHash: prefs.prefsHash } }); } catch (e2) {} throw e; }),
     { retries: 1, timeoutMs: 600000 });
@@ -2207,6 +2676,14 @@ app.post('/api/messages/:id/authorize', auth, async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.use((err, req, res, next) => {
+  // Client-side faults (malformed JSON, oversized body) are 4xx, not 5xx: the caller gets a
+  // clear, actionable message and we do not log them as server failures.
+  if (err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError && 'body' in err)) {
+    return res.status(400).json({ error: 'That request could not be read. Please try again.' });
+  }
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'That upload is too large. Please send a smaller file.' });
+  }
   errlog('http', err, { requestId: req.reqId, userId: req.userId });
   if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. Our team has been notified - please try again.', ref: req.reqId });
 });
@@ -2262,6 +2739,12 @@ try {
 } catch (e) { console.error('[harvest] scheduling failed', e.message); }
 /* Final error net: any handler that throws returns clean JSON instead of killing the request. */
 app.use((err, req, res, next) => {
+  if (err && (err.type === 'entity.parse.failed' || (err instanceof SyntaxError && 'body' in err))) {
+    return res.status(400).json({ error: 'That request could not be read. Please try again.' });
+  }
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'That upload is too large. Please send a smaller file.' });
+  }
   try { require('./lib/oblog').errlog('express:' + (req.path || ''), err, {}); } catch (e) {}
   if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. It has been logged and the self-healer is on it.' });
 });

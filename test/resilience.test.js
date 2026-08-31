@@ -133,7 +133,7 @@ const checks = [
   })()],
   ['CV blueprint demands full multi-page professional depth', (() => {
     const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
-    return e.includes('MULTI-PAGE') && e.includes('cv: 2200');
+    return e.includes('MULTI-PAGE') && /cv: 2[6-9]\d\d/.test(e) && /research_proposal: [34]\d\d\d/.test(e);
   })()],
   ['package-first reveal: 0 credits locks all, credits reveal 2/8/15, 60% floor', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
@@ -170,6 +170,137 @@ const checks = [
     return sv.includes("waseemkhalid225@gmail.com") && sv.includes('OWNER_EMAILS') &&
       sv.includes("app.delete('/api/admin/users/:id'") && sv.includes('cannot be deleted here') &&
       f.includes('deleteUser') && f.includes('cannot be undone');
+  })()],
+  ['target-level gate: postdoc seeker never receives PhD/other levels', (() => {
+    const m = fs.readFileSync(__dirname + '/../lib/match.js', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return m.includes('wrongTarget') && m.includes("status = 'wrong_target_level'") &&
+      sv.includes('wantedLevels') && sv.includes("mt.status === 'wrong_target_level'");
+  })()],
+  ['prices and FAQs are admin-driven (no hardcoded Rs 2,000 in user text)', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    return f.includes('lowestPkgPrice') && f.includes('pricingSentence') && f.includes('saveFaqs') && st.includes('faqs:');
+  })()],
+  ['no opportunity list is rendered before a package is active', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes("+(noneOpen?'':shown.map(o=>oppCard(o)).join(''))");
+  })()],
+  ['SQL level gate accepts levels= (postdoc seeker never loads PhD rows)', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return sv.includes("multi(req.query.level).concat(multi(req.query.levels))") && sv.includes('ALL_LEVELS');
+  })()],
+  ['profession-aware eligibility: synonyms + hard search rule', (() => {
+    const m = fs.readFileSync(__dirname + '/../lib/match.js', 'utf8');
+    const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    return m.includes('expandTerms') && m.includes('pharmacologist') &&
+      e.includes('ELIGIBILITY RULE, ABSOLUTE') && e.includes("req_degree_level || '').toLowerCase()");
+  })()],
+  ['work lane: every user selection reaches the API (job type, exp, remote, country, licences)', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes("push('job_type'") && f.includes("push('exp'") && f.includes("push('licenses'") &&
+      f.includes("push('country'") && f.includes("push('remote','1')");
+  })()],
+  ['level gate is academic-only (work postings are never filtered to zero)', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return sv.includes('academicLane') && sv.includes('level.is.null') && sv.includes('req_license.ilike');
+  })()],
+  ['gift guide carries a per-exam licensing pathway (authority, steps, docs, timing)', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return sv.includes('EXAM_GUIDE') && sv.includes('Your licensing pathway: ') &&
+      sv.includes('Mumaris Plus') && sv.includes('physiciansapply.ca') && sv.includes('CGFNS');
+  })()],
+  ['licence cases generate a personalised Licensing Action Plan document', (() => {
+    const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    return e.includes('licensing_plan') && e.includes('LICENSING ACTION PLAN') && e.includes('licensing_plan: 2600');
+  })()],
+  ['R3100 batch: all 36 exams, licence docs, tracker, admin insight, safety caps', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    const ex = fs.readFileSync(__dirname + '/../extension/filler.js', 'utf8');
+    return (sv.match(/\n  [A-Z_]{2,10}: \{ auth/g) || []).length >= 36 &&
+      en.includes('_isLicenceCase') && en.includes('MAXLEN') && en.includes('visa_summary') &&
+      en.includes('BOOKING AND SLOTS') && en.includes('INDICATIVE COST') && en.includes('Multi-CV aware') &&
+      sv.includes('licence-journey') && sv.includes('/api/admin/demand') && sv.includes('/api/admin/audit') &&
+      sv.includes('settings/export') && sv.includes('_promoHits') && sv.includes('salaryBandFor') &&
+      !sv.includes('http://localhost:') && sv.includes('_inferLevels') &&
+      fe.includes('toggleLicStage') && fe.includes('Notification wording') && fe.includes('Client-side safety net') &&
+      st.includes('notify:') && ex.includes('license_number');
+  })()],
+  ['audit: client faults 4xx, auth cached+bounded, vulnerable xlsx removed entirely', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const sp = fs.readFileSync(__dirname + '/../lib/supa.js', 'utf8');
+    const pkg = JSON.parse(fs.readFileSync(__dirname + '/../package.json', 'utf8'));
+    const sheet = fs.existsSync(__dirname + '/../lib/sheet.js');
+    return sv.includes('entity.parse.failed') && sv.includes('entity.too.large') &&
+      sp.includes('_tokCache') && sp.includes('_timeout') &&
+      !(pkg.dependencies || {}).xlsx && sheet && sv.includes("require('./lib/sheet')");
+  })()],
+  ['external error tracking hook exists and is optional', (() => {
+    const ob = fs.readFileSync(__dirname + '/../lib/oblog.js', 'utf8');
+    return ob.includes('ERROR_WEBHOOK_URL') && ob.includes('shipError');
+  })()],
+  ['SEO, social sharing and accessibility basics present', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes('name="description"') && f.includes('property="og:title"') &&
+      f.includes('rel="canonical"') && f.includes('aria-label="Close"') &&
+      f.includes('focus-visible') && f.includes('overflow-x:hidden');
+  })()],
+  ['extension: popup script loads after DOM, no wildcard postMessage origin', (() => {
+    const html = fs.readFileSync(__dirname + '/../extension/popup.html', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const scriptAt = html.indexOf('<script src="popup.js">');
+    const btnAt = html.indexOf('id="ffFill"');
+    return scriptAt > btnAt && !fe.includes("profile:d.profile},'*'");
+  })()],
+  ['mobile selection: 44px+ touch targets, tap feedback, filter on long lists', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('.ctryrow{min-height:46px') && fe.includes('.ctryrow:active') &&
+      fe.includes('ctry-search') && fe.includes('opts2.length>10');
+  })()],
+  ['dropdowns: select-all/clear/done, count badge, keyboard operable', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('opts2All') && fe.includes('selcount') &&
+      fe.includes("role=\"checkbox\"") && fe.includes("event.key==='Enter'") &&
+      fe.includes('>Select all<') && fe.includes('>Done<');
+  })()],
+  ['touch floor: 44px on coarse pointers', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('@media (pointer: coarse)') && fe.includes('min-height:44px');
+  })()],
+  ['assistant profile endpoint exists and is auth-gated', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return sv.includes("app.get('/api/profile/assist', auth") && !sv.includes('assist.*service_role');
+  })()],
+  ['PDF pipeline: embedded unicode fonts, sanitizer, CV header, page numbers', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const fontsBundled = fs.existsSync(__dirname + '/../assets/fonts/DejaVuSerif.ttf');
+    return fontsBundled && sv.includes('usePdfFonts') && sv.includes('function pdfSafe') &&
+      !/pdf\.font\('Times-/.test(sv) && sv.includes('isCV && person') && sv.includes("pdf.on('pageAdded'");
+  })()],
+  ['document intelligence: profile merges, never overwrites; conflicts surfaced', (() => {
+    const d = fs.readFileSync(__dirname + '/../lib/docs.js', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return fs.existsSync(__dirname + '/../lib/profile.js') && d.includes('MASTER PROFILE MERGE') &&
+      d.includes('additional_information') && d.includes('untrusted DATA') &&
+      sv.includes('/api/profile/conflicts');
+  })()],
+  ['search hunt: real columns, correct intake window, dedup, entity normalization', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return !/'sector\\./.test(sv) && sv.includes('req_field.ilike') &&
+      sv.includes('(y - 1)') && sv.includes('ENTITY DEDUPLICATION') &&
+      fs.existsSync(__dirname + '/../lib/entity.js') && sv.includes('canonicalKey(o.institution)');
+  })()],
+  ['admin controls are real: limits enforced, ops panel, all tabs non-blocking', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return sv.includes('enforceUploadLimits') && sv.includes('searchCooldown') &&
+      sv.includes('max_upload_mb') && sv.includes('search_cooldown_minutes') &&
+      sv.includes("['admin', 'super_admin', 'staff'].includes(req.userRole)") &&
+      fe.includes('saveOps') && fe.includes('Operations &amp; limits') &&
+      fe.includes('Paint immediately');
   })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
