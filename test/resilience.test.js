@@ -48,7 +48,12 @@ const checks = [
   ['extension human-input alerts exist and never hide the page', (() => { const f = fs.readFileSync(__dirname + '/../extension/filler.js', 'utf8'); return f.includes('Your input needed') && f.includes('one-time-code'); })()],
   ['multer is defined BEFORE any route uses it (boot-order)', sv.indexOf('const up = multer(') < sv.indexOf("up.single('file')")],
   ['locked teaser carries requirement fields for the dispute shield', sv.includes('req_language: o.req_language || null')],
-  ['package strip reads the real pricing endpoint', fs.readFileSync(__dirname + '/../public/index.html', 'utf8').includes("api('/api/pricing');const ps=(((d||{}).pricing||{}).packs||[])")],
+  ['plan names and prices never appear inside the analysis', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // They belong on the plans page; in the analysis they were noise the reader could
+    // not act on, and they went stale the moment a price changed.
+    return !fe.includes('ffPkgStrip') && !fe.includes('loadPkgStrip');
+  })()],
   ['parseJSON has a string-aware bracket walker preferring object arrays', e.includes('primitiveFallback') && e.includes("typeof arr[0] === 'object'")],
   ['each discovery pass rotates its source angle', e.includes('ANGLES[pi % ANGLES.length]')],
   ['coverage memory excludes already-known institutions', e.includes('do NOT repeat these')],
@@ -118,9 +123,28 @@ const checks = [
     return f.includes('const revealed=o.started||o.owned') && f.includes('open when you start your case') &&
       !f.includes('Criteria not published by the source');
   })()],
-  ['portal-only cases skip email/cover, prepare CV + checklist only', (() => {
+  ['portal cases get the SAME documents, only the delivery differs', (() => {
     const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
-    return e.includes('PORTAL-ONLY EFFICIENCY') && e.includes('_portalOnly') && e.includes("k === 'cv' || k === 'checklist'");
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // Trimming a portal case to a CV was a false economy: portals ask for a motivation
+    // letter or research statement as an upload just as often as an email does.
+    return e.includes('PORTAL CASES GET THE SAME DOCUMENTS') && e.includes('_portalOnly') &&
+      !e.includes("plan = plan.filter(k => k === 'cv' || k === 'checklist'") &&
+      e.includes('Download your prepared documents from this case') &&
+      fe.includes('upload it on the portal yourself') &&
+      fe.includes('attached to your email draft automatically');
+  })()],
+  ['no setting can cap what a case prepares', (() => {
+    const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // An admin checklist used to cap every case at CV + cover letter, silently dropping
+    // the motivation letter and research note some positions explicitly ask for.
+    return e.includes('const allowed = Object.keys(DOC_CATALOG)') &&
+      !e.includes('cfg.case_plan') && st.includes('case_plan: {}') &&
+      !fe.includes('data-plandoc') && !fe.includes('Case document plan') &&
+      !fe.includes("window._cfg.case_plan") &&
+      fe.includes('Not configurable, by design');
   })()],
   ['field mismatch is a hard gate (never shown as 50% potentially eligible)', (() => {
     const m = fs.readFileSync(__dirname + '/../lib/match.js', 'utf8');
@@ -379,7 +403,7 @@ const checks = [
   })()],
   ['journey steps never block: every step stays clickable after completion', (() => {
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    return fe.includes("'Update CV'") && fe.includes("'View matches'") &&
+    return fe.includes("'Update CV'") && fe.includes("'Search'") &&
       fe.includes("'View cases'") && fe.includes('Every step stays open') &&
       !fe.includes("${i===active?(sp[2]?");
   })()],
@@ -440,8 +464,7 @@ const checks = [
     // The count must apply the same gates the search applies, not tally raw inventory.
     return sv.includes('matchMany(uid, opps, wantLv, wantCc)') &&
       sv.includes('!x.wrongTarget && !x.overqualified && !x.fieldMismatch') &&
-      sv.includes('x.pct >= RELEVANCE_FLOOR') &&
-      fe.includes('Your matches are ready') && fe.includes('ready to view');
+      sv.includes('x.pct >= RELEVANCE_FLOOR');
   })()],
   ['case documents: uploaded CV kept, motivation + proposal for research roles', (() => {
     const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
@@ -496,7 +519,7 @@ const checks = [
     // A selected filter is a promise. Country, level, funding, language, job type,
     // experience and work mode all run through the same enforce-and-report loop.
     return f.includes('const FILTERS=[') && f.includes('window._filterReport')
-      && f.includes('Your filters were applied')
+      && f.includes('Every position below matches what you chose')
       && ['Remote only','Your selected countries','Your selected level','Fully funded only',
           'No language certificate required','Your job type','Your experience level']
          .every(l => f.includes(l));
@@ -583,7 +606,7 @@ const checks = [
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
     // promo_pkr was captured in admin, stored, and used by nothing.
-    return fe.includes('const promo=Number(p.promo_pkr)||0') && fe.includes('Save Rs') &&
+    return fe.includes('function planPrice(p)') && fe.includes('function priceHtml(p,size)') && fe.includes('Save Rs') &&
       sv.includes('Number(pack.promo_pkr) > 0 && Number(pack.promo_pkr) < listPkr') &&
       sv.includes('promo_pkr: p.promo_pkr || null');
   })()],
@@ -610,7 +633,8 @@ const checks = [
     (js.match(/window\.([A-Za-z_$][\w$]*)\s*=/g) || []).forEach(m => defs.add(m.slice(7).replace(/\s*=$/, '')));
     (js.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g) || []).forEach(m => defs.add(m.split(/\s+/)[1]));
     const named = ['openPlans','adminOpenCase','startApp','doStartApp','saveOpp','oppReport',
-                   'dismissOpp','buyPack','go','toggleSimUser','grantFreeCase','resolveHeldLicence',
+                   'buyPack','go','toggleSimUser','grantFreeCase','resolveHeldLicence',
+                   'oppHeadline','oppFacts','oppFactsHtml','planPrice','priceHtml','vBuyRender',
                    'renderPacks','savePacks','planLadderLine','pkgByCredits','lowestPkgPrice'];
     return named.every(n => defs.has(n));
   })()],
@@ -717,6 +741,81 @@ const checks = [
     const keys = (body.match(/^  ([a-z_]+):/gm) || []).map(x => x.trim().replace(':', ''));
     const dupes = keys.filter((k, i) => keys.indexOf(k) !== i);
     return dupes.length === 0 && !fe.includes('_licDone') && !fe.includes('_remoteDropped');
+  })()],
+  ['study and work lanes never show each other\u2019s filters', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // kind!=='work' meant an unset lane rendered BOTH sets, so a study search offered
+    // "Job type" and a job search offered "Intake".
+    return fe.includes("const study=f.kind==='study'?") &&
+      fe.includes("const work=f.kind==='work'?") &&
+      fe.includes("if(f.kind!=='work'&&f.kind!=='study')f.kind='study'") &&
+      fe.includes("if(opts.lane==='work'){") &&
+      fe.includes("if(opts.intake&&opts.lane!=='work')") &&
+      fe.includes("f.kind==='work'?'Your profession':'Your field of study'");
+  })()],
+  ['the study lane carries its own filters end to end', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    // programTypes was collected and sent but rendered nowhere, so a diploma route
+    // could never be chosen.
+    return fe.includes("mp('programTypes','Programme type, select any'") &&
+      fe.includes("sel('tuition','Tuition'") && fe.includes("sel('stipendPref','Living stipend'") &&
+      fe.includes("push('tuition_free','1')") &&
+      sv.includes("String(req.query.tuition_free) === '1'");
+  })()],
+  ['an opportunity card says what the position actually is', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // "Verified position" sold nothing. Cards now lead with level plus field, or the
+    // job type plus field, and carry the facts a buyer weighs.
+    return fe.includes('function oppHeadline(o)') && fe.includes('function oppFactsHtml(o)') &&
+      fe.includes("LV={bachelors:'BS / Bachelor'") &&
+      fe.includes("jt={full_time:'Full-time role'") &&
+      // No dead-end labels and no reject buttons on the card.
+      !/'Criteria not published'\]/.test(fe) && !fe.includes('Not for me') &&
+      !fe.includes('Not interested') && !fe.includes('dismissOpp') &&
+      // Apply sits in the corner of every card.
+      fe.includes('position:absolute;top:14px;right:14px');
+  })()],
+  ['the plans page can never hang on a loading message', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // A thrown template used to leave "Loading packages..." on screen with no way out.
+    return fe.includes('async function vBuyRender()') &&
+      fe.includes("console.error('plans render failed'") &&
+      fe.includes('if(!packs.length)packs=((SITE&&SITE.packages&&SITE.packages.tiers)||[])') &&
+      fe.includes('onclick="cacheClear();vBuy()"');
+  })()],
+  ['no issued document is ever manufactured', (() => {
+    const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    return en.includes('const NEVER_INVENT =') &&
+      en.includes('never write, recreate or simulate any document that an institution issues') &&
+      en.includes('SUBMISSION ROUTE, SAY WHICH ONE APPLIES') &&
+      en.includes('they will upload those themselves on the official site');
+  })()],
+  ['each lane offers its own dropdown filters, end to end', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    const studyOnly = ["sel('instruction','Language of instruction'", "sel('uniType','Institution type'",
+                       "sel('appFee','Application fee'", "sel('deadlineIn','Deadline window'",
+                       "sel('tuition','Tuition'", "sel('stipendPref','Living stipend'"];
+    const workOnly  = ["sel('visaSel','Visa sponsorship'", "sel('contractLen','Contract'",
+                       "sel('startWhen','I can start'", "sel('salaryBand','Minimum salary'"];
+    return studyOnly.every(x => fe.includes(x)) && workOnly.every(x => fe.includes(x)) &&
+      // Each choice is remembered, sent, enforced and understood by the agent.
+      fe.includes('instruction:isWorkLane?') && fe.includes('visaSel:isWorkLane?') &&
+      fe.includes("push('no_app_fee','1')") && fe.includes("push('deadline_days'") &&
+      sv.includes("String(req.query.no_app_fee) === '1'") &&
+      sv.includes('const dwin = parseInt(req.query.deadline_days, 10)') &&
+      sv.includes("lane: b.lane === 'work' ? 'work' : 'study'") &&
+      en.includes('LANE PREFERENCES') && en.includes('${laneLine}');
+  })()],
+  ['Apply opens the plans page with no network wait', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // Pricing is warmed at boot and again when results land, so the tap renders from cache.
+    return fe.includes('function warmPricing()') &&
+      (fe.match(/warmPricing\(\)/g) || []).length >= 3 &&
+      // A paid user's Apply starts the case instead of bouncing them to plans they hold.
+      fe.includes("onclick=\"startApp('${escAttr(o.id)}'");
   })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];

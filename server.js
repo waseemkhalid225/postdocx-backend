@@ -81,7 +81,7 @@ function pdfSafe(t) {
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-31-R4330';
+const FF_BUILD = '2026-08-31-R4390';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => {
   // The installed app polls this to decide whether to reload, so it must never be cached.
@@ -1849,6 +1849,23 @@ app.get('/api/opportunities', auth, async (req, res) => {
     query = query.or(terms.map(x => 'req_field.ilike.%' + x + '%').concat(['req_field.is.null']).join(','));
   }
   if (String(req.query.has_stipend) === '1') query = query.neq('stipend', '');
+  /* Study lane: no application fee. Rows that never state a fee stay, because most
+     scholarship pages simply do not mention one. */
+  if (String(req.query.no_app_fee) === '1') {
+    query = query.or('application_fee.is.null,application_fee.eq.,application_fee.ilike.%free%,application_fee.ilike.%no fee%,application_fee.ilike.%waive%');
+  }
+  // Deadline window, in days from today. Rolling rows (no deadline) always stay.
+  const dwin = parseInt(req.query.deadline_days, 10);
+  if (isFinite(dwin) && dwin > 0 && dwin <= 400) {
+    const until = new Date(Date.now() + dwin * 86400000).toISOString().slice(0, 10);
+    query = query.or('and(deadline.gte.' + new Date().toISOString().slice(0, 10) + ',deadline.lte.' + until + '),deadline.is.null');
+  }
+  if (String(req.query.rolling) === '1') query = query.is('deadline', null);
+  // Study lane: "tuition-free or fully waived". Rows with no tuition stated stay, since
+  // most fully funded places simply do not print a tuition figure at all.
+  if (String(req.query.tuition_free) === '1') {
+    query = query.or('funding_type.eq.fully,tuition.is.null,tuition.eq.,tuition.ilike.%free%,tuition.ilike.%waive%,tuition.ilike.%no tuition%');
+  }
   if (String(req.query.has_deadline) === '1') query = query.not('deadline', 'is', null);
   // Remote is decided after fetch, from evidence, because the boolean column is null on
   // most rows (the page never stated it) and eq(true) therefore returned an empty set,
@@ -2723,6 +2740,17 @@ app.put('/api/prefs', auth, async (req, res) => {
     workmode: ['', 'remote', 'onsite'].includes(String(v.workmode || '')) ? String(v.workmode || '') : '',
     field: /^[a-z][a-z-]{1,40}$/.test(String(v.field || '')) ? String(v.field) : '',
     intake: ['', '2026', '2027'].includes(String(v.intake || '')) ? String(v.intake || '') : '',
+    // Lane-specific selections, remembered so the finder reopens as the user left it.
+    tuition: String(v.tuition || '').slice(0, 20),
+    stipendPref: String(v.stipendPref || '').slice(0, 20),
+    instruction: String(v.instruction || '').slice(0, 20),
+    uniType: String(v.uniType || '').slice(0, 20),
+    appFee: String(v.appFee || '').slice(0, 20),
+    deadlineIn: String(v.deadlineIn || '').slice(0, 10),
+    visaSel: String(v.visaSel || '').slice(0, 20),
+    contractLen: String(v.contractLen || '').slice(0, 20),
+    startWhen: String(v.startWhen || '').slice(0, 20),
+    salaryBand: String(v.salaryBand || '').slice(0, 20),
     // What the applicant typed, plus the resolved credential they ALREADY hold.
     licenseHeld: String(v.licenseHeld || '').slice(0, 120),
     licenseResolved: (v.licenseResolved && typeof v.licenseResolved === 'object') ? {
@@ -3297,6 +3325,18 @@ app.post('/api/run', auth, fairUse, (req,res,next)=>{const f=(require('./lib/set
     field: /^[a-z][a-z-]{1,40}$/.test(String(b.field || '')) ? String(b.field) : null,
     intake: ['2026', '2027'].includes(String(b.intake || '')) ? String(b.intake) : null,
     noLang: !!b.no_lang, remote: !!b.remote,
+    /* Lane-specific preferences. These are not columns, they steer the discovery agent,
+       and each is accepted only for the lane it belongs to so a study answer can never
+       reach a job search. */
+    lane: b.lane === 'work' ? 'work' : 'study',
+    instruction: b.lane === 'work' ? '' : String(b.instruction || '').slice(0, 20),
+    uniType: b.lane === 'work' ? '' : String(b.uni_type || '').slice(0, 20),
+    appFee: b.lane === 'work' ? '' : String(b.app_fee || '').slice(0, 20),
+    deadlineIn: b.lane === 'work' ? '' : String(b.deadline_in || '').slice(0, 10),
+    visaPref: b.lane === 'work' ? String(b.visa_pref || '').slice(0, 20) : '',
+    contractLen: b.lane === 'work' ? String(b.contract_len || '').slice(0, 20) : '',
+    startWhen: b.lane === 'work' ? String(b.start_when || '').slice(0, 20) : '',
+    salaryBand: b.lane === 'work' ? String(b.salary_band || '').slice(0, 20) : '',
     // Work mode rides through to the agent so an on-site request is honoured too.
     workmode: ['', 'remote', 'onsite'].includes(String(b.workmode || '')) ? String(b.workmode || '') : (b.remote ? 'remote' : ''),
     target: 5
