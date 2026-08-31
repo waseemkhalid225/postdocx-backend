@@ -72,7 +72,7 @@ t('referral share card exists and is distinct from the application card',
   fe.includes('REFERRAL SHARE CARD') && fe.includes('async function referralCard'));
 t('share card embeds a QR carrying the referral link', fe.includes('QR.make(link)'));
 t('QR has a quiet zone', fe.includes('(j + 4) * cell') || fe.includes('(j+4)*cell'));
-t('website address is readable without scanning', fe.includes("'foriforeign.com',1268"));
+t('website address is readable without scanning', /ctr\('foriforeign\.com',[^,]+,'700 4[0-9]px/.test(fe));
 t('card text is measured so it cannot overflow', fe.includes('x.measureText(s2).width>(maxW'));
 t('QR encoder fills every module (no unscannable gaps)', fe.includes('m[8][size-8]=fbits[7]'));
 
@@ -113,6 +113,29 @@ t('non-paying users see why it is locked, not a blank space', fe.includes('r.eli
 t('the locked card points to the packages page', fe.includes("onclick=\"go('buy')\""));
 t('the invite card cannot be generated before activation',
   fe.includes('Your invite card unlocks'));
+
+// ---------- PREVIEW BEFORE SHARING ----------
+t('the card is previewed, not downloaded blindly', fe.includes('function showInvitePreview'));
+t('preview shows the actual rendered card', fe.includes('ForiForeign invite card preview'));
+t('download is a deliberate action', fe.includes('function downloadInvite'));
+t('native share sheet used where available', fe.includes('navigator.canShare'));
+t('falls back to download when sharing is unsupported', fe.includes('downloadInvite(url);'));
+t('preview explains the QR carries the referral code',
+  fe.includes('anyone who scans it is credited to you'));
+
+// ---------- APPROVED CARD DESIGN ----------
+t('QR always opens the website', fe.includes("const SITE_URL='https://foriforeign.com'"));
+t('QR carries the invite code for automatic attribution',
+  fe.includes("SITE_URL+'/?ref='+encodeURIComponent(inviteCode)"));
+t('the invite code is also printed for manual entry', fe.includes("'Invite code: '+inviteCode"));
+t('card states the licensing pathways it covers',
+  fe.includes('Licensing exams: PLAB, DHA, USMLE etc.'));
+t('card states the full level range', fe.includes('Undergraduate to postdoctoral.'));
+t('card names the actual reward', fe.includes('get a full application free'));
+t('two share formats: post and WhatsApp status',
+  fe.includes("referralCard('post')") && fe.includes("referralCard('status')"));
+t('status format uses a 9:16 canvas', fe.includes('isStatus?1920:1350'));
+t('preview panel hugs its content', fe.includes('max-height:calc(100vh - 28px)'));
 
 const failed = results.filter(r => !r.ok);
 results.forEach(r => console.log((r.ok ? 'PASS  ' : 'FAIL  ') + r.n + (r.ok ? '' : '  [' + r.d + ']')));

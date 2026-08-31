@@ -700,6 +700,20 @@ header a.on,header button.on,#nav button.on{color:#00D4FF!important;position:rel
 header a.on::after,header button.on::after,#nav button.on::after{
   content:'';position:absolute;left:8%;right:8%;bottom:-6px;height:2px;border-radius:2px;
   background:linear-gradient(90deg,#1683FF,#00D4FF)}
+
+/* Admin navigation: grouped, compact, with an unmistakable active state. */
+.admin-nav{background:rgba(8,20,44,.55);border:1px solid rgba(140,178,255,.18);
+  border-radius:14px;padding:12px 12px 4px}
+.admin-nav .segbtn{padding:8px 14px;font-size:12.5px;border-radius:9px;
+  background:rgba(140,178,255,.07);border:1px solid rgba(140,178,255,.22);color:#c8d8f2}
+.admin-nav .segbtn:hover{border-color:rgba(0,212,255,.5);color:#fff}
+.admin-nav .segbtn.on{background:linear-gradient(135deg,#1683FF,#00A8E0);
+  border-color:transparent;color:#fff;font-weight:700;
+  box-shadow:0 3px 12px rgba(22,131,255,.4)}
+@media(max-width:640px){
+  .admin-nav{padding:10px 10px 2px;border-radius:12px}
+  .admin-nav .segbtn{padding:9px 12px;font-size:12px;min-height:40px}
+}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -970,6 +984,7 @@ function renderAuth(mode){
     <div class="auth-card glass">
       <div class="auth-brand">Fori<b>Foreign</b></div>
       <div class="auth-tag">${esc((SITE&&SITE.brand&&SITE.brand.tagline)||'Your path to studying and working abroad.')}</div>
+      <div id="authMsg" style="display:none"></div>
       ${mode==='signup'?`<label>Full name</label><input id="a-name" type="text" placeholder="Your name">`:''}
       <label>Email</label><input id="a-email" type="email" placeholder="you@gmail.com">
       <label>Password</label><input id="a-pass" type="password" placeholder="minimum 8 characters">
@@ -1094,7 +1109,25 @@ function landingInfo(which){
   ${body}</div>`;
   document.body.appendChild(wrap);
 }
+/* Persistent auth messaging. Anything the user must ACT on (open your email, click the
+   link) stays on screen until they move on, rather than flashing past in a toast. */
+function authMsg(kind, title, body){
+  const el=document.getElementById('authMsg');
+  if(!el){toast(title+' '+(body||''));return}
+  const c=kind==='ok'?['#2dd4bf','rgba(45,212,191,.10)']
+        :kind==='info'?['#00D4FF','rgba(0,212,255,.10)']
+        :kind==='warn'?['#F5B841','rgba(245,184,65,.12)']
+        :['#fb7185','rgba(251,113,133,.10)'];
+  el.style.display='block';
+  el.innerHTML=`<div style="border:1px solid ${c[0]};background:${c[1]};border-radius:11px;padding:11px 13px;margin:10px 0 2px">
+    <div style="font:700 13px Inter;color:${c[0]}">${esc(title)}</div>
+    ${body?`<div style="font:400 12.5px Inter;color:#2a3a52;margin-top:4px;line-height:1.55">${esc(body)}</div>`:''}
+  </div>`;
+  try{el.scrollIntoView({behavior:'smooth',block:'nearest'})}catch(e){}
+}
+function authMsgClear(){const el=document.getElementById('authMsg');if(el){el.style.display='none';el.innerHTML=''}}
 async function doAuth(mode){
+  authMsgClear();
   const email=$('a-email').value.trim(),password=$('a-pass').value;
   if(!email||password.length<8){toast('Enter email and a password of at least 8 characters');return}
   // Authentication can take several seconds on a slow connection: show it working
@@ -1129,8 +1162,15 @@ async function doAuth(mode){
       // Confirm instantly server-side, then sign straight in: no email link needed, ever.
       try{await fetch('/api/auth/confirmed',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})})}catch(e){}
       const si=await SB.auth.signInWithPassword({email,password});
-      if(si.error){toast('Your account is ready. Please sign in.');renderAuth('signin')}
-      else toast('Welcome to ForiForeign, '+(name.split(' ')[0]||'')+'!');
+      if(si.error){
+        renderAuth('signin');
+        setTimeout(()=>authMsg('ok','Your account is ready','Please sign in with the email and password you just chose.'),60);
+      } else {
+        toast('Welcome to ForiForeign, '+(name.split(' ')[0]||'')+'!');
+        // A verification email is sent as confirmation. Access is not blocked on it,
+        // so we say both things plainly rather than leaving the user waiting.
+        setTimeout(()=>{try{toast('A confirmation email is on its way to '+email+'. You can start right away.')}catch(e){}},1400);
+      }
     }else{
       if(window._authBusy){netEnd();return}window._authBusy=true;
       _authOn('Signing you in…');
@@ -1143,8 +1183,17 @@ async function doAuth(mode){
       if(error)throw error;
     }
   }catch(e){
+    // Failures explain what to do next, in place, instead of a raw technical message.
     const m=String(e.message||'');
-    toast(/security purposes|rate limit|seconds/i.test(m)?'One moment please, then try once more.':m);
+    if(/security purposes|rate limit|seconds/i.test(m))
+      authMsg('warn','One moment please','Too many attempts in a short time. Wait a few seconds and try once more.');
+    else if(/invalid login|invalid credentials|invalid email or password/i.test(m))
+      authMsg('err','Those details did not match','Check your email and password. If you have forgotten it, use "Forgot your password?" below.');
+    else if(/already registered|already exists/i.test(m))
+      authMsg('warn','This email is already registered','Please sign in instead, or reset your password if you have forgotten it.');
+    else if(/not confirmed|confirm/i.test(m))
+      authMsg('info','Please verify your email','Open the confirmation email we sent you and click the link, then sign in again.');
+    else authMsg('err','Could not complete that', m);
   }finally{window._authBusy=false;_authOff();netEnd()}
 }
 async function forgotPassword(){
@@ -1157,12 +1206,14 @@ async function forgotPassword(){
       // say so plainly and give a way forward instead of a raw technical error.
       const m=String(error.message||'').toLowerCase();
       if(/sending.*(email|mail)|smtp|error sending/.test(m)){
-        toast('Our email service is temporarily unavailable. Please message us on WhatsApp and we will reset it for you.');
+        authMsg('warn','We could not send that email right now',
+          'Our email service is temporarily unavailable. Please message us on WhatsApp and we will reset your password for you.');
         return;
       }
       throw error;
     }
-    toast('Password reset link sent to '+email+'. Check your inbox (and spam).');
+    authMsg('info','Check your email now',
+      'We have sent a password reset link to '+email+'. Open your inbox, click the link, and choose a new password. If it is not there within a minute, look in your spam or junk folder.');
   }catch(e){toast(e.message)}
 }
 // When the user arrives from the reset email, Supabase fires PASSWORD_RECOVERY.
@@ -1425,7 +1476,22 @@ async function vHome(){
        Nothing in this journey is ever one-way. */
     const steps=[
     ['Upload CV',S.hasCV,'Upload',"window._uploadKind=null;document.getElementById('doc-files').click()",'Update CV'],
-    ['Find opportunities'+(window._extracting?' · reading your CV first…':(MY.count70?' · '+MY.count70+' found':'')),MY.count70>0,window._extracting?'':'Find',"openFinder()",'View matches'],
+    /* Step 2 wording. A raw running total was misleading: it grew forever and did not
+       match what a search returned. We now say what the user can actually act on, and
+       respect the package: numbers of unlocked matches only once they have one. */
+    [(function(){
+      if(window._extracting)return 'Find opportunities · reading your CV first…';
+      const n=MY.count70||0;
+      if(!n)return 'Find opportunities';
+      const cr=(HM&&HM.credits&&HM.credits.creditsRemaining)||0;
+      if(cr<1)return 'Your matches are ready';           // gated: no count before a package
+      const cap=(function(){try{
+        const t=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).slice().sort((a,b)=>(a.credits||0)-(b.credits||0));
+        let v=null;for(const x of t){if(cr>=(x.credits||0))v=x.view||null}return v;
+      }catch(e){return null}})();
+      const show=cap?Math.min(n,cap):n;
+      return 'Your matches · '+show+' ready to view';
+    })(),MY.count70>0,window._extracting?'':'Find',"openFinder()",'View matches'],
     ['We prepare your case'+(S.appCount?' · '+S.appCount+' case'+(S.appCount===1?'':'s'):''),S.appCount>0,S.appCount?'View':'',"go('apps')",'View cases'],
     ['Approve &amp; Apply',S.state==='application_sent','Approve',"go('apps')",'Open cases']
   ];let active=steps.findIndex(x=>!x[1]);if(active<0)active=steps.length-1;
@@ -1612,6 +1678,17 @@ function pkrHint(txt){
 }
 function daysLeft(d){if(!d)return null;const n=Math.ceil((new Date(d).getTime()-Date.now())/864e5);return isFinite(n)?n:null}
 function isNewOpp(o){const t=o.created_at&&new Date(o.created_at).getTime();return t&&Date.now()-t<7*864e5}
+/* How this application will actually be submitted. Shown on EVERY card so the user
+   knows before spending a credit whether it lands in their email as a ready draft, or
+   opens the employer's own portal with their details filled in. */
+function routeChip(o){
+  const v=String((o&&o.apply_via)||'').toLowerCase();
+  if(/portal|online|website|form|system/.test(v))
+    return '<span class="chip" style="border-color:rgba(245,184,65,.6);color:#FFD070" title="Opens the official portal and fills your details">Apply via portal</span>';
+  if(/e-?mail|mailto/.test(v)||(o&&o.contact_email))
+    return '<span class="chip" style="border-color:rgba(45,212,191,.6);color:#2dd4bf" title="Prepared as a draft in your own email, you press Send">Apply by email</span>';
+  return '<span class="chip" style="border-color:rgba(140,178,255,.45);color:#B4E4FF" title="We confirm the exact route when your case is prepared">Route confirmed on preparation</span>';
+}
 function oppCard(o,ctaColor){
   const dl=daysLeft(o.deadline);
   const dlChip=dl!=null?(dl<=14?`<span class="chip c-red">Closes in ${dl}d</span>`:`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`):'';
@@ -1648,7 +1725,7 @@ function oppCard(o,ctaColor){
     <div class="spread"><div style="min-width:0"><b>${titleLine}</b><div class="sub">${subLine}</div></div>
     ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}${revealed&&o.city?' · '+esc(o.city):''}</span>`:''}</div>
     <div class="chiprow">
-    ${matchBadge(o.match)}${levelChip}${fundingChip}${newChip}${dlChip}
+    ${routeChip(o)}${matchBadge(o.match)}${levelChip}${fundingChip}${newChip}${dlChip}
     ${o.stipend?`<span class="chip c-green">${esc(String(o.stipend).slice(0,38))}${pkrHint(o.stipend)}</span>`:''}
     ${o.tuition?`<span class="chip c-gray">Tuition ${esc(String(o.tuition).slice(0,30))}${pkrHint(o.tuition)}</span>`:''}
     ${o.req_language&&o.req_language!=='none'?`<span class="chip c-blue">${esc(o.req_language)}${o.req_language_min?' '+esc(o.req_language_min):''}</span>`:o.req_language==='none'?'<span class="chip c-green">No IELTS stated</span>':''}</div>
@@ -3240,8 +3317,29 @@ async function vAdmin(){
   const allTabs=[['overview','Overview','overview.read'],['cases','Cases','overview.read'],['payments','Payments','payments.read'],['packages','Packages','packages.read'],['countries','Countries','countries.read'],['universities','Universities','countries.read'],['content','Content','content.read'],['reviews','Reviews','reviews.read'],['support','Support','support.read'],['users','Users','users.read'],['aicost','AI Costs','aicost.read'],['settings','Settings','settings.read'],['audit','Audit log','audit.read']];
   const tabs=allTabs.filter(([k,l,p])=>can(p));
   const cur=tabs.find(([k])=>k===t)?t:(tabs[0]&&tabs[0][0])||'overview';
-  $('view').innerHTML=`<h2 style="margin-bottom:8px">Admin Control Center</h2>
-  <div class="row" style="margin-bottom:12px;overflow-x:auto">${tabs.map(([k,l])=>`<button class="segbtn ${cur===k?'on':''}" onclick="window._adminTab='${k}';vAdmin()">${l}</button>`).join('')}</div>
+  /* Thirteen equal pills wrapping across three rows gave no sense of where anything
+     was. They are now grouped by what the work actually is, each group labelled, so the
+     eye can find the right area instead of scanning every label. */
+  const GROUPS=[
+    ['Daily work',   ['overview','cases','support','users']],
+    ['Money',        ['payments','packages','aicost']],
+    ['Content',      ['countries','universities','content','reviews']],
+    ['System',       ['settings','audit']]
+  ];
+  const byKey={};tabs.forEach(t2=>{byKey[t2[0]]=t2});
+  const groupHtml=GROUPS.map(([title,keys])=>{
+    const items=keys.map(k=>byKey[k]).filter(Boolean);
+    if(!items.length)return '';
+    return `<div style="margin-bottom:10px">
+      <div class="sub" style="font:700 10.5px Inter;letter-spacing:.09em;text-transform:uppercase;color:#7d93b8;margin:0 0 5px 2px">${title}</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">${items.map(([k,l])=>
+        `<button class="segbtn ${cur===k?'on':''}" onclick="window._adminTab='${k}';vAdmin()">${l}</button>`).join('')}</div>
+    </div>`;
+  }).join('');
+  const ungrouped=tabs.filter(([k])=>!GROUPS.some(g=>g[1].includes(k)));
+  $('view').innerHTML=`<h2 style="margin-bottom:2px">Admin Control Center</h2>
+  <div class="sub" style="margin-bottom:12px">Signed in as ${esc((ME&&ME.full_name)||'admin')}${(window._adminRoles||[]).length?' · '+esc((window._adminRoles||[]).join(', ')):''}</div>
+  <div class="admin-nav" style="margin-bottom:14px">${groupHtml}${ungrouped.length?`<div class="row" style="gap:6px;flex-wrap:wrap">${ungrouped.map(([k,l])=>`<button class="segbtn ${cur===k?'on':''}" onclick="window._adminTab='${k}';vAdmin()">${l}</button>`).join('')}</div>`:''}</div>
   <div id="adminBody"><div class="empty">Loading…</div></div>`;
   if(cur==='settings')return adminSettings();
   if(cur==='audit')return adminAudit();
@@ -3586,18 +3684,27 @@ function waLink(num,text){const n=String(num||'').replace(/[^0-9]/g,'').replace(
 /* REFERRAL SHARE CARD — a premium invitation, not a receipt. One focal globe motif,
    three short lines, the reward, a scannable QR carrying the referral code, and the
    plain website address. Deliberately few, strong elements. */
-async function referralCard(){
+async function referralCard(fmt){
+  // fmt: 'post' (1080x1350, feed and chat) or 'status' (1080x1920, WhatsApp/IG status)
   if(!window._ref)await loadReferral();
   const r=window._ref||{};
   if(r.eligible===false||!r.code){
     toast('Your invite card unlocks once you activate a package. Choose one to start earning free cases.');
     go('buy');return;
   }
-  const link=r.link||'https://foriforeign.com';
-  const c=document.createElement('canvas');c.width=1080;c.height=1350;const x=c.getContext('2d');
+  /* The QR always opens foriforeign.com and carries the invite code, so a friend who
+     scans it is credited automatically. The code is also printed on the card for anyone
+     who would rather type it into the "Invited by a friend?" box. */
+  const SITE_URL='https://foriforeign.com';
+  const inviteCode=r.code||'';
+  const link=inviteCode?(SITE_URL+'/?ref='+encodeURIComponent(inviteCode)):SITE_URL;
+  const isStatus=(fmt==='status');
+  const c=document.createElement('canvas');c.width=1080;c.height=isStatus?1920:1350;const x=c.getContext('2d');
   const CX=540;
+  // Status is taller, so everything below the brand shifts down and breathes.
+  const SH=isStatus?270:0;
   const g=x.createLinearGradient(0,0,540,1350);g.addColorStop(0,'#12295C');g.addColorStop(.55,'#0A1A3A');g.addColorStop(1,'#050D1F');x.fillStyle=g;x.fillRect(0,0,1080,1350);
-  const gl=x.createRadialGradient(CX,360,20,CX,360,560);gl.addColorStop(0,'rgba(0,212,255,.20)');gl.addColorStop(1,'rgba(0,212,255,0)');x.fillStyle=gl;x.fillRect(0,0,1080,900);
+  const gl=x.createRadialGradient(CX,360+SH,20,CX,360+SH,560);gl.addColorStop(0,'rgba(0,212,255,.20)');gl.addColorStop(1,'rgba(0,212,255,0)');x.fillStyle=gl;x.fillRect(0,0,1080,900+SH);
   const bar=x.createLinearGradient(0,0,1080,0);bar.addColorStop(0,'#1683FF');bar.addColorStop(.5,'#00D4FF');bar.addColorStop(1,'#F5B841');x.fillStyle=bar;x.fillRect(0,0,1080,12);
   function rr(a,b,w,h,rad){x.beginPath();x.moveTo(a+rad,b);x.arcTo(a+w,b,a+w,b+h,rad);x.arcTo(a+w,b+h,a,b+h,rad);x.arcTo(a,b+h,a,b,rad);x.arcTo(a,b,a+w,b,rad);x.closePath()}
   function ctr(t,y,font,fill,maxW){x.font=font;x.fillStyle=fill;let s2=String(t||'');
@@ -3607,7 +3714,7 @@ async function referralCard(){
   x.font='700 54px Georgia';const bw=x.measureText('Fori').width+x.measureText('Foreign').width;
   x.fillStyle='#fff';x.fillText('Fori',CX-bw/2,112);x.fillStyle='#00D4FF';x.fillText('Foreign',CX-bw/2+x.measureText('Fori').width,112);
   // focal globe motif: meridians on a gradient sphere, the one pictorial element
-  const gy=310,gr=104;
+  const gy=310+SH,gr=104;
   const sg=x.createLinearGradient(CX-gr,gy-gr,CX+gr,gy+gr);sg.addColorStop(0,'#1683FF');sg.addColorStop(1,'#00D4FF');
   x.beginPath();x.arc(CX,gy,gr,0,Math.PI*2);x.fillStyle=sg;x.fill();
   x.strokeStyle='rgba(255,255,255,.55)';x.lineWidth=3;
@@ -3615,31 +3722,80 @@ async function referralCard(){
   x.beginPath();x.ellipse(CX,gy,gr*0.45,gr,0,0,Math.PI*2);x.stroke();
   x.beginPath();x.moveTo(CX-gr,gy);x.lineTo(CX+gr,gy);x.stroke();
   x.beginPath();x.arc(CX,gy,gr+16,0,Math.PI*2);x.strokeStyle='rgba(0,212,255,.3)';x.lineWidth=2;x.stroke();
-  // proposition, three short lines
-  ctr('Study and work abroad,',500,'700 60px Georgia','#ffffff',940);
-  ctr('done for you.',568,'700 60px Georgia','#00D4FF',940);
-  ctr('Verified opportunities matched to your CV,',636,'400 34px Arial','#CBD5E1',940);
-  ctr('with every application prepared for you.',682,'400 34px Arial','#CBD5E1',940);
-  // reward strip
-  rr(120,730,840,110,22);x.fillStyle='rgba(245,184,65,.13)';x.fill();x.strokeStyle='rgba(245,184,65,.55)';x.lineWidth=2;x.stroke();
-  ctr('REFER & EARN',778,'700 30px Arial','#FFD070',780);
-  ctr('Invite '+(r.per_milestone||5)+' friends, get a free package',822,'400 32px Arial','#EAF2FF',780);
+  // Proposition: say plainly WHAT the website does, so a stranger understands in seconds.
+  ctr('Study and work abroad,',498+SH,'700 60px Georgia','#ffffff',940);
+  ctr('done for you.',566+SH,'700 60px Georgia','#00D4FF',940);
+  // Short, punchy lines. Three beats, no padding.
+  ctr('Scholarships, degrees, jobs.',632+SH,'600 34px Arial','#EAF2FF',960);
+  ctr('Licensing exams: PLAB, DHA, USMLE etc.',678+SH,'600 34px Arial','#EAF2FF',960);
+  ctr('Undergraduate to postdoctoral.',724+SH,'600 34px Arial','#EAF2FF',960);
+  // Reward: name the actual reward, not a vague "package".
+  rr(120,782+SH,840,150,22);x.fillStyle='rgba(245,184,65,.13)';x.fill();x.strokeStyle='rgba(245,184,65,.55)';x.lineWidth=2;x.stroke();
+  ctr('REFER & EARN',826+SH,'700 28px Arial','#FFD070',780);
+  ctr('Invite '+(r.per_milestone||5)+' friends, get a full application free',866+SH,'400 28px Arial','#EAF2FF',820);
+  // The unique code, printed large enough to read and type from a phone screen.
+  if(inviteCode) ctr('Invite code: '+inviteCode,914+SH,'700 34px Arial','#FFFFFF',820);
   // QR with quiet zone, sized to scan reliably from a phone screen
   try{
-    const mx=QR.make(link);const n=mx.length;const box=300;const cell=Math.floor(box/(n+8));
-    const qs=cell*(n+8),qx=CX-qs/2,qy=880;
+    const mx=QR.make(link);const n=mx.length;const box=isStatus?300:230;const cell=Math.floor(box/(n+8));
+    const qs=cell*(n+8),qx=CX-qs/2,qy=(isStatus?968+SH:952);
     x.fillStyle='#ffffff';rr(qx-10,qy-10,qs+20,qs+20,18);x.fill();
     x.fillStyle='#04101F';
     for(let i=0;i<n;i++)for(let j=0;j<n;j++)if(mx[i][j])x.fillRect(qx+(j+4)*cell,qy+(i+4)*cell,cell,cell);
-    ctr('Scan to join',qy+qs+52,'400 30px Arial','#8FA9CE',700);
-  }catch(e){ctr('foriforeign.com',960,'700 44px Arial','#ffffff',900);}
-  // website, always readable without the QR
-  ctr('foriforeign.com',1268,'700 46px Arial','#ffffff',900);
-  x.fillStyle='rgba(0,212,255,.09)';x.fillRect(0,1296,1080,54);
-  ctr('Built in Pakistan · For ambitious people everywhere',1332,'600 26px Arial','#7BE8FF',900);
+    ctr('Scan to open foriforeign.com',qy+qs+46,'400 27px Arial','#8FA9CE',760);
+  }catch(e){}
+  // The address is always readable, so nobody depends on being able to scan.
+  ctr('foriforeign.com',c.height-84,'700 48px Arial','#ffffff',900);
+  x.fillStyle='rgba(0,212,255,.09)';x.fillRect(0,c.height-54,1080,54);
+  ctr('Built in Pakistan · For ambitious people everywhere',c.height-18,'600 26px Arial','#7BE8FF',900);
+  /* Preview before download. Sending an image to friends and colleagues is a personal
+     act, so the user should see exactly what it looks like first, and share straight
+     from here on a phone rather than hunting for the file. */
   const url=c.toDataURL('image/png');
-  const a2=document.createElement('a');a2.href=url;a2.download='ForiForeign-invite.png';a2.click();
-  toast('✓ Invite card downloaded. Share it on WhatsApp; the QR carries your referral code.');
+  showInvitePreview(url,link,isStatus?'status':'post');
+}
+function showInvitePreview(url,link,fmt){
+  document.querySelectorAll('.ff-invite-modal').forEach(n=>n.remove());
+  const wrap=document.createElement('div');
+  wrap.className='ff-invite-modal';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.88);z-index:9998;display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto;-webkit-overflow-scrolling:touch';
+  wrap.onclick=e=>{if(e.target===wrap)wrap.remove()};
+  wrap.innerHTML=`<div style="max-width:400px;width:100%;max-height:calc(100vh - 28px);overflow:auto;background:#0a1832;border:1px solid rgba(140,178,255,.3);border-radius:16px;padding:13px 13px 15px;display:flex;flex-direction:column;gap:0">
+    <div class="spread" style="align-items:center;margin-bottom:10px">
+      <b style="font-size:15px">Your invite card</b>
+      <button class="btn b-line" style="padding:4px 12px" aria-label="Close" onclick="this.closest('div[style*=fixed]').remove()">✕</button>
+    </div>
+    <img src="${url}" alt="ForiForeign invite card preview" style="width:100%;border-radius:12px;display:block;box-shadow:0 10px 34px rgba(0,0,0,.5)">
+    <div class="row" style="gap:6px;margin:9px 0 7px">
+      <button class="segbtn ${fmt!=='status'?'on':''}" onclick="referralCard('post')">Post &amp; chat</button>
+      <button class="segbtn ${fmt==='status'?'on':''}" onclick="referralCard('status')">WhatsApp status</button>
+    </div>
+    <div class="sub" style="margin:0 0 9px;line-height:1.5">The QR opens foriforeign.com and carries your invite code, so anyone who scans it is credited to you automatically.</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <button class="btn b-gold" style="flex:1;min-width:120px" onclick="downloadInvite('${url}')">Download</button>
+      <button class="btn b-line" style="flex:1;min-width:120px" onclick="shareInvite('${url}','${escAttr(link)}')">Share</button>
+      <button class="btn b-line" style="flex:1;min-width:120px" onclick="copyTxt('${escAttr(link)}',this)">Copy link</button>
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
+}
+function downloadInvite(url){
+  const a=document.createElement('a');a.href=url;a.download='ForiForeign-invite.png';a.click();
+  toast('✓ Saved. Check your downloads, then share it on WhatsApp.');
+}
+async function shareInvite(url,link){
+  // Native share sheet where the device supports it: one tap to WhatsApp.
+  try{
+    const blob=await (await fetch(url)).blob();
+    const file=new File([blob],'ForiForeign-invite.png',{type:'image/png'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:'ForiForeign',
+        text:'Study and work abroad, done for you. Join me on ForiForeign: '+link});
+      return;
+    }
+    if(navigator.share){await navigator.share({title:'ForiForeign',text:'Join me on ForiForeign',url:link});return}
+  }catch(e){}
+  downloadInvite(url);
 }
 async function shareCard(appId){
   let a=null;try{const d=await api('/api/applications/'+appId);a=d.application||d.app||d}catch(e){}
@@ -4048,9 +4204,20 @@ async function deleteUser(id,name,btn){
   catch(e){toast(e.message);btn.disabled=false;btn.textContent='Delete'}
 }
 async function saveRole(id,btn){
+  // Promoting someone to admin is consequential: confirm it, and say what it grants.
+  const sel=document.getElementById('role-'+id);
+  const newRole=sel?sel.value:'';
+  if(['admin','super_admin','staff'].includes(newRole)){
+    const what=newRole==='super_admin'
+      ? 'full control, including the ability to make other users admins'
+      : newRole==='admin' ? 'admin access to all sections, plus 999 case credits' : 'staff access';
+    if(!confirm('Give this user '+what+'?\n\nThis takes effect immediately.'))
+      { if(sel)sel.value='user'; return; }
+  }
   btn.disabled=true;
   const role=($('role-'+id)||{}).value;
-  try{await api('/api/admin/users/'+id+'/role',{method:'POST',body:{role}});toast('Role updated.');vAdmin();}
+  try{const r=await api('/api/admin/users/'+id+'/role',{method:'POST',body:{role}});
+    toast(r&&r.allowance_granted?'Role updated. 999 case credits granted.':'Role updated.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}
 }
 async function adminCases(){

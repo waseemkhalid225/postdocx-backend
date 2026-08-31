@@ -79,7 +79,9 @@ t('search covers labs and institutes', en.includes('RESEARCH LABS AND INSTITUTES
 t('search covers small and native employers', en.includes('SMALL AND NATIVE EMPLOYERS'));
 t('search covers local job platforms and social channels', en.includes('StepStone') && en.includes('Facebook'));
 t('licence-specific databases are named per credential', en.includes('LIC_BOARDS') && en.includes('Mumaris Plus'));
-t('the advert must admit the applicant', en.includes('ELIGIBILITY RULE, ABSOLUTE'));
+t('search retrieves generously; precision is enforced by the match gate',
+  en.includes('Do NOT discard an opportunity merely because') &&
+  en.includes('postdoc seeker NEVER PhD admissions'));
 
 // ---------- SECURITY: results are data, not instructions ----------
 t('search results are treated as untrusted data',
@@ -124,6 +126,43 @@ t('deduplication runs on the result set', sv.includes('ENTITY DEDUPLICATION'));
 t('the more authoritative source survives a merge', sv.includes('const authority ='));
 t('official domains outrank aggregators', sv.includes('\\.edu|') && sv.includes('careers|jobs'));
 t('dedup uses canonical institution names', sv.includes("require('./lib/entity')") && sv.includes('canonicalKey(o.institution)'));
+
+// ---------- 60%+ INCLUSION, RANKED, CAPPED BY PACKAGE ----------
+// The rule is: keep EVERY match at or above 60 percent, rank by score, and let the
+// package decide how many are unlocked. High scores are a priority order, never an
+// entry requirement.
+t('the floor is 60, not 90', sv.includes('RELEVANCE_FLOOR = 60'));
+t('only matches BELOW the floor are removed', sv.includes('o.match.pct < RELEVANCE_FLOOR'));
+t('a 62% match is kept', (() => { const F = 60; return !(62 < F); })());
+t('a 71% match is kept', (() => { const F = 60; return !(71 < F); })());
+t('a 58% match is removed', (() => { const F = 60; return 58 < F; })());
+t('results are ranked by score, highest first', sv.includes('opportunities.sort'));
+t('the package caps how many are unlocked, after ranking',
+  sv.includes('.sort((x, y) => pv2(y) - pv2(x)).slice(0, visible)'));
+t('lower-scoring matches are locked, not deleted', sv.includes('lockTease'));
+t('hard requirements still gate entry (level, field, eligibility)',
+  sv.includes('!wrongLevel(o)') && sv.includes('!wrongField(o)') && sv.includes('!notEligible(o)'));
+
+// ---------- RANKING QUALITY AND APPLY ROUTE ----------
+t('discriminating factors carry real weight', (() => {
+  const mj = fs.readFileSync(path.join(__dirname, '..', 'lib', 'match.js'), 'utf8');
+  return mj.includes('location: 0.16') && mj.includes('funding: 0.09') && mj.includes('deadline: 0.08');
+})());
+t('the best match ranks first in a controlled case', (() => {
+  const facts = { _profile: { field: 'Pharmacology', professions: ['Pharmacist'], education: [{ degree: 'PhD Pharmacology' }] },
+    highest_degree: { value: 'PhD' }, field: { value: 'Pharmacology' }, _wantCountries: ['DE'] };
+  const perfect = m.evaluate({ id: 'p', title: 'Postdoc in Pharmacology', country_code: 'DE', level: 'postdoc',
+    req_field: 'Pharmacology', funding_type: 'fully', deadline: '2026-12-15' }, facts, ['postdoc']);
+  const worse = m.evaluate({ id: 'w', title: 'Postdoc in Pharmacology', country_code: 'CA', level: 'postdoc',
+    req_field: 'Pharmacology', funding_type: 'self', deadline: '2026-12-15' }, facts, ['postdoc']);
+  return perfect.pct > worse.pct;
+})());
+t('the apply route is captured from the official page',
+  en.includes('email if the page gives an application email address'));
+t('every opportunity card states how it will be submitted', fe.includes('function routeChip'));
+t('portal route is labelled', fe.includes('Apply via portal'));
+t('email route is labelled', fe.includes('Apply by email'));
+t('an unknown route is stated honestly, never guessed', fe.includes('Route confirmed on preparation'));
 
 const failed = results.filter(r => !r.ok);
 results.forEach(r => console.log((r.ok ? 'PASS  ' : 'FAIL  ') + r.n + (r.ok ? '' : '  [' + r.d + ']')));

@@ -81,7 +81,7 @@ function pdfSafe(t) {
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R3700';
+const FF_BUILD = '2026-08-28-R3880';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -221,6 +221,7 @@ process.on('uncaughtException', e => console.error('[bg!]', e && e.message));
 
 /* ---------- auth ---------- */
 // Owner emails always hold super_admin, enforced on every authenticated request.
+const _allowanceChecked = new Set();
 const OWNER_EMAILS = ['waseemkhalid225@gmail.com', 'admin@foriforeign.com'];
 async function auth(req, res, next) {
   const t = (req.headers.authorization || '').replace(/^Bearer /, '');
@@ -230,6 +231,18 @@ async function auth(req, res, next) {
   if (u.email && OWNER_EMAILS.includes(String(u.email).toLowerCase())) {
     try { const { data: p } = await admin().from('profiles').select('role').eq('id', u.id).single(); if (!p || p.role !== 'super_admin') await admin().from('profiles').update({ role: 'super_admin' }).eq('id', u.id); } catch (e) {}
   }
+  /* Any admin, however they were promoted, receives the working allowance once. This
+     covers accounts elevated before the rule existed, without re-granting on every call. */
+  try {
+    if (!_allowanceChecked.has(u.id)) {
+      _allowanceChecked.add(u.id);
+      if (_allowanceChecked.size > 5000) _allowanceChecked.clear();
+      const { data: pr } = await admin().from('profiles').select('role').eq('id', u.id).single();
+      if (pr && require('./lib/rbac').isAdminRole(pr.role) && pr.role !== 'user') {
+        ensureAdminAllowance(u.id).catch(() => {});
+      }
+    }
+  } catch (e) {}
   next();
 }
 async function staffOnly(req, res, next) {
@@ -868,6 +881,24 @@ app.delete('/api/admin/users/:id', auth, perm('users.write'), async (req, res) =
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
+/* Every admin needs a working allowance so they can prepare and inspect real cases.
+   Granted once per account, idempotently, whether they were promoted today or long ago. */
+const ADMIN_ALLOWANCE = 999;
+async function ensureAdminAllowance(userId) {
+  try {
+    const { data: prior } = await admin().from('credit_ledger')
+      .select('id').eq('user_id', userId).eq('reason', 'admin_allowance').limit(1);
+    if (prior && prior.length) return false;
+    const bal = await balance(userId);
+    const top = ADMIN_ALLOWANCE - bal;
+    if (top <= 0) return false;
+    await admin().from('credit_ledger').insert({
+      user_id: userId, delta: top, reason: 'admin_allowance',
+      note: 'Admin working allowance (' + ADMIN_ALLOWANCE + ' cases)'
+    });
+    return true;
+  } catch (e) { return false; }
+}
 app.post('/api/admin/users/:id/role', auth, perm('users.write'), async (req, res) => {
   const { ROLE_PERMISSIONS } = require('./lib/rbac');
   const role = String(req.body && req.body.role || '');
@@ -879,8 +910,11 @@ app.post('/api/admin/users/:id/role', auth, perm('users.write'), async (req, res
   if (req.params.id === req.userId && role === 'user') return res.status(400).json({ error: 'You cannot remove your own admin access' });
   const { error } = await admin().from('profiles').update({ role }).eq('id', req.params.id);
   if (error) return res.status(400).json({ error: error.message });
-  await admin().from('audit_log').insert({ actor: req.userId, event: 'ROLE_CHANGED', detail: req.params.id + ' -> ' + role }).then(() => {}, () => {});
-  res.json({ ok: true });
+  // A newly promoted admin receives the working allowance immediately.
+  let granted = false;
+  if (grantingAdmin) granted = await ensureAdminAllowance(req.params.id);
+  await admin().from('audit_log').insert({ actor: req.userId, event: 'ROLE_CHANGED', detail: req.params.id + ' -> ' + role + (granted ? ' (+' + ADMIN_ALLOWANCE + ' cases)' : '') }).then(() => {}, () => {});
+  res.json({ ok: true, allowance_granted: granted });
 });
 app.post('/api/support', auth, async (req, res) => {
   const subject = String((req.body && req.body.subject) || '').slice(0, 160);
@@ -1270,10 +1304,10 @@ app.get('/api/me', auth, async (req, res) => {
   let { data, error } = await admin().from('profiles').select('*').eq('id', req.userId).single();
   if (error && error.code === 'PGRST116') {
     // first login: create the profile row
-    const isFounder = (req.userEmail || '').toLowerCase() === (process.env.ADMIN_EMAIL || 'waseemkhalid225@gmail.com').toLowerCase();
+    const isFounder = OWNER_EMAILS.includes((req.userEmail || '').toLowerCase());
     let signupName = '';
     try { const { data: ud } = await admin().auth.getUser((req.headers.authorization || '').replace(/^Bearer /, '')); signupName = ((ud && ud.user && ud.user.user_metadata) || {}).full_name || ''; } catch (e) {}
-    const ins = await admin().from('profiles').insert({ id: req.userId, full_name: signupName || req.userEmail.split('@')[0], role: isFounder ? 'admin' : 'user' }).select().single();
+    const ins = await admin().from('profiles').insert({ id: req.userId, full_name: signupName || req.userEmail.split('@')[0], role: isFounder ? 'super_admin' : 'user' }).select().single();
     if (isFounder) await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 999, reason: 'grant', note: 'Founder account' });
     data = ins.data;
   }
@@ -1282,7 +1316,7 @@ app.get('/api/me', auth, async (req, res) => {
   // email ever shows up without the admin role or its credit grant (a recreated row,
   // a bad migration moment, anything), it is restored right here, automatically.
   try {
-    const isFounder2 = (req.userEmail || '').toLowerCase() === (process.env.ADMIN_EMAIL || 'waseemkhalid225@gmail.com').toLowerCase();
+    const isFounder2 = OWNER_EMAILS.includes((req.userEmail || '').toLowerCase());
     if (isFounder2) {
       if (data.role !== 'admin') { await admin().from('profiles').update({ role: 'admin' }).eq('id', req.userId); data.role = 'admin'; }
       const bal2 = await balance(req.userId);
@@ -1379,12 +1413,27 @@ app.get('/api/home', auth, async (req, res) => {
     const mcKey = 'mm:' + uid;
     const cachedMM = _homeMatchCache.get(mcKey);
     if (cachedMM && Date.now() - cachedMM.at < 300000) { out.myMatches = cachedMM.val; throw { _skip: true }; }
-    const { data: opps } = await admin().from('opportunities').select('*').eq('status', 'verified').order('created_at', { ascending: false }).limit(60);
+    /* The dashboard count must agree with what a search actually returns. Counting the
+       whole inventory ignored the user's chosen level, field and countries, so the
+       dashboard could claim 52 matches while a search correctly returned none. We now
+       apply the SAME gates the search uses. */
+    let wantLv = [], wantCc = [];
+    try {
+      const { data: pf } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + uid).single();
+      const pv = (pf && pf.value) || {};
+      wantLv = pv.levels || [];
+      wantCc = (pv.ctrys || pv.countries || []).map(c => String(c).toUpperCase());
+    } catch (e) {}
+    let q = admin().from('opportunities').select('*').eq('status', 'verified').order('created_at', { ascending: false }).limit(60);
+    if (wantCc.length) q = q.in('country_code', wantCc);
+    const { data: opps } = await q;
     if (opps && opps.length) {
-      const m = await matchMany(uid, opps);
-      // same relevance floor as the main endpoint (single source of truth)
-      const pcts = (m || []).map(x => x.pct).filter(p => p != null);
-      out.myMatches = { count70: pcts.filter(p => p >= 70).length, best: pcts.length ? Math.max(...pcts) : null, scored: pcts.length, live: opps.length };
+      const m = await matchMany(uid, opps, wantLv, wantCc);
+      const usable = (m || []).filter(x =>
+        !x.wrongTarget && !x.overqualified && !x.fieldMismatch &&
+        x.status !== 'not_eligible' && x.pct != null && x.pct >= RELEVANCE_FLOOR);
+      const pcts = usable.map(x => x.pct);
+      out.myMatches = { count70: usable.length, best: pcts.length ? Math.max(...pcts) : null, scored: pcts.length, live: opps.length };
     } else out.myMatches = { count70: 0, best: null, scored: 0, live: 0 };
     try { _homeMatchCache.set('mm:' + uid, { val: out.myMatches, at: Date.now() }); if (_homeMatchCache.size > 3000) _homeMatchCache.clear(); } catch (e) {}
   } catch (e) { if (!(e && e._skip)) { /* non-fatal */ } }

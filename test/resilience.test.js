@@ -194,7 +194,7 @@ const checks = [
     const m = fs.readFileSync(__dirname + '/../lib/match.js', 'utf8');
     const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
     return m.includes('expandTerms') && m.includes('pharmacologist') &&
-      e.includes('ELIGIBILITY RULE, ABSOLUTE') && e.includes("req_degree_level || '').toLowerCase()");
+      e.includes('Do NOT discard an opportunity merely because') && e.includes("req_degree_level || '').toLowerCase()");
   })()],
   ['work lane: every user selection reaches the API (job type, exp, remote, country, licences)', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
@@ -351,6 +351,41 @@ const checks = [
       fe.includes('onclick="aiSelfTest(this)"') && fe.includes('onclick="runDeepDiag(this)"') &&
       fe.includes('async function openHealthFull') && fe.includes('function diagOut') &&
       !fe.includes("alert('AI ENGINE SELF-TEST");
+  })()],
+  ['admin navigation is grouped and every tab remains reachable', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const keys = ['overview','cases','payments','packages','countries','universities',
+                  'content','reviews','support','users','aicost','settings','audit'];
+    return fe.includes("['Daily work'") && fe.includes('const ungrouped=') &&
+      fe.includes('.admin-nav .segbtn.on') &&
+      keys.every(k => fe.includes("'" + k + "'"));
+  })()],
+  ['auth flows give clear, persistent, actionable messages', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('function authMsg') && fe.includes('id="authMsg"') &&
+      fe.includes('Check your email now') && fe.includes('spam or junk folder') &&
+      fe.includes('Signing you in') && fe.includes('Creating your account') &&
+      fe.includes('Those details did not match') && fe.includes('Please verify your email');
+  })()],
+  ['admin rights: both owners are super admins, any admin gets 999 credits once', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return sv.includes('isFounder = OWNER_EMAILS.includes') &&
+      sv.includes("isFounder ? 'super_admin' : 'user'") &&
+      sv.includes('ADMIN_ALLOWANCE = 999') &&
+      sv.includes("eq('reason', 'admin_allowance')") &&
+      sv.includes('granted = await ensureAdminAllowance') &&
+      sv.includes('_allowanceChecked') &&
+      fe.includes('999 case credits granted');
+  })()],
+  ['dashboard match count agrees with search and respects the package', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // The count must apply the same gates the search applies, not tally raw inventory.
+    return sv.includes('matchMany(uid, opps, wantLv, wantCc)') &&
+      sv.includes('!x.wrongTarget && !x.overqualified && !x.fieldMismatch') &&
+      sv.includes('x.pct >= RELEVANCE_FLOOR') &&
+      fe.includes('Your matches are ready') && fe.includes('ready to view');
   })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
