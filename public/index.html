@@ -5,12 +5,12 @@
 <link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#1683FF">
 <link rel="icon" href="/icon-192.png"><link rel="apple-touch-icon" href="/icon-192.png">
 <title>ForiForeign, Study &amp; Work Abroad, Done For You</title>
-<meta name="description" content="Find verified scholarships, jobs and licensing pathways abroad, matched to your CV and prepared for you end to end. Built for Pakistani students and professionals.">
+<meta name="description" content="Find verified scholarships and jobs abroad, matched to your CV and prepared for you end to end. Built for Pakistani students and professionals.">
 <link rel="canonical" href="https://foriforeign.com/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ForiForeign">
 <meta property="og:title" content="ForiForeign, Study &amp; Work Abroad, Done For You">
-<meta property="og:description" content="Verified opportunities matched to your CV, with every application document prepared for you. Study, work and licensing pathways in 40+ countries.">
+<meta property="og:description" content="Verified opportunities matched to your CV, with every application document prepared for you. Study and work in 50+ countries.">
 <meta property="og:url" content="https://foriforeign.com/">
 <meta property="og:image" content="https://foriforeign.com/icon-512.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -916,32 +916,97 @@ async function saveFaqs(btn){
     toast('FAQs saved (v'+d.version+'). Live for all users now.');await loadSiteConfig();vAdmin();
   }catch(e){toast(e.message);btn.disabled=false}
 }
+/* There is ONE package editor, on the Packages tab. A second, thinner editor used to
+   live in Settings and saved through a route that did not exist, so its edits vanished
+   and the two screens disagreed about names, prices and counts. */
 async function savePackages(btn){
-  btn.disabled=true;
+  if(btn)btn.disabled=true;
   try{
     const tiers=(((window._cfg||{}).packages||{}).tiers||[]);
-    const d=await api('/api/admin/settings',{method:'PUT',body:{patch:{packages:{tiers}}}});
-    // also sync the purchasable credit packs so prices match
-    try{await api('/api/admin/pricing',{method:'PUT',body:{packs:tiers.map(t=>({credits:t.credits,pkr:t.pkr}))}})}catch(e){}
-    toast('Packages saved (v'+d.version+'). Live for all users now.');await loadSiteConfig();vAdmin();
-  }catch(e){toast(e.message);btn.disabled=false}
+    const d=await api('/api/admin/packages',{method:'PUT',body:{packs:tiers.map(t=>({
+      credits:t.credits,pkr:t.pkr,promo_pkr:t.promo_pkr||null,name:t.name,view:t.view,
+      description:t.description||'',featured:!!t.featured,visible:t.visible!==false}))}});
+    toast('Packages saved (v'+(d&&d.version||'')+'). Live for everyone now.');
+    await loadSiteConfig();vAdmin();
+  }catch(e){toast(e.message);if(btn)btn.disabled=false}
 }
 function priceToken(txt){
   // Policy and help copy carry __PRICE__ so a price change in admin updates every page.
   try{return String(txt||'').replace(/__PRICE__/g,'Rs '+lowestPkgPrice().toLocaleString())}catch(e){return String(txt||'')}
 }
 function lowestPkgPrice(){
-  try{const t=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).filter(x=>x&&x.pkr>0);
-    if(t.length)return Math.min(...t.map(x=>x.pkr));}catch(e){}
-  return 2000;
+  /* The advertised "from" price must be what someone can actually pay today, which means
+     the promo price when one is live. The purchasable packs are the authority; the tier
+     config is only a fallback for the landing page before pricing has loaded. */
+  try{const packs=(((window._pricingPacks)||[]).filter(x=>x&&Number(x.pkr)>0&&x.visible!==false));
+    if(packs.length)return Math.min(...packs.map(x=>{const pr=Number(x.promo_pkr)||0;return (pr>0&&pr<Number(x.pkr))?pr:Number(x.pkr)}));}catch(e){}
+  try{const t=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).filter(x=>x&&Number(x.pkr)>0);
+    if(t.length)return Math.min(...t.map(x=>{const pr=Number(x.promo_pkr)||0;return (pr>0&&pr<Number(x.pkr))?pr:Number(x.pkr)}));}catch(e){}
+  return 5000;
+}
+/* Every sentence that quotes plan numbers reads them from the live configuration.
+   Hardcoding "8 best, 5 cases" meant an admin price or ladder change left false promises
+   scattered across the app. */
+function planTiers(){
+  try{
+    const t=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).filter(x=>x&&x.credits>0);
+    return t.slice().sort((a,b)=>(a.credits||0)-(b.credits||0));
+  }catch(e){return []}
+}
+function planLadderLine(){
+  const t=planTiers();
+  if(!t.length)return 'Choose a plan to open your matches and apply to the ones you want.';
+  return t.map(x=>`${esc(x.name)} opens ${x.view||x.credits} matches and prepares ${x.credits}`).join(' · ')+'.';
 }
 function pkgByCredits(c){
   try{return((SITE&&SITE.packages&&SITE.packages.tiers)||[]).find(t=>Number(t.credits)===Number(c))||null}catch(e){return null}
 }
+/* KEEP THE INSTALLED APP CURRENT.
+   A home-screen shortcut can sit in the background for days and come back running an
+   old build. So: register the worker at boot, ask it to check for an update every time
+   the app is opened or refocused, compare the running build against /api/version, and
+   reload the moment they differ. The check is a few hundred bytes and never blocks. */
+function ffUpdateWatch(){
+  if(window._ffUpdWired)return; window._ffUpdWired=true;
+  const reload=()=>{ if(window._ffReloading)return; window._ffReloading=true;
+    try{ if('caches' in window) caches.keys().then(ks=>Promise.all(ks.map(k=>caches.delete(k)))).finally(()=>location.reload()); else location.reload(); }
+    catch(e){ location.reload(); } };
+  const check=async()=>{
+    try{
+      const r=await fetch('/api/version',{cache:'no-store'});
+      const v=await r.json();
+      if(!window._ffBuild){window._ffBuild=v.build;return}
+      if(v.build&&v.build!==window._ffBuild)reload();
+    }catch(e){}
+  };
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/sw.js').then(reg=>{
+      try{reg.update()}catch(e){}
+      // A worker that finishes installing while the app is open takes over immediately.
+      reg.addEventListener('updatefound',()=>{
+        const w=reg.installing; if(!w)return;
+        w.addEventListener('statechange',()=>{ if(w.state==='installed'&&navigator.serviceWorker.controller)reload(); });
+      });
+      window._ffSWReg=reg;
+    }).catch(()=>{});
+    navigator.serviceWorker.addEventListener('message',e=>{ if(e.data&&e.data.type==='FF_SW_UPDATED')reload(); });
+  }
+  const wake=()=>{ if(document.hidden)return; try{window._ffSWReg&&window._ffSWReg.update()}catch(e){} check(); };
+  document.addEventListener('visibilitychange',wake);
+  window.addEventListener('focus',wake);
+  window.addEventListener('pageshow',e=>{ if(e.persisted)wake(); });
+  setInterval(()=>{ if(!document.hidden)check() },5*60*1000);
+  check();
+}
 async function loadSiteConfig(){
   try{const rq=new URLSearchParams(location.search).get('ref');if(rq)localStorage.setItem('ffref',rq.toUpperCase())}catch(e){}
   try{SITE=(await (await fetch('/api/site-config')).json()).config||null}catch(e){SITE=null}
-  fetch('/api/version').then(r=>r.json()).then(v=>{window._ffBuild=v.build;const t=document.getElementById('ffBuildTag');if(t)t.textContent='build '+v.build}).catch(()=>{});
+  fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(v=>{
+    // First read pins the running build; ffUpdateWatch compares against it from here on.
+    if(window._ffBuild&&v.build&&v.build!==window._ffBuild){window._ffBuild=v.build;location.reload();return}
+    window._ffBuild=v.build;const t=document.getElementById('ffBuildTag');if(t)t.textContent='build '+v.build;
+  }).catch(()=>{});
+  try{ffUpdateWatch()}catch(e){}
 
   setTimeout(()=>{try{
     const box=document.getElementById('mktStats');
@@ -962,6 +1027,9 @@ function showAnnouncement(){
 }
 async function signOut(){window._ffBooted=false;await SB.auth.signOut();location.reload()}
 function go(t){
+  /* The matches sheet is a fixed overlay above #view. Navigating without removing it
+     re-rendered the destination underneath, so every button inside the sheet looked dead. */
+  try{document.querySelectorAll('.ffmatches,.ff-sheet').forEach(x=>x.remove())}catch(e){}
   // Mark the destination tab active BEFORE rendering, so the tap registers visually
   // even if the view takes a moment to paint.
   TAB=t;
@@ -1020,7 +1088,7 @@ function renderAuth(mode){
       <div class="mkt-card"><h3 style="color:#F5B841">2 · We search &amp; verify</h3><p>Official sources only. Deadlines, funding and eligibility checked for you.</p></div>
       <div class="mkt-card"><h3 style="color:#3BF0D2">3 · You approve &amp; apply</h3><p>Complete case prepared. Nothing sends until you press Send yourself.</p></div>
     </div>
-      <div class="mkt-card"><h3 style="color:#00D4FF">Every profession, one home</h3><p>Doctors, pharmacists, nurses, OT staff, engineers, IT, researchers. Licensing routes named: DHA, SCFHS, NCLEX, PLAB.</p></div>
+      <div class="mkt-card"><h3 style="color:#00D4FF">Every profession, one home</h3><p>Doctors, pharmacists, nurses, allied health, engineers, IT, teachers, finance, researchers. Already registered somewhere? Tell us and we match roles that accept it.</p></div>
       <div class="mkt-card"><h3 style="color:#F5B841">Students, BS to Postdoc</h3><p>Scholarships, no-IELTS options, stipends flagged, research matched to your papers.</p></div>
       <div class="mkt-card"><h3 style="color:#3BF0D2">Built for Pakistan</h3><p>PKR pricing, JazzCash, Easypaisa, bank. Free CV analysis, packages from Rs ${lowestPkgPrice().toLocaleString()}.</p></div>
     </div>
@@ -1081,7 +1149,6 @@ async function ensureWorld(){
   document.body.classList.add('world-on');bg.classList.add('on');$('worldOverlay').classList.add('on');WORLD_ON=true;
   if(!bg.querySelector('video')){
     bg.innerHTML='<video autoplay muted loop playsinline preload="metadata" src="'+(((window.SITE||{}).background_video_url)||'/bg.mp4')+'"></video>';
-    if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
     const v=bg.querySelector('video');
     v.addEventListener('canplay',()=>{v.play().catch(()=>{})});
     // some browsers pause background videos; nudge it back
@@ -1100,7 +1167,7 @@ function onWorldSelect(sel){
 function landingInfo(which){
   const c=(SITE&&SITE.content)||{};
   if(which==='refund'){
-    const body=`<h2>Refunds &amp; fair use</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(priceToken(c.refund)||'Your CV analysis and match scores are completely free, so you see exactly what ForiForeign found for you before paying anything.\n\nOur requirements promise: every stated requirement of an opportunity is shown to you before your credit is used, and you confirm it. If the official page later shows a requirement we did not list at that moment, the credit for that case is returned.\n\nPaid packages are credits for searches and prepared applications. Unused credits are refundable within 14 days of purchase. Credits already spent on delivered work (a completed search or a prepared application) are not refundable, because the work has been done.\n\nWe never charge for admission outcomes and never guarantee admission, scholarship, or visa results, no honest service can. What we guarantee is the work: verified opportunities from official sources, and complete, tailored application preparation.\n\nTo request a refund, message Support from your account. Refunds are returned by your original payment method within 7 working days.')}</div>`;
+    const body=`<h2>Refunds &amp; fair use</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(priceToken(c.refund)||'Your CV analysis and match scores are completely free, so you see exactly what ForiForeign found for you before paying anything.\n\nOur requirements promise: every stated requirement of an opportunity is shown to you before your credit is used, and you confirm it. If the official page later shows a requirement we did not list at that moment, the credit for that case is returned.\n\nPaid packages are credits for searches and prepared applications. Unused credits are refundable within 14 days of purchase. Credits already spent on delivered work (a completed search or a prepared application) are not refundable, because the work has been done.\n\nWe never charge for admission outcomes and never guarantee admission, scholarship, or visa results, no honest service can. What we guarantee is the work: verified opportunities from official sources, and complete, customized application preparation.\n\nTo request a refund, message Support from your account. Refunds are returned by your original payment method within 7 working days.')}</div>`;
     const wrap=document.createElement('div');
     wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
     wrap.innerHTML=`<div class="sheet" style="max-width:560px;margin:0 auto">${body}<div class="row" style="margin-top:12px"><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">Close</button></div></div>`;
@@ -1246,21 +1313,21 @@ async function saveNewPassword(btn){
 
 /* ---------- home ---------- */
 const FF_FAQS=[
-['Is the first case free?','CV analysis and match scores are completely free. Case preparation is paid, but if you feel you deserve a one-time free Solo case, write to us right here and our team can approve one for you.'],
+['Is the first case free?','CV analysis and match scores are completely free. Case preparation is paid, but if you feel you deserve a one-time free first case, write to us right here and our team can approve one for you.'],
 ['How much does it cost?','__PRICING__'],
 ['Does searching use my cases?','Never. Search as many times as you like. A case is used only when YOU choose an opportunity and press confirm.'],
 ['How do I pay?','JazzCash, Easypaisa or bank transfer. Tap a package, send the amount, press I HAVE PAID. We verify, usually under 30 minutes, and your cases activate.'],
 ['What if my payment is not confirmed?','Write to us here with your transaction ID. Unverified payments are simply returned, your money is never stuck.'],
 ['How long does a search take?','Usually 1 to 3 minutes. Our agents check hundreds of official pages and show only verified matches above 50 percent relevance.'],
-['Why do I see only 2 opportunities?','Your package decides the view: Solo shows your 2 best, Smart 8, Premium 15, always the highest matches first. More strong matches stay reserved for upgrades.'],
+['How many opportunities will I see?','Your plan decides how many open for you to compare, and how many of those you may apply to: Basic shows 5 and you apply to any 2, Smart shows 8 and you apply to any 5, Premium shows 20 and you apply to any 10. Highest matches always come first.'],
 ['Can I choose which opportunity to apply for?','Always. Nothing is ever selected for you. You view your matches and confirm each case yourself, with a clear are-you-sure step.'],
-['What documents do you prepare?','A CV, cover letter, motivation or SOP, research proposal where relevant, and a complete professional application email, all from your real profile, nothing invented.'],
+['What documents do you prepare?','A complete set of customized documents for that exact position, written from your real profile and nothing invented, plus a professional application message addressed to the verified contact.'],
 ['Do you send emails from my account?','Only you press Send, from your own email, with our free extension. We never see or store your password.'],
 ['Is my data safe?','Yes. Your documents are private, used only for your applications, and never shared or sold.'],
 ['I do not have IELTS, can I still apply?','Yes. Choose the language rules that suit you in filters, including no-certificate options and language-course routes. Every result states its exact language requirement.'],
 ['Which countries do you cover?','40 plus countries: Europe, UK, USA, Canada, Australia, New Zealand, Gulf, Turkiye, China, Korea, Japan and more.'],
-['Can you find jobs, not studies?','Yes. Switch to Work mode in the finder: verified jobs with license, language and visa route stated for every position.'],
-['What is the licensing exam option?','Select Licensing exam pathway in programme levels, name your exam, USMLE, PLAB, NCLEX, DHA, and we hunt opportunities tied to it.'],
+['Can you find jobs, not studies?','Yes. Switch to Work mode in the finder: verified jobs with the pay, language requirement and visa route stated for every position.'],
+['Do you help with professional licensing?','No, and we will not pretend otherwise. Licensing is applied for personally on the regulator\u2019s own portal with your original documents, and no third party should handle that for you. If you ALREADY hold a licence or registration, tell us in the finder and we will find jobs that accept it.'],
 ['What happens after I apply?','You get a gift: your complete Future Path Guide PDF, attestations, bank statement, embassy, visa steps, Pakistan offices province wise, everything until you land.'],
 ['Can I edit the prepared documents?','Yes, every document is fully editable before you approve and apply. Your case, your words, your final say.'],
 ['What is the Premium re-search right?','Premium members can re-search with new filters anytime for 6 months. Previously chosen or dismissed opportunities are never repeated.'],
@@ -1270,7 +1337,7 @@ const FF_FAQS=[
 function pricingSentence(){
   const t=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).filter(x=>x&&x.pkr>0).sort((a,b)=>a.pkr-b.pkr);
   if(!t.length)return 'Choose a package on the packages page; searching and CV analysis are always free.';
-  return t.map(x=>x.name+' is Rs '+Number(x.pkr).toLocaleString()+' for '+x.credits+' complete case'+(x.credits===1?'':'s')).join('. ')+'. A consultant charges Rs 50,000 to 150,000 for less.';
+  return t.filter(x=>Number(x.credits)>0).map(x=>x.name+' is Rs '+Number(x.pkr).toLocaleString()+' for '+x.credits+' complete case'+(x.credits===1?'':'s')).join('. ')+'. A consultant charges Rs 50,000 to 150,000 for less.';
 }
 function filterFaq(q){
   q=String(q||'').toLowerCase();
@@ -1338,15 +1405,6 @@ async function sendSupport(btn){
     toast('Sent. Our team will reply soon.');document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());
   }catch(e){toast(e.message);btn.disabled=false}
 }
-async function loadLicJourney(){
-  try{const d=await api('/api/licence-journey');window._licDone=d.done||[]}catch(e){window._licDone=[]}
-}
-async function toggleLicStage(k){
-  const cur=new Set(window._licDone||[]);
-  if(cur.has(k))cur.delete(k);else cur.add(k);
-  window._licDone=[...cur];
-  try{await api('/api/licence-journey',{method:'PUT',body:{done:window._licDone}});toast('Progress saved.');vHome()}catch(e){toast(e.message)}
-}
 async function loadReferral(){
   try{window._ref=await api('/api/referral/status')}catch(e){window._ref=null}
 }
@@ -1366,7 +1424,7 @@ async function applyRefCode(btn){
 async function useFreeCredit(btn){
   btn.disabled=true;
   try{const d=await api('/api/referral/redeem',{method:'POST'});
-    toast('Free Solo credit applied. One case is now yours, no payment needed.');
+    toast('Free case credit applied. One case is now yours, no payment needed.');
     cacheClear();window._ref=null;await loadReferral();HM=null;vHome();
   }catch(e){toast(e.message);btn.disabled=false}
 }
@@ -1389,7 +1447,6 @@ function promoTicker(){
 async function vHome(){
   setTimeout(promoTicker,300);
   if(window._ref===undefined){window._ref=null;loadReferral().then(()=>{if(TAB==='home'&&window._ref)vHome()}).catch(()=>{});}
-  if(window._licDone===undefined){try{await loadLicJourney()}catch(e){}}
   // SPEED: on a slow connection, paint instantly from the last dashboard while we refresh.
   let S={state:'new',hasCV:false,appCount:0},HM=null;
   if(window._homeCache&&Date.now()-window._homeCache.at<60000){HM=window._homeCache.data;if(HM&&HM.state)S=HM.state;}
@@ -1409,15 +1466,7 @@ async function vHome(){
   const H=heroFor[S.state]||heroFor.new;
   $('view').innerHTML=`
   <div class="home-hero">
-    ${(function(){try{
-      const f=(window._finder||{});const hasLic=((f.licenses||[]).length||f.licenseExam);
-      if(!hasLic)return '';
-      const LBL={documents_ready:'Documents ready',verification_started:'Verification started',verification_cleared:'Verification cleared',eligibility_received:'Eligibility received',exam_booked:'Exam booked',exam_passed:'Exam passed',licence_activated:'Licence activated'};
-      const done=(window._licDone||[]);
-      return `<div class="card" style="border-color:rgba(0,212,255,.45);margin-bottom:12px"><b style="color:#7EE6FF">Your licensing journey</b>
-      <div class="sub" style="margin:4px 0 8px">Tick each step as you complete it, so you always know exactly where you stand.</div>
-      ${Object.keys(LBL).map(k=>`<div class="sub" style="padding:3px 0;cursor:pointer" onclick="toggleLicStage('${k}')"><span style="color:${done.includes(k)?'#2dd4bf':'#7d93b8'}">${done.includes(k)?'☑':'☐'}</span> ${LBL[k]}</div>`).join('')}</div>`;
-    }catch(e){return ''}})()}
+    ${''/* ForiForeign does not run a licensing service, so no licensing tracker lives here. */}
     ${(function(){
       /* One compact strip instead of two large cards. The four steps are the point of
          this page, so nothing above them may push them below the fold. Both the
@@ -1454,7 +1503,7 @@ async function vHome(){
               <button class="btn b-line" onclick="event.stopPropagation();applyRefCode(this)">Apply</button>
             </div></div>`;
         if(r&&r.eligible===false) body+=`<div style="margin-top:8px"><div class="sub">${esc(r.reason||'Activate any package to start inviting and earning.')}</div>
-            <button class="btn b-line" style="margin-top:6px" onclick="event.stopPropagation();go('buy')">See packages</button></div>`;
+            <button class="btn b-line" style="margin-top:6px" onclick="event.stopPropagation();openPlans()">Apply</button></div>`;
         else if(r&&r.code){
           const pct=Math.round(100*(r.progress||0)/(r.per_milestone||5));
           body+=`<div style="margin-top:8px">
@@ -1524,7 +1573,7 @@ async function vHome(){
   <div class="sub" style="margin:6px 2px 0;font-size:11.5px;opacity:.85">Every step stays open. Upload a newer CV, search again, or reopen a prepared case whenever you like.</div>
   ${HM&&HM.credits?(()=>{const c=HM.credits;const p=c.casesTotal?Math.min(100,Math.round(c.casesUsed/c.casesTotal*100)):0;return `
   <div class="card" style="margin-top:6px;padding:12px 14px">
-    <div class="spread"><b style="font-size:13.5px">Package</b><span class="sub">${c.casesUsed} of ${c.casesTotal} cases · ${c.creditsRemaining} left${c.creditsRemaining<1?` · <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="go('buy')">View packages</a>`:''}</span></div>
+    <div class="spread"><b style="font-size:13.5px">Package</b><span class="sub">${c.casesUsed} of ${c.casesTotal} cases · ${c.creditsRemaining} left${c.creditsRemaining<1?` · <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="openPlans()">View plans</a>`:''}</span></div>
     <div class="ffbar" style="margin-top:8px;height:6px"><div class="ffbar-fill" style="width:${p}%"></div></div>
   </div>`})():''}
   ${HM&&HM.discover&&HM.discover.status==='running'?`
@@ -1661,7 +1710,7 @@ function renderLaneChooser(){
     <div class="lane lane-work" onclick="openFinderFor('work')">
       
       <h2>Work Abroad</h2>
-      <p class="sub">Real jobs for Pakistani professionals, with the exact license or registration route named for each destination (DHA, SCFHS, NCLEX, PEBC and more).</p>
+      <p class="sub">Real, currently open jobs for Pakistani professionals, verified on the employer&#39;s own page, with the pay, the language requirement and the visa route stated before you apply.</p>
       <span class="btn b-green" style="margin-top:12px;pointer-events:none">Explore work routes →</span>
     </div>
   </div>`;
@@ -1674,13 +1723,55 @@ async function ensureCountries(){
 function laneBar(active){ return ''; }
 /* The match score is the single most useful number on a card, so it leads rather than
    hiding inside a status chip. Colour carries the strength; the status follows quietly. */
-const CC_NAME={GB:'United Kingdom',US:'United States',DE:'Germany',SE:'Sweden',NL:'Netherlands',
-  DK:'Denmark',NO:'Norway',FI:'Finland',IE:'Ireland',FR:'France',ES:'Spain',IT:'Italy',CH:'Switzerland',
-  AT:'Austria',BE:'Belgium',PL:'Poland',CZ:'Czechia',PT:'Portugal',CA:'Canada',AU:'Australia',
-  NZ:'New Zealand',JP:'Japan',KR:'South Korea',CN:'China',SG:'Singapore',HK:'Hong Kong',MY:'Malaysia',
-  AE:'United Arab Emirates',SA:'Saudi Arabia',QA:'Qatar',KW:'Kuwait',OM:'Oman',BH:'Bahrain',
-  TR:'Turkey',ZA:'South Africa',PK:'Pakistan'};
+/* Every destination country we seed, so a card can NEVER fall back to a bare code.
+   "DE" reads as Denmark to most applicants; the full name is not optional. */
+const CC_NAME={AU:'Australia',AT:'Austria',AZ:'Azerbaijan',BH:'Bahrain',BE:'Belgium',BN:'Brunei',
+  BG:'Bulgaria',CA:'Canada',CN:'China',HR:'Croatia',CY:'Cyprus',CZ:'Czechia',DK:'Denmark',
+  EE:'Estonia',FI:'Finland',FR:'France',GE:'Georgia',DE:'Germany',GR:'Greece',HK:'Hong Kong',
+  HU:'Hungary',IE:'Ireland',IT:'Italy',JP:'Japan',KZ:'Kazakhstan',KW:'Kuwait',LV:'Latvia',
+  LT:'Lithuania',LU:'Luxembourg',MY:'Malaysia',MT:'Malta',NL:'Netherlands',NZ:'New Zealand',
+  NO:'Norway',OM:'Oman',PL:'Poland',PT:'Portugal',QA:'Qatar',RO:'Romania',SA:'Saudi Arabia',
+  SG:'Singapore',SK:'Slovakia',SI:'Slovenia',KR:'South Korea',ES:'Spain',SE:'Sweden',
+  CH:'Switzerland',TW:'Taiwan',TH:'Thailand',TR:'Turkiye',AE:'United Arab Emirates',
+  GB:'United Kingdom',US:'United States',UZ:'Uzbekistan',ZA:'South Africa',PK:'Pakistan',
+  XW:'Remote, worldwide'};
 function countryName(cc){return CC_NAME[String(cc||'').toUpperCase()]||String(cc||'').toUpperCase()}
+/* Never show a bare two-letter code to an applicant: "DE" reads as Denmark to most
+   people. Always City, Country in full. */
+function placeLabel(o){
+  const c=countryName(o&&o.country_code);
+  const city=(o&&o.city||'').trim();
+  return [city,c].filter(Boolean).join(', ')||c||'';
+}
+/* Remote truth. The stored flag is often null because the source page never said so,
+   which is NOT the same as "remote". We read the evidence and label it honestly. */
+function remoteText(o){
+  const blob=[o.title,o.remote_scope,o.funding,o.salary_note,o.duration,o.fee_structure].join(' ').toLowerCase();
+  if(o.remote===false)return 'On-site';
+  if(o.remote_scope)return o.remote_scope;
+  if(o.remote===true)return 'Remote';
+  if(/work from anywhere|remote worldwide|fully remote|globally remote/.test(blob))return 'Remote, worldwide';
+  if(/\bremote\b|work from home|telecommut|hybrid/.test(blob))return 'Remote or hybrid, check the page';
+  return 'On-site, remote not offered';
+}
+function isRemoteOpp(o){
+  const t=remoteText(o);
+  return /^Remote/i.test(t)||/remote/i.test(String(o&&o.remote_scope||''));
+}
+/* Money is the first thing a client looks for, so EVERY card carries a financial line,
+   including the honest case where the official page publishes no figure. */
+function moneyLine(o){
+  const v=o.stipend||o.salary_note||'';
+  if(v)return {text:String(v),pkr:pkrHint(v),strong:true};
+  if(o.funding_type==='fully')return {text:'Fully funded, exact figure not published on the official page',pkr:'',strong:false};
+  if(o.funding)return {text:String(o.funding).slice(0,120),pkr:pkrHint(o.funding),strong:false};
+  if(o.tuition)return {text:'Tuition '+String(o.tuition).slice(0,60),pkr:pkrHint(o.tuition),strong:false};
+  return {text:'Salary not published on the official page, we confirm it with the employer',pkr:'',strong:false};
+}
+function moneyBlock(o){
+  const m=moneyLine(o);
+  return `<div style="font:${m.strong?'700 16px':'600 13.5px'} Inter;color:${m.strong?'#2dd4bf':'#B4E4FF'};margin-top:8px">${m.strong?'Stipend / salary: ':''}${esc(m.text)}<span class="sub">${m.pkr}</span></div>`;
+}
 /* Quality bands. A bare percentage means little; a named band tells the applicant how
    seriously to take an opportunity. 85+ excellent, 70-84 very good, 50-69 good. */
 function matchBand(pct){
@@ -1752,16 +1843,22 @@ function oppCard(o,ctaColor){
     : o.funding_type==='partial'?'<span class="chip c-gold">Partial funding</span>'
     : o.funding_type==='self'?'<span class="chip c-gray">Self-finance</span>':'';
   const levelChip = o.level?`<span class="chip c-blue">${esc(({bachelors:'Bachelors',masters:'Masters',phd:'PhD',postdoc:'Postdoc'})[o.level]||o.level)}</span>`:'';
+  /* ADMIN WALKS THE USER'S PATH. Silently unlocking every card for staff meant the owner
+     could never see what a customer sees, so paywall bugs stayed invisible. Staff now get
+     the identical locked card and the identical Apply button, plus one override that is
+     rendered for staff only and clearly labelled as an override. */
+  const _isStaff=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
   if(o.locked){
     const lp=o.match&&o.match.pct!=null?o.match.pct:null;
     const consider=lp!=null?(lp>=85?'High chance of consideration for your profile':lp>=70?'Strong consideration likelihood for your profile':'Matched against your profile'):'Verified against the official source';
     return `<div class="card locked-card">
       <div class="chiprow" style="margin-top:0">
       ${matchBadge(o.match)}${fundingChip}${levelChip}
-      ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}</span>`:''}
+      ${o.country_code?`<span class="chip c-blue">${esc(placeLabel(o))}</span>`:''}
+      <span class="chip ${isRemoteOpp(o)?'c-green':'c-gray'}">${esc(remoteText(o))}</span>
       ${o.req_language&&o.req_language!=='none'?`<span class="chip c-gold">Requires ${esc(o.req_language)}${o.req_language_min?' '+esc(o.req_language_min):''}</span>`:o.req_language==='none'?'<span class="chip c-green">No IELTS stated</span>':''}
       ${newChip}${dlChip}</div>
-      ${o.stipend?`<div style="font:700 16px Inter;color:#2dd4bf;margin-top:8px">Stipend: ${esc(o.stipend)}<span class="sub">${pkrHint(o.stipend)}</span></div>`:o.salary_note?`<div style="font:700 15px Inter;color:#2dd4bf;margin-top:8px">${esc(o.salary_note)}<span class="sub">${pkrHint(o.salary_note)}</span></div>`:''}
+      ${moneyBlock(o)}
       ${o.tuition?`<div class="sub" style="margin-top:2px">Tuition: ${esc(o.tuition)}${pkrHint(o.tuition)}</div>`:''}
       ${o.funding&&!fundingChip?`<div class="sub" style="margin-top:2px">${esc(o.funding)}</div>`:''}
       <div style="font:600 13px Inter;color:#D6E9FF;margin-top:8px">${consider}</div>
@@ -1770,10 +1867,14 @@ function oppCard(o,ctaColor){
           title="Remove this from your searches for good"
           onclick="event.stopPropagation();dismissOpp('${escAttr(o.id)}',this)">Not for me</button>
       </div>
-      <div class="locked-blur" style="margin-top:8px"><b>Reserved for package members</b><div class="sub">Institution, official page and verified contact open with your package, and we prepare the complete application for you, end to end.</div></div>
+      <div class="locked-blur" style="margin-top:8px"><b>Institution and official page open with your plan</b><div class="sub">We reveal the employer, the official link and the verified contact, then prepare and send the complete application for you.</div></div>
       <div class="row" style="margin-top:10px;align-items:center">
-      <button class="btn b-gold" onclick="go('buy')">View packages &amp; apply</button>
-      <span class="sub">One case or several, you decide.</span></div></div>`;
+      <button class="btn b-gold" style="font-weight:800;font-size:15px;padding:11px 22px" onclick="openPlans()">Apply</button>
+      <span class="sub">One case or several, you decide.</span></div>
+      ${_isStaff?`<div class="row" style="margin-top:8px;padding-top:8px;border-top:1px dashed rgba(245,184,65,.4)">
+        <button class="btn b-line" style="padding:5px 12px;font-size:12px;border-color:rgba(245,184,65,.6);color:#FFD070"
+          onclick="adminOpenCase('${escAttr(o.id)}',this)">\u2699 Admin: open and apply without payment</button>
+        <span class="sub" style="font-size:11px">Visible to staff only. You are seeing the client\u2019s exact view above.</span></div>`:''}</div>`;
   }
   // Pre-application privacy: until the user starts the case, we never reveal the institution
   // name or the official-source link (so it cannot be copied and applied to directly). We show
@@ -1794,10 +1895,11 @@ function oppCard(o,ctaColor){
   ].filter(Boolean).join(' \u00b7 ');
   return `<div class="card">
     <div class="spread"><div style="min-width:0"><b>${titleLine}</b><div class="sub">${subLine}</div></div>
-    ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}${revealed&&o.city?' · '+esc(o.city):''}</span>`:''}</div>
+    ${o.country_code?`<span class="chip c-blue">${esc(placeLabel(o))}</span>`:''}</div>
+    ${moneyBlock(o)}
     <div class="chiprow">
     ${scoreBadge(o.match,o.country_code)}${routeChip(o)}${matchBadge(o.match)}${levelChip}${fundingChip}${newChip}${dlChip}
-    ${o.stipend?`<span class="chip c-green">${esc(String(o.stipend).slice(0,38))}${pkrHint(o.stipend)}</span>`:''}
+    <span class="chip ${isRemoteOpp(o)?'c-green':'c-gray'}">${esc(remoteText(o))}</span>
     ${o.tuition?`<span class="chip c-gray">Tuition ${esc(String(o.tuition).slice(0,30))}${pkrHint(o.tuition)}</span>`:''}
     ${o.req_language&&o.req_language!=='none'?`<span class="chip c-blue">${esc(o.req_language)}${o.req_language_min?' '+esc(o.req_language_min):''}</span>`:o.req_language==='none'?'<span class="chip c-green">No IELTS stated</span>':''}</div>
     <div class="provrow">${o.freshness==='verified_today'?'✓ Verified today':o.freshness==='verified_recently'?'✓ Recently verified':'Verified'} on the official page${revealed&&o.url?` · <a href="${escAttr(o.url)}" target="_blank" rel="noopener" style="color:#00D4FF;text-decoration:none">official source ↗</a>`:''}${o.match&&o.match.pct!=null?' · matched on field, level, funding, language':''}</div>
@@ -1806,6 +1908,25 @@ function oppCard(o,ctaColor){
     ${o.started?`<button class="btn b-green" onclick="go('apps')">Case started, open</button>`:`<button class="btn b-line" style="padding:5px 10px" onclick="(async b=>{b.disabled=true;try{await api('/api/opportunities/${o.id}/reject',{method:'POST'});const c=b.closest('.card');if(c)c.remove();toast('Hidden. It will never be shown to you again.')}catch(e){toast(e.message);b.disabled=false}})(this)">Not interested</button>
       <button class="btn b-line" onclick="startApp('${o.id}','${escAttr(o.institution)}','${escAttr([o.req_language&&o.req_language!=='none'?(o.req_language+(o.req_language_min?' '+o.req_language_min:'')):'',o.funding_type==='self'?'Self-financed (bank statement expected)':'',o.funding_type==='partial'?'Partial funding (own funds for the rest)':''].filter(Boolean).join(' · '))}')">Start case</button>`}
     <button class="btn b-line" onclick="saveOpp('${o.id}',this)">☆ Save</button></div></div>`;
+}
+/* Single entry point for every Apply button. It closes the matches overlay first,
+   because a fixed overlay was hiding the plans page and made the buttons look dead. */
+function openPlans(){
+  try{document.querySelectorAll('.ffmatches,.ff-sheet').forEach(x=>x.remove())}catch(e){}
+  go('buy');
+  setTimeout(()=>{try{window.scrollTo({top:0,behavior:'instant'})}catch(e){}},30);
+}
+/* Admin override. The server already exempts staff from credits, so this simply starts
+   the case the way a paid user's Start button does, from the same locked card, and says
+   plainly that it skipped payment. Staff only; nothing renders it for a customer. */
+async function adminOpenCase(id,btn){
+  try{if(!(window.ME&&isAdminRole(ME.role))){toast('Staff only.');return}}catch(e){return}
+  btn.disabled=true;const was=btn.textContent;btn.textContent='Opening\u2026';
+  try{
+    const d=await api('/api/opportunities/'+id+'/report');
+    const o=(d&&d.opportunity)||{};
+    await startApp(id,o.institution||'this position','Admin override, no credit consumed');
+  }catch(e){toast(e.message||'Could not open this case.');btn.disabled=false;btn.textContent=was}
 }
 async function saveOpp(id,btn){
   btn.disabled=true;
@@ -1897,7 +2018,7 @@ async function whyMatch(id){
   ${d.status==='criteria_not_published'?'<div class="card" style="background:var(--soft)"><div class="sub">This opportunity did not publish structured eligibility criteria, so we cannot compute a match. Check the official page for requirements.</div></div>':''}
   ${(d.reasons||[]).map(r=>`<div class="checkrow"><div style="flex:none;width:20px">${icon(r.ok)}</div><div style="flex:1" class="sub">${esc(r.text)}</div></div>`).join('')}
   <div class="sub" style="margin-top:10px;font-size:11px">Unknown items (?) mean the requirement is stated but your profile does not yet have the data, or the requirement was not published. They are never counted as met.</div>
-  <div class="row" style="margin-top:12px"><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();startApp('${id}','${escAttr((d.opportunity||{}).institution||'')}')">Start application (1 credit)</button></div></div>`;
+  <div class="row" style="margin-top:12px"><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();startApp('${id}','${escAttr((d.opportunity||{}).institution||'')}')">Start application${(()=>{try{return (window.ME&&isAdminRole(ME.role))?' (staff, no credit)':' (1 credit)'}catch(e){return ' (1 credit)'}})()}</button></div></div>`;
   document.body.appendChild(wrap);
 }
 
@@ -1998,7 +2119,7 @@ async function renderWorkLane(){
   $('view').innerHTML=laneBar('work')+`
   <div class="hero" style="background:linear-gradient(135deg,#0E7C66,#0F2748);padding:22px">
     <h1>Work Abroad</h1>
-    <p>Verified jobs. Licensing named for you.</p>
+    <p>Verified jobs, with the pay, the language requirement and the visa route stated before you apply.</p>
   </div>
   <div class="card" style="padding:12px">
     <div class="row">
@@ -2036,7 +2157,7 @@ async function renderWorkLane(){
   el.innerHTML=(opps.length?`<div class="spread" style="margin:2px 0 8px"><b>${opps.length} verified job${opps.length===1?'':'s'}</b><select style="width:auto" onchange="window._work.sort=this.value;renderWorkLane()"><option value="" ${st.sort!=='recent'?'selected':''}>Deadline soonest</option><option value="recent" ${st.sort==='recent'?'selected':''}>Newest first</option></select></div>`:'')+(opps.length?opps.map(o=>oppCard(o,'b-green')).join('')
     :`<div class="empty"><b>Nothing matches yet.</b><br><span class="sub">Widen a filter, or let our research team search official sources:</span><br><br>
       <button class="btn b-green" onclick="runSearch('work')">Search official sources for me</button><br>
-      <span class="sub" style="margin-top:8px;display:inline-block">Set your profession in Profile first so licensing is matched correctly.</span></div>`);
+      <span class="sub" style="margin-top:8px;display:inline-block">Set your profession in Profile first so roles are matched correctly.</span></div>`);
 }
 /* Search allowance reached. Shown as a modal, not a toast: the user needs to read the
    time it refills and decide what to do, which a two-second message does not allow. */
@@ -2048,13 +2169,15 @@ function showLastChance(d){
   w.className='ff-lastchance';
   w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.86);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px';
   w.onclick=e=>{if(e.target===w)w.remove()};
-  const total=(d&&d.limit)||3;
+  const total=(d&&(d.search_limit||d.limit))||3;
+  const used=(d&&d.searches_used)||(total-1);
+  const paid=!!(d&&d.paid);
   w.innerHTML=`<div style="max-width:370px;width:100%;background:#0a1832;border:1px solid rgba(245,184,65,.5);border-radius:16px;padding:18px;text-align:center">
-    <div style="font:700 40px Georgia,serif;color:#FFD070;line-height:1">2 / ${total}</div>
-    <div style="font:700 16px Inter;color:#fff;margin-top:6px">You have used 2 of your ${total} free searches</div>
-    <div class="sub" style="margin:8px 0 14px;line-height:1.6">One search is left for today. Set your filters carefully before you use it, so the last one counts. Everything you have already found stays available.</div>
+    <div style="font:700 40px Georgia,serif;color:#FFD070;line-height:1">${used} / ${total}</div>
+    <div style="font:700 16px Inter;color:#fff;margin-top:6px">You have used ${used} of your ${total} searches today</div>
+    <div class="sub" style="margin:8px 0 14px;line-height:1.6">One search is left for today. Set your filters carefully before you use it, so the last one counts. Everything you have already found stays available, and your next ${total} unlock at the start of tomorrow.</div>
     <button class="btn b-gold" style="width:100%;padding:12px;font-size:15px" onclick="this.closest('.ff-lastchance').remove()">Got it, I will use it carefully</button>
-    <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-lastchance').remove();go('buy')">Or activate a package to reset your searches now</button>
+    ${paid?'':`<button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-lastchance').remove();openPlans()">Or activate a package for ${(((SITE||{}).fair_use||{}).paid_daily_searches)||5} searches a day, starting fresh</button>`}
   </div>`;
   document.body.appendChild(w);
 }
@@ -2068,7 +2191,7 @@ function showSearchLocked(d){
   const clock=when?when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'midnight';
   const dayName=when?when.toLocaleDateString([], {weekday:'long'}):'tomorrow';
   w.innerHTML=`<div style="max-width:380px;width:100%;background:#0a1832;border:1px solid rgba(245,184,65,.5);border-radius:16px;padding:18px;text-align:center">
-    <div style="font:700 46px Georgia,serif;color:#FFD070;line-height:1">${d.limit||4}/${d.limit||4}</div>
+    <div style="font:700 46px Georgia,serif;color:#FFD070;line-height:1">${d.limit||3}/${d.limit||3}</div>
     <div style="font:700 17px Inter;color:#fff;margin-top:6px">Searches used for today</div>
     <div class="sub" style="margin:8px 0 14px;line-height:1.6">Everything you have already found is still here, including your analysis and matches.</div>
     <div style="border:1px solid rgba(0,212,255,.4);background:rgba(0,212,255,.08);border-radius:11px;padding:11px">
@@ -2076,8 +2199,8 @@ function showSearchLocked(d){
       <div style="font:800 26px Inter;color:#00D4FF;margin-top:2px">${esc(d.resets_in_words||'a few hours')}</div>
       <div class="sub" style="margin-top:3px">at ${esc(clock)} on ${esc(dayName)}</div>
     </div>
-    <button class="btn b-gold" style="width:100%;margin-top:14px;padding:12px;font-size:15px" onclick="this.closest('.ff-locked-modal').remove();go('buy')">Activate a package to search now</button>
-    <div class="sub" style="margin-top:7px;font-size:11px">Any package resets your searches immediately.</div>
+    ${window._searchPaid?'':`<button class="btn b-gold" style="width:100%;margin-top:14px;padding:12px;font-size:15px" onclick="this.closest('.ff-locked-modal').remove();openPlans()">Activate a package to search now</button>
+    <div class="sub" style="margin-top:7px;font-size:11px">Any package clears what you have used and gives you ${(((SITE||{}).fair_use||{}).paid_daily_searches)||5} searches a day from now on.</div>`}
     <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-locked-modal').remove()">I will wait</button>
   </div>`;
   document.body.appendChild(w);
@@ -2085,13 +2208,13 @@ function showSearchLocked(d){
 async function runSearch(kind,opts){
   opts=opts||{};
   window._chkFinal=null;window._chk=null; // fresh scanned counter per search
-  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,licenses:opts.licenses||[],job_types:opts.jobTypes||[],exps:opts.exps||[],program_types:opts.programTypes||[],sectors:opts.sectors||[],langs:opts.langs||[],license_exam:opts.licenseExam||'',license_status:opts.licenseStatus||'',field:opts.field||undefined,intake:opts.intake||undefined}});
+  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,workmode:opts.workmode||'',job_types:opts.jobTypes||[],exps:opts.exps||[],program_types:opts.programTypes||[],sectors:opts.sectors||[],langs:opts.langs||[],license_held:opts.licenseHeld||'',field:opts.field||undefined,intake:opts.intake||undefined}});
     if(d&&d.searches_left!=null){
-      window._searchLeft=d.searches_left;
+      window._searchLeft=d.searches_left;window._searchPaid=!!d.paid;
       /* After the second search the user has one left, which is worth saying clearly and
          calmly before they spend it, not after. */
       if(d.searches_left===1)setTimeout(()=>showLastChance(d),1100);
-      else if(d.searches_left===0)setTimeout(()=>toast('That was your last search for today. New searches unlock at midnight.'),1100);
+      else if(d.searches_left===0)setTimeout(()=>toast('That was your last search for today. Your searches unlock again at the start of tomorrow.'),1100);
     }
   }catch(e){
     // The daily allowance is a normal state, not an error: show the modal, not a toast.
@@ -2179,18 +2302,7 @@ function matchStatsTable(list,opts){
   opts=opts||{};
   // CONTEXT: tailor every word to what the user actually selected.
   const isWork=(opts.kind==='work');
-  const lics=(opts.licenses||[]);
-  const isLicensing=(lics.length>0)||(opts.levels||[]).includes('licensing_exam')||!!opts.licenseExam;
-  const licName=opts.licenseExam||lics[0]||'';
-  const CTX = isLicensing ? {
-    title:'Your Licensing Pathway Analysis',
-    sub:'we matched your credentials to '+(licName?licName+' ':'')+'licensing routes and verified openings, official sources only',
-    scannedLbl:'Licensing routes & posts scanned',
-    selectedLbl:'Matched licensing opportunities',
-    matchLbl:'Your best credential match',
-    fitLbl:'Ready-to-pursue routes',
-    section:'Prepare in advance for these licensing steps'
-  } : isWork ? {
+  const CTX = isWork ? {
     title:'Your Job Match Analysis',
     sub:'we read your CV and searched official employer and career pages to hand-pick roles you can actually be hired for',
     scannedLbl:'Job listings scanned',
@@ -2253,9 +2365,9 @@ function matchStatsTable(list,opts){
   if(soon)rows+=row('Closing within 30 days',`<span style="color:#F5B841;font-weight:700">${soon}</span> <span class="sub">apply to these first</span>`);
   if(best>=0)rows+=row(CTX.matchLbl,`<span style="color:#2dd4bf;font-weight:800;font-size:15px">${best}%</span>`);
   if(hi)rows+=row(CTX.fitLbl,`<span style="color:#2dd4bf">${hi} ready for you</span>`);
-  if(funded)rows+=row(isWork||isLicensing?'Salaried positions':'Fully funded / salaried',`<span style="color:#2dd4bf">${funded} of them</span>`);
-  if(pkrs.length){const lo=fmtR(Math.min(...pkrs)),hipk=fmtR(Math.max(...pkrs));rows+=row(isWork||isLicensing?'Salary on offer':'Funding / salary on offer',`<span style="color:#2dd4bf">Rs ${lo} – ${hipk}</span> <span class="sub">/ yr</span>`);}
-  if(prC.length&&!isLicensing)rows+=row('Include a PR pathway',`<span style="color:#F5B841">${prC.slice(0,3).join(', ')}</span>`,true);
+  if(funded)rows+=row(isWork?'Salaried positions':'Fully funded / salaried',`<span style="color:#2dd4bf">${funded} of them</span>`);
+  if(pkrs.length){const lo=fmtR(Math.min(...pkrs)),hipk=fmtR(Math.max(...pkrs));rows+=row(isWork?'Salary on offer':'Funding / salary on offer',`<span style="color:#2dd4bf">Rs ${lo} – ${hipk}</span> <span class="sub">/ yr</span>`);}
+  if(prC.length)rows+=row('Include a PR pathway',`<span style="color:#F5B841">${prC.slice(0,3).join(', ')}</span>`,true);
   return `<div style="border:1px solid rgba(0,212,255,.4);border-radius:14px;margin:10px 0;overflow:hidden;background:linear-gradient(180deg,rgba(10,26,58,.92),rgba(6,15,36,.92));box-shadow:0 8px 28px rgba(0,80,160,.18)">
     <div style="padding:12px 14px;background:linear-gradient(90deg,rgba(22,131,255,.22),rgba(0,212,255,.1));border-bottom:1px solid rgba(0,212,255,.3)">
       <div style="font:800 15px Inter;color:#fff">${CTX.title}</div>
@@ -2296,138 +2408,6 @@ function matchStatsTable(list,opts){
       })();
       if(fromAds.length>=2){
         items=fromAds.slice(0,5);
-      } else if(isLicensing){
-        // Per-exam essentials; kept tight. Country/authority-specific verification named.
-        const L=(licName||'').toUpperCase();
-        // Region + authority aware. Every major licensing exam is covered; each shows its
-        // OWN verification body and English rule, kept to three tight, diplomatic lines.
-        if(/DHA|SCFHS|QCHP|OMSB|NHRA|MOHAP|DOH|MUMARIS|PROMETRIC|DATAFLOW|\bMOH\b/.test(L)){
-          items=[
-            'Your degree and experience documents, ready for DataFlow primary-source verification (this takes several weeks, best started early)',
-            'Passport and recent professional photographs',
-            'An English test such as OET or IELTS may be required for some roles, worth having ready'
-          ];
-        } else if(/PLAB|UKMLA/.test(L)){
-          items=[
-            'Your medical degree and internship/experience certificates for GMC registration',
-            'A valid English test (IELTS Academic 7.5 or OET B) is usually required, prepare it early',
-            'Passport and identification for the ID-check step'
-          ];
-        } else if(/\bNMC\b|CBT|OSCE/.test(L)){
-          items=[
-            'Your nursing/midwifery qualification and registration evidence for the NMC',
-            'A valid English test (IELTS or OET) is normally required, having it ready helps a great deal',
-            'Passport; the OSCE is taken in the UK, so plan for that stage'
-          ];
-        } else if(/GPHC|OSPAP/.test(L)){
-          items=[
-            'Your pharmacy degree and transcripts for the GPhC OSPAP route',
-            'A valid English test (IELTS/OET) is usually required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/\bORE\b|GDC/.test(L)){
-          items=[
-            'Your dental degree and transcripts for GDC/ORE',
-            'A valid English test (IELTS/OET) is usually required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/HCPC/.test(L)){
-          items=[
-            'Your professional qualification and experience evidence for HCPC registration',
-            'An English test may be required, a valid IELTS/OET prepared early helps',
-            'Passport and identification'
-          ];
-        } else if(/USMLE|ECFMG|EPIC/.test(L)){
-          items=[
-            'Your medical degree and transcripts prepared for ECFMG/EPIC credential verification',
-            'Plan USMLE Step scheduling early; English is assessed within the exams',
-            'Passport and identification'
-          ];
-        } else if(/NCLEX|CGFNS|VISASCREEN/.test(L)){
-          items=[
-            'Your nursing degree and transcripts for CGFNS/state-board evaluation',
-            'A valid English test and VisaScreen may be required for the visa stage, prepare early',
-            'Passport and identification'
-          ];
-        } else if(/FPGEE|NABP|NAPLEX/.test(L)){
-          items=[
-            'Your pharmacy degree and transcripts for FPGEE/NABP evaluation',
-            'An English test (TOEFL) may be required, prepare a valid score early',
-            'Passport and identification'
-          ];
-        } else if(/MCCQE|NNAS|PHYSICIANSAPPLY/.test(L)){
-          items=[
-            'Your medical/nursing credentials prepared for Canadian source verification (physiciansapply.ca or NNAS)',
-            'A valid English test (IELTS/CELPIP) is usually required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/PEBC/.test(L)){
-          items=[
-            'Your pharmacy degree and transcripts for the PEBC document evaluation',
-            'A valid English test is usually required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/NDEB/.test(L)){
-          items=[
-            'Your dental degree and transcripts for the NDEB assessment',
-            'A valid English test is usually required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/AMC|NZREX/.test(L)){
-          items=[
-            'Your medical degree and transcripts for AMC/NZREX assessment',
-            'A valid English test (IELTS/OET) is required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/AHPRA/.test(L)){
-          items=[
-            'Your qualification and registration evidence for AHPRA (via the relevant national board)',
-            'A valid English test (IELTS/OET) is usually required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/\bKAPS\b/.test(L)){
-          items=[
-            'Your pharmacy degree and transcripts for the KAPS pathway (Pharmacy Board of Australia)',
-            'A valid English test is usually required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/\bADC\b/.test(L)){
-          items=[
-            'Your dental degree and transcripts for the ADC assessment',
-            'A valid English test (IELTS/OET) is usually required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/NMBI|IMC|CORU|PSI/.test(L)){
-          items=[
-            'Your qualification and registration evidence for the Irish authority (IMC/NMBI/PSI/CORU)',
-            'A valid English test (IELTS/OET) is usually required, prepare it early',
-            'Passport and identification'
-          ];
-        } else if(/APPROBATION|KENNTNIS|FSP/.test(L)||/\bDE\b/.test((opts.countries||[]).join(','))){
-          items=[
-            'Your degree and transcripts for recognition (Anerkennung/Approbation)',
-            'A German language certificate (B2/C1) and often the FSP is required, begin language study early',
-            'Passport and identification'
-          ];
-        } else if(/\bPE\b|\bFE\b|NCEES|CENG|PENG|SCE|UPDA|MMUP/.test(L)){
-          items=[
-            'Your engineering degree, transcripts and experience records for the licensing body',
-            'A competency/experience report may be required (e.g. CDR, UPDA); prepare your project records',
-            'Passport and identification'
-          ];
-        } else if(/\bOET\b|IELTS/.test(L)){
-          items=[
-            'Prepare and book your language test early; a valid score is accepted by most regulators',
-            'Keep your degree and identification documents ready for the registration that follows',
-            'Passport and recent photographs'
-          ];
-        } else {
-          items=[
-            'Your degree, transcripts and experience certificates, ready for verification',
-            'A valid English test may be required for some routes, worth preparing early',
-            'Passport and recent photographs'
-          ];
-        }
       } else if(isWork){
         items = [
           'An up-to-date professional CV and a valid passport',
@@ -2490,7 +2470,7 @@ async function showMatches(kind,opts){
   opts=opts||{};
   const kinds=[kind==='work'?'work':'study'];   // one lane per search: study or work
   let list=[];
-  // Send EVERY selection the user made, so the work and licensing lanes are filtered
+  // Send EVERY selection the user made, so the study and work lanes are filtered
   // server-side exactly as chosen, not silently ignored.
   const qp=[];
   const push=(k,v)=>{if(v!==undefined&&v!==null&&String(v).length)qp.push(k+'='+encodeURIComponent(v))};
@@ -2499,14 +2479,14 @@ async function showMatches(kind,opts){
   if((opts.fundings||[]).length)push('funding_type',(opts.fundings||[]).join(','));
   if((opts.jobTypes||[]).length)push('job_type',(opts.jobTypes||[]).join(','));
   if((opts.exps||[]).length)push('exp',(opts.exps||[]).join(','));
-  if((opts.licenses||[]).length)push('licenses',(opts.licenses||[]).join(','));
   // Language rule: only a HARD constraint when the user asked exclusively for
   // no-certificate routes. Mixed selections stay soft so we do not over-filter.
   if((opts.langs||[]).length===1&&opts.langs[0]==='none')push('no_language_test','1');
   if(opts.intake)push('intake',opts.intake);
   if((opts.sectors||[]).length)push('sector',(opts.sectors||[]).join(','));
   if((opts.fundings||[]).length===1&&opts.fundings[0]==='fully')push('has_stipend','1');
-  if(opts.workmode==='remote')push('remote','1');
+  if(opts.workmode==='remote'||opts.remote)push('remote','1');
+  if(opts.workmode==='onsite')push('workmode','onsite');
   if(opts.field)push('q',opts.field);
   const extraQ=qp.length?'&'+qp.join('&'):'';
   window._relaxNote=null;
@@ -2514,7 +2494,35 @@ async function showMatches(kind,opts){
   // (remaining allowance is read from the run response below)
   for(const k of kinds){try{const d=await api('/api/opportunities?kind='+k+'&match=1&sort=recent'+extraQ);list=list.concat(d.opportunities||[]);if(d.relaxed)window._relaxNote=d.relaxed}catch(e){}}
   const seen=new Set();list=list.filter(o=>o.id&&!seen.has(o.id)&&seen.add(o.id));
-  if(opts.remote)list=list.filter(o=>o.remote!==false);
+  /* ONE RULE FOR EVERY FILTER. A selected filter is a promise, not a hint: it is
+     enforced, and the user is told in plain words what it removed. The old code
+     enforced nothing (it only dropped rows explicitly flagged false), so on-site posts
+     reached a user who had asked for remote. Every filter below now behaves the same. */
+  const FILTERS=[
+    {on:!!(opts.remote||opts.workmode==='remote'),label:'Remote only',keep:isRemoteOpp},
+    {on:opts.workmode==='onsite',label:'On-site only',keep:o=>!isRemoteOpp(o)},
+    {on:(opts.countries||[]).length>0,label:'Your selected countries',
+     keep:o=>!o.country_code||(opts.countries||[]).includes(o.country_code)},
+    {on:(opts.levels||[]).length>0,label:'Your selected level',
+     keep:o=>!o.level||(opts.levels||[]).includes(o.level)},
+    {on:!!opts.fundedOnly,label:'Fully funded only',
+     keep:o=>o.funding_type==='fully'||!!o.stipend},
+    {on:(opts.fundings||[]).length>0&&!opts.fundedOnly,label:'Your funding choice',
+     keep:o=>!o.funding_type||(opts.fundings||[]).includes(o.funding_type)},
+    {on:!!opts.noLang,label:'No language certificate required',
+     keep:o=>!o.req_language||o.req_language==='none'},
+    {on:(opts.jobTypes||[]).length>0,label:'Your job type',
+     keep:o=>!o.job_type||(opts.jobTypes||[]).includes(o.job_type)},
+    {on:(opts.exps||[]).length>0,label:'Your experience level',
+     keep:o=>!o.experience_level||(opts.exps||[]).includes(o.experience_level)}
+  ];
+  window._filterReport=[];
+  for(const F of FILTERS){
+    if(!F.on)continue;
+    const before=list.length;
+    list=list.filter(F.keep);
+    window._filterReport.push({label:F.label,removed:before-list.length,kept:list.length});
+  }
   const pv=o=>(o.match&&o.match.pct!=null)?o.match.pct:-1;
   // Ordering: the user's selected countries first, then funded preference, then match %.
   const sel=new Set(opts.countries||[]);
@@ -2527,7 +2535,7 @@ async function showMatches(kind,opts){
   });
   const byC={};list.forEach(o=>{const c=o.country_code;if(!c)return;const p=pv(o);if(!(c in byC)||p>byC[c])byC[c]=p});
   const strip=Object.entries(byC).sort((a,b)=>b[1]-a[1]).slice(0,8)
-    .filter(([c,p])=>p>=60).map(([c,p])=>`<span class="chip ${p>=90?'c-green':p>=70?'c-gold':'c-blue'}">${esc(c)} · ${p}% match</span>`).join('');
+    .filter(([c,p])=>p>=60).map(([c,p])=>`<span class="chip ${p>=90?'c-green':p>=70?'c-gold':'c-blue'}">${esc(countryName(c))} · ${p}% match</span>`).join('');
   // One clean, confident stream: highest match first, no weak/criteria-pending tiers ever surfaced.
   let shown=list.slice().sort((a,b)=>pv(b)-pv(a));
   // Client-side safety net: never render more unlocked cards than the package allows.
@@ -2535,15 +2543,20 @@ async function showMatches(kind,opts){
     const cr=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
     const tiers=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).slice().sort((a,b)=>(a.credits||0)-(b.credits||0));
     let cap=null;for(const t of tiers){if(cr>=(t.credits||0))cap=t.view||null}
-    if(cap){let seenOpen=0;shown=shown.filter(o=>{if(o.locked)return true;seenOpen++;return seenOpen<=cap})}
+    const staff=!!(window.ME&&isAdminRole(ME.role));
+    if(cap&&!staff){let seenOpen=0;shown=shown.filter(o=>{if(o.locked)return true;seenOpen++;return seenOpen<=cap})}
   }catch(e){}
   const noneOpen=shown.length&&shown.every(o=>o.locked);
   const cta=noneOpen?`<div class="card" style="border-color:rgba(245,184,65,.6);background:linear-gradient(135deg,rgba(245,184,65,.12),rgba(22,131,255,.06));margin:18px 0 6px;text-align:center">
-    <b style="color:#FFD070;font-size:16px">Choose your package to unlock your matches</b>
-    <div class="sub" style="margin:6px 0 10px">Your strongest opportunities are ready and reserved. Pick a package, and the moment your payment is confirmed your best matches open on the next screen, highest score first, ready to apply.</div>
-    <div class="sub" style="margin-bottom:10px">Solo, your 2 best, apply to 1 · Smart, your 8 best, apply to 5 · Premium, your 15 best, apply to 10 + 6 months re-search.</div>
-    <button class="btn b-gold" style="width:100%;font-size:15px;padding:12px" onclick="go('buy')">See packages &amp; unlock</button></div>`:'';
-  const relaxHtml=window._relaxNote?`<div class="sub" style="margin:12px 0 0;padding:8px 12px;border:1px solid rgba(245,184,65,.4);border-radius:9px;background:rgba(245,184,65,.07);color:#FFD070">${esc(window._relaxNote)} We keep searching for closer matches in the background.</div>`:'';
+    <b style="color:#FFD070;font-size:16px">Your matches are ready to apply</b>
+    <div class="sub" style="margin:6px 0 10px">Every position below is verified on its official page and scored against your profile. Press Apply to see the plans, the exact prices in rupees and what each one prepares for you, then we build and send the complete application.</div>
+    <button class="btn b-gold" style="width:100%;font-size:16px;padding:13px;font-weight:800" onclick="openPlans()">Apply</button></div>`:'';
+  /* Honest filter receipt: what you asked for, and what it actually did. */
+  const fr=window._filterReport||[];
+  const remoteHtml=fr.length?`<div class="sub" style="margin:10px 0 0;padding:9px 12px;border:1px solid rgba(45,212,191,.4);border-radius:9px;background:rgba(45,212,191,.07);color:#B9F5EA;line-height:1.6">
+    <b style="color:#2dd4bf">Your filters were applied</b><br>${fr.map(x=>`${esc(x.label)} — ${x.removed?x.removed+' removed':'nothing removed'}, ${x.kept} left`).join('<br>')}
+    ${(opts.remote||opts.workmode==='remote')?'<br>Every position below states its remote status, taken from the official page.':''}</div>`:'';
+  const relaxHtml=remoteHtml+(window._relaxNote?`<div class="sub" style="margin:12px 0 0;padding:8px 12px;border:1px solid rgba(245,184,65,.4);border-radius:9px;background:rgba(245,184,65,.07);color:#FFD070">${esc(window._relaxNote)} We keep searching for closer matches in the background.</div>`:'');
   const sec=relaxHtml+`<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(140,178,255,.35),transparent);margin:20px 0 4px"></div>
   ${cta}
   ${noneOpen?'':`<h3 style="margin:12px 0 8px;color:#fff">Your best-matched opportunities <span class="sub">· highest score first</span></h3>`}`
@@ -2553,8 +2566,8 @@ async function showMatches(kind,opts){
      to pay on faith. They now see the real cards with identity withheld: level, country,
      funding, deadline and match score are visible; the institution name and official link
      are not. Enough to believe the value is real, not enough to bypass paying for it. */
-  +(noneOpen?shown.slice(0,3).map(o=>oppCard(o)).join(''):shown.map(o=>oppCard(o)).join(''))
-  +(noneOpen&&shown.length>3?`<div class="sub" style="text-align:center;margin:10px 0 2px">and ${shown.length-3} more matched to you</div>`:'');
+  +(noneOpen?shown.slice(0,15).map(o=>oppCard(o)).join(''):shown.map(o=>oppCard(o)).join(''))
+  +(noneOpen&&shown.length>15?`<div class="sub" style="text-align:center;margin:10px 0 2px">and ${shown.length-15} more matched to you</div>`:'');
   const wrap=document.createElement('div');wrap.className='ffmatches';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:65;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
@@ -2582,7 +2595,7 @@ async function showMatches(kind,opts){
       sum.style.cssText='border-color:rgba(245,184,65,.5);background:rgba(245,184,65,.05)';
       sum.innerHTML=`<b style="color:#FFD070">${lockedData.length} more strong matches waiting for you</b>
         <div class="sub" style="margin-top:5px">All above 60% relevance${hi?`, ${hi} of them above 70%`:''}, across ${ctys.join(' · ')||'multiple countries'}. Very related to your profile.</div>
-        <div class="sub" style="margin-top:4px">Smart shows your 8 best and prepares 5 cases. Premium shows your 15 best, prepares 10, and you can re-search with new filters for 6 months.</div>
+        <div class="sub" style="margin-top:4px">${planLadderLine()}</div>
         <button class="btn b-gold" style="margin-top:10px" onclick="go('buy')">Upgrade to apply for all of them</button>`;
       lockedCards[0].parentNode.insertBefore(sum,lockedCards[0]);
       lockedCards.forEach(c=>c.remove());
@@ -2609,7 +2622,7 @@ function openFinder(afterUpload){
   const m=ME||{};
   window._finder=window._finder||{kind:m.mode==='work'?'work':'study',funded:!!m.funded_only,remote:false,visa:false,ctrys:[],ctryOpen:false,ctrySearch:''};
   if(!window._finder._loaded){window._finder._loaded=true;
-    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],programTypes:Array.isArray(P.programTypes)?P.programTypes:[],sectors:Array.isArray(P.sectors)?P.sectors:[],langs:Array.isArray(P.langs)?P.langs:[],licenseExam:P.licenseExam||'',licenseStatus:P.licenseStatus||'',lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
+    api('/api/prefs').then(d=>{if(d&&d.prefs){const P=d.prefs;Object.assign(window._finder,{kind:P.kind||window._finder.kind,fundings:Array.isArray(P.fundings)?P.fundings:(P.funding?[P.funding]:[]),levels:Array.isArray(P.levels)?P.levels:(P.level?[P.level]:[]),licenses:Array.isArray(P.licenses)?P.licenses:(P.license?[P.license]:[]),jobTypes:Array.isArray(P.jobTypes)?P.jobTypes:[],exps:Array.isArray(P.exps)?P.exps:[],programTypes:Array.isArray(P.programTypes)?P.programTypes:[],sectors:Array.isArray(P.sectors)?P.sectors:[],langs:Array.isArray(P.langs)?P.langs:[],licenseHeld:P.licenseHeld||'',licenseResolved:P.licenseResolved||null,lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
   }
   const wrap=document.createElement('div');wrap.className='ff-finder';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;display:flex;align-items:center;justify-content:center;padding:16px';
@@ -2625,8 +2638,8 @@ function openFinder(afterUpload){
 function renderFinder(){
   const el=$('ffBody');if(!el)return;
   const f=window._finder;
-  ['levels','fundings','jobTypes','exps','licenses','programTypes','sectors','langs'].forEach(k=>{if(!Array.isArray(f[k]))f[k]=[]});
-  if(f.level&&!f.levels.length)f.levels=[f.level];if(f.funding&&!f.fundings.length)f.fundings=[f.funding];if(f.license&&!f.licenses.length)f.licenses=[f.license];
+  ['levels','fundings','jobTypes','exps','programTypes','sectors','langs'].forEach(k=>{if(!Array.isArray(f[k]))f[k]=[]});
+  if(f.level&&!f.levels.length)f.levels=[f.level];if(f.funding&&!f.fundings.length)f.fundings=[f.funding];
   f.lang=f.lang||'';f.workmode=f.workmode||'';f.visaSel=f.visaSel||'';f.field=f.field||'';f.intake=f.intake||'';f._open=f._open||{};
   const sel=(key,label2,opts2)=>`<label>${label2}</label><select onchange="window._finder['${key}']=this.value;renderFinder()">${opts2.map(([v,t])=>`<option value="${v}" ${f[key]===v?'selected':''}>${t}</option>`).join('')}</select>`;
   // Generic multi-select picker: tap the head to open, tick any number of options.
@@ -2642,7 +2655,7 @@ function renderFinder(){
     ${open?`<div class="ctry-body">${opts2.length>10?`<input class="ctry-search" placeholder="Type to filter…" value="${escAttr((f._q||{})[key]||'')}" oninput="window._finder._q=window._finder._q||{};window._finder._q['${key}']=this.value;renderFinder();setTimeout(()=>{const el=document.querySelector('.ctry-body .ctry-search');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length)}},0)" onclick="event.stopPropagation()">`:''}${opts2.filter(([v,t])=>{const q=String((f._q||{})[key]||'').toLowerCase();return !q||t.toLowerCase().includes(q)||cur.includes(v)}).map(([v,t])=>{const on=cur.includes(v);
       return `<div class="ctryrow ${on?'on':''}" tabindex="0" role="checkbox" aria-checked="${on}"
         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"
-        onclick="(function(){const a=window._finder['${key}'];const i=a.indexOf('${v}');i>=0?a.splice(i,1):a.push('${v}');window._finder._open['${key}']=false;if('${key}'==='licenses')autoPickExamCountry('${v}');if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${t}</div>`}).join('')}
+        onclick="(function(){const a=window._finder['${key}'];const i=a.indexOf('${v}');i>=0?a.splice(i,1):a.push('${v}');window._finder._open['${key}']=false;if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${t}</div>`}).join('')}
       <div class="row" style="gap:8px;margin-top:8px;position:sticky;bottom:0;background:#08142c;padding-top:6px">
         <button class="segbtn" onclick="event.stopPropagation();window._finder['${key}']=opts2All('${key}');if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()">Select all</button>
         <button class="segbtn" onclick="event.stopPropagation();window._finder['${key}']=[];if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600);renderFinder()">Clear</button>
@@ -2653,8 +2666,7 @@ function renderFinder(){
   const FIELD_NAMES=['Medicine','Pharmacy','Nursing','Dentistry','Physiotherapy','Allied Health','Public Health','Medical Laboratory','Radiology & Imaging','Veterinary','Psychology','Nutrition & Dietetics','Biotechnology','Microbiology','Biochemistry','Genetics','Life Sciences','Chemistry','Physics','Mathematics','Statistics','Environmental Science','Earth Sciences','Astronomy','Materials Science','IT & Software','Computer Science','Data Science','Artificial Intelligence','Cybersecurity','Networking','Web & App Development','Game Development','Cloud Computing','Electrical Engineering','Mechanical Engineering','Civil Engineering','Chemical Engineering','Petroleum Engineering','Mining Engineering','Industrial Engineering','Aerospace Engineering','Automotive Engineering','Biomedical Engineering','Mechatronics','Telecom Engineering','Architecture','Urban Planning','Construction Management','Business Administration','Management','Marketing','Sales','Accounting','Finance','Banking','Economics','Human Resources','Supply Chain & Logistics','Project Management','Entrepreneurship','International Business','Law','Political Science','International Relations','Public Administration','Sociology','Social Work','Anthropology','History','Philosophy','Islamic Studies','Languages & Linguistics','Literature','Journalism & Media','Communication','Film & Television','Graphic Design','Fashion Design','Interior Design','Fine Arts','Music','Performing Arts','Education & Teaching','Early Childhood Education','Special Education','Sports Science','Hospitality & Tourism','Culinary Arts','Aviation & Piloting','Maritime & Shipping','Agriculture','Food Science','Forestry','Fisheries','Horticulture','Textile Engineering','Energy & Renewables','Nanotechnology','Robotics','Library & Information Science','Criminology','Nursing Midwifery','Paramedical','Occupational Therapy','Speech Therapy','Optometry','Audiology'];
   const FIELDS=[['','Any profession']].concat(FIELD_NAMES.map(n=>[n.toLowerCase().replace(/[^a-z]+/g,'-').replace(/^-|-$/g,''),n]));
   const study=f.kind!=='work'?
-    mp('levels','Programme level, select any',[['bachelors','Undergraduate, Bachelor&#39;s degree'],['masters','Postgraduate, Master&#39;s / MPhil'],['phd','Doctorate, PhD'],['postdoc','Postdoctoral research'],['diploma','Diploma'],['short_course','Short course / Training'],['fellowship','Fellowship / Exchange'],['observership','Clinical observership / rotation'],['licensing_exam','Licensing exam pathway (USMLE, PLAB, NCLEX, etc.)']])+
-    ((f.levels||[]).includes('licensing_exam')?`<label>Which licensing exam? (name it)</label><input id="ff-licexam" placeholder="e.g. USMLE, PLAB, NCLEX, DHA, PEBC" value="${escAttr(f.licenseExam||'')}" oninput="window._finder.licenseExam=this.value;if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,800)">`:'')+
+    mp('levels','Programme level, select any',[['bachelors','Undergraduate, Bachelor&#39;s degree'],['masters','Postgraduate, Master&#39;s / MPhil'],['phd','Doctorate, PhD'],['postdoc','Postdoctoral research'],['diploma','Diploma'],['short_course','Short course / Training'],['fellowship','Fellowship / Exchange'],['observership','Clinical observership / rotation']])+
     mp('fundings','Funding, choose one or all',[['fully','Fully funded / Scholarship'],['partial','Partial funding / Scholarship'],['self','Self finance']])+
     mp('langs','Language rules, choose any that suit you',[['none','No language certificate required'],['cert_before','Certificate needed to apply (IELTS / TOEFL / OET / PTE)'],['course_after','Language course before or with the programme accepted'],['local_lang','Local language route (German, French, etc.)']])+
     sel('intake','Intake',[['','Any intake'],['2026','2026 intakes'],['2027','2027 intakes']])+
@@ -2662,8 +2674,13 @@ function renderFinder(){
   const work=f.kind!=='study'?
     mp('jobTypes','Job type, select any',[['full_time','Full-time position'],['part_time','Part-time position'],['contract','Contract / locum'],['internship','Internship / trainee']])+
     mp('exps','Experience level, select any',[['entry','Early career (0–2 years)'],['mid','Established (3–7 years)'],['senior','Senior (8+ years)']])+
-    mp('licenses','Licensing exams / registrations, select yours',[['PLAB','PLAB / UKMLA (UK, GMC)'],['USMLE','USMLE (USA)'],['MCCQE','MCCQE (Canada)'],['AMC','AMC (Australia)'],['NZREX','NZREX (New Zealand)'],['DHA','DHA (Dubai)'],['DOH','DOH / HAAD (Abu Dhabi)'],['MOHAP','MOHAP (UAE)'],['SCFHS','SCFHS Prometric (Saudi)'],['QCHP','QCHP (Qatar)'],['OMSB','OMSB (Oman)'],['NHRA','NHRA (Bahrain)'],['MOH','MOH (Kuwait / Gulf)'],['NCLEX','NCLEX-RN (Nurses, USA/Gulf)'],['CBT','NMC CBT + OSCE (Nurses, UK)'],['CGFNS','CGFNS / VisaScreen (Nurses, USA)'],['AHPRA','AHPRA (Australia health)'],['PEBC','PEBC (Pharmacists, Canada)'],['FPGEE','FPGEE / NAPLEX (Pharmacists, USA)'],['OSPAP','GPhC OSPAP (Pharmacists, UK)'],['KAPS','KAPS (Pharmacists, Australia)'],['ORE','ORE (Dentists, UK)'],['NDEB','NDEB (Dentists, Canada)'],['ADC','ADC (Dentists, Australia)'],['INBDE','INBDE (Dentists, USA)'],['ASCPI','ASCPi (Lab, international)'],['NPTE','NPTE (Physio, USA)'],['HCPC','HCPC (Allied health, UK)'],['PE','FE / PE (Engineers, USA)'],['CENG','CEng (Engineers, UK)'],['PENG','P.Eng (Engineers, Canada)'],['SCE','SCE (Engineers, Saudi)'],['UPDA','UPDA / MMUP (Engineers, Qatar)'],['OET','OET (English, healthcare)'],['DATAFLOW','DataFlow verification done'],['PROMETRIC','Prometric (Gulf general)']])+
-    ((f.licenses||[]).length?`<label>Your status with the selected exam(s)</label><select onchange="window._finder.licenseStatus=this.value;if(window._fpT)clearTimeout(window._fpT);window._fpT=setTimeout(saveFinderPrefs,600)"><option value="">Select honestly, it shapes everything</option><option value="preparing" ${f.licenseStatus==='preparing'?'selected':''}>Preparing, show me pathways and sponsors</option><option value="passed" ${f.licenseStatus==='passed'?'selected':''}>Passed, get me hired fast</option><option value="registered" ${f.licenseStatus==='registered'?'selected':''}>Registered and active, job ready</option></select>`:'')+
+    /* We do not sell licensing help, so there is no menu of exams here. We ask one
+       question, in the applicant's own words, and the backend identifies and spell-corrects
+       whatever they type so it can be used to match jobs they are already eligible for. */
+    `<label>Do you already hold a professional licence or registration?</label>
+     <input id="ff-lichold" placeholder="Type it in your own words, e.g. DHA, NMC pin, P.Eng, ACCA - or leave empty" value="${escAttr(f.licenseHeld||'')}"
+       oninput="window._finder.licenseHeld=this.value;if(window._licT)clearTimeout(window._licT);window._licT=setTimeout(resolveHeldLicence,700)">
+     <div id="licEcho" class="sub" style="margin:-2px 0 8px;min-height:16px;color:#9fe8d8">${f.licenseResolved?esc('Recognised: '+f.licenseResolved.name+(f.licenseResolved.authority?' - '+f.licenseResolved.authority:'')):'<span style=\'color:#8FA9CE\'>Optional. If you hold one, jobs that require it are matched to you.</span>'}</div>`+
     sel('workmode','Work mode',[['','Any'],['remote','Remote only'],['onsite','On-site']])+
     mp('sectors','Employer sector - select any',[['hospital','Hospital / clinical'],['university','University / academia'],['industry','Industry / private sector'],['government','Government'],['ngo','NGO / international bodies'],['remote_company','Remote-first companies']]):'';
   el.innerHTML=`
@@ -2696,8 +2713,22 @@ function renderFinderCtryList(){
   el.innerHTML=list.map(c=>{const on=f.ctrys.includes(c.code);
     return `<div class="ctryrow ${on?'on':''}" onclick="(function(){const a=window._finder.ctrys;const i=a.indexOf('${c.code}');i>=0?a.splice(i,1):a.push('${c.code}');renderFinder()})()"><span class="ck">${on?'☑':'☐'}</span> ${esc(c.name)}</div>`}).join('')||'<span class="sub">No match</span>';
 }
-const EXAM_CC={PLAB:'GB',USMLE:'US',MCCQE:'CA',AMC:'AU',NZREX:'NZ',DHA:'AE',DOH:'AE',MOHAP:'AE',SCFHS:'SA',QCHP:'QA',OMSB:'OM',NHRA:'BH',MOH:'KW',NCLEX:'US',CBT:'GB',CGFNS:'US',AHPRA:'AU',PEBC:'CA',FPGEE:'US',OSPAP:'GB',KAPS:'AU',ORE:'GB',NDEB:'CA',ADC:'AU',INBDE:'US',NPTE:'US',HCPC:'GB',PE:'US',CENG:'GB',PENG:'CA',SCE:'SA',UPDA:'QA'};
-function autoPickExamCountry(v){try{const cc=EXAM_CC[v];const f=window._finder;if(cc&&f&&f.licenses&&f.licenses.indexOf(v)>=0){f.ctrys=f.ctrys||[];if(f.ctrys.indexOf(cc)<0){f.ctrys.push(cc);if(typeof toast==='function')toast('Country set to '+cc+' for this exam, you can still change it.')}}}catch(e){}}
+/* Ask the backend what the applicant actually typed. It corrects spelling and names the
+   real regulator; it never offers to obtain the licence, because we do not do that. */
+async function resolveHeldLicence(){
+  const f=window._finder||{};const t=String(f.licenseHeld||'').trim();
+  const box=document.getElementById('licEcho');
+  if(!t){f.licenseResolved=null;if(box)box.innerHTML='<span style="color:#8FA9CE">Optional. If you hold one, jobs that require it are matched to you.</span>';saveFinderPrefs();return}
+  if(box)box.textContent='Checking\u2026';
+  try{
+    const d=await api('/api/license/resolve',{method:'POST',body:{text:t,countries:(f.ctrys||[])}});
+    f.licenseResolved=d.licence||null;
+    if(box)box.innerHTML=(d.licence&&d.licence.confident)
+      ?esc('Recognised: '+d.licence.name+(d.licence.authority?' \u2014 '+d.licence.authority:''))
+      :'<span style="color:#F5B841">Noted as you wrote it. We will match jobs that mention it.</span>';
+  }catch(e){if(box)box.innerHTML='<span style="color:#8FA9CE">Noted. We will match jobs that mention it.</span>'}
+  saveFinderPrefs();
+}
 /* Opens the official portal through the Apply Assistant when it is installed: the
    assistant asks Chrome for permission for that one site, opens it, and fills your
    prepared details. Without the assistant we simply open the portal normally. */
@@ -2717,17 +2748,17 @@ function openPortalAssisted(url){
 function opts2All(key){return ((window._optAll||{})[key]||[]).slice()}
 function saveFinderPrefs(){
   const f=window._finder||{};const kind=f.kind||'study';
-  api('/api/prefs',{method:'PUT',body:{prefs:{kind,fundings:(f.fundings||[]),levels:(f.levels||[]),workmode:f.workmode||'',licenses:(f.licenses||[]),jobTypes:(f.jobTypes||[]),exps:(f.exps||[]),programTypes:(f.programTypes||[]),sectors:(f.sectors||[]),langs:(f.langs||[]),field:f.field||'',intake:f.intake||'',ctrys:(f.ctrys||[]),licenseExam:f.licenseExam||'',licenseStatus:f.licenseStatus||''}}}).catch(()=>{});
+  api('/api/prefs',{method:'PUT',body:{prefs:{kind,fundings:(f.fundings||[]),levels:(f.levels||[]),workmode:f.workmode||'',jobTypes:(f.jobTypes||[]),exps:(f.exps||[]),programTypes:(f.programTypes||[]),sectors:(f.sectors||[]),langs:(f.langs||[]),field:f.field||'',intake:f.intake||'',ctrys:(f.ctrys||[]),licenseHeld:f.licenseHeld||'',licenseResolved:f.licenseResolved||null}}}).catch(()=>{});
 }
 async function launchFinder(btn){
   btn.disabled=true;
   const f=window._finder||{};
   const kind=f.kind||'study';
-  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:(f.langs||[]).length===1&&f.langs[0]==='none',remote:f.workmode==='remote',visa:false,licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),langs:(f.langs||[]).slice(),licenseExam:f.licenseExam||'',licenseStatus:f.licenseStatus||'',field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
+  const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:(f.langs||[]).length===1&&f.langs[0]==='none',workmode:f.workmode||'',remote:f.workmode==='remote',visa:false,licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),langs:(f.langs||[]).slice(),licenseHeld:f.licenseHeld||'',licenseResolved:f.licenseResolved||null,field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
   // 'Both' was removed: any account still carrying it is normalised to study.
   const kindSafe=(kind==='work')?'work':'study';
   try{await api('/api/me',{method:'PUT',body:{mode:kindSafe,funded_only:opts.fundedOnly}});if(ME){ME.mode=kindSafe;ME.funded_only=opts.fundedOnly}}catch(e){}
-  api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,fundings:opts.fundings,levels:opts.levels,lang:opts.noLang?'none':'',workmode:opts.remote?'remote':'',licenses:opts.licenses,jobTypes:opts.jobTypes,exps:opts.exps,programTypes:opts.programTypes,sectors:opts.sectors,langs:opts.langs,field:opts.field,intake:opts.intake,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
+  api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,fundings:opts.fundings,levels:opts.levels,lang:opts.noLang?'none':'',workmode:opts.remote?'remote':'',jobTypes:opts.jobTypes,exps:opts.exps,programTypes:opts.programTypes,sectors:opts.sectors,langs:opts.langs,field:opts.field,intake:opts.intake,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
   document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
   runSearch(kindSafe,opts);
 }
@@ -3137,7 +3168,7 @@ function applyFallback(p){
   <div class="sub" style="margin:8px 0">To: <b>${esc(p.recipientName||p.recipient)}</b> · ${esc(p.organization)}</div>
   <div class="sub" style="margin:6px 0"><b>Step 1.</b> Download your prepared documents:</div>
   <div class="row" style="flex-wrap:wrap;gap:6px">${(p.attachments||[]).map(a2=>`<a class="btn b-line" style="text-decoration:none" href="${escAttr(a2.url)}" download>${esc(a2.filename)}</a>`).join('')||'<span class="sub">No documents in this case.</span>'}</div>
-  <div class="sub" style="margin:10px 0 6px"><b>Step 2.</b> Open your email, recipient, subject and your tailored message are pre-filled. Attach the downloaded documents, review, and press <b>Send</b>:</div>
+  <div class="sub" style="margin:10px 0 6px"><b>Step 2.</b> Open your email, recipient, subject and your customized message are pre-filled. Attach the downloaded documents, review, and press <b>Send</b>:</div>
   <div class="row" style="flex-wrap:wrap;gap:6px">
   ${prov.gmail!==false?`<a class="btn b-gold" style="text-decoration:none" target="_blank" href="${escAttr(gmailUrl)}">Open in Gmail</a>`:''}
   ${prov.outlook!==false?`<a class="btn b-line" style="text-decoration:none" target="_blank" href="${escAttr(outlookUrl)}">Open in Outlook</a>`:''}
@@ -3161,14 +3192,17 @@ async function authorizeMsg(id,btn){btn.disabled=true;
   }catch(e){toast(e.message);btn.disabled=false}}
 function startApp(id,inst,reqs){
   document.querySelectorAll('.ff-ack').forEach(x=>x.remove());
+  /* The server never debits staff, so promising staff that a credit will be spent is
+     simply false. The confirmation says what will actually happen to whoever is looking. */
+  const _st=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
   const w=document.createElement('div');w.className='ff-ack';
   w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:66;display:flex;align-items:center;justify-content:center;padding:18px';
   w.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);color:#eef4ff;border-radius:16px;padding:20px">
   <h3 style="margin:0 0 6px">Are you sure?</h3>
-  <div style="background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.4);border-radius:10px;padding:10px;font:600 13.5px Inter;margin-bottom:8px">You are choosing <b style="color:#00D4FF">${esc(inst)}</b>. Preparing this case will use <b>1 case</b> from your package. Nothing is ever selected for you, this is entirely your decision.</div>
+  <div style="background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.4);border-radius:10px;padding:10px;font:600 13.5px Inter;margin-bottom:8px">You are choosing <b style="color:#00D4FF">${esc(inst)}</b>. ${_st?'Preparing this case will use <b>no credit</b>, because staff accounts are exempt. A customer would spend 1 case here.':'Preparing this case will use <b>1 case</b> from your package.'} Nothing is ever selected for you, this is entirely your decision.</div>
   ${reqs?`<div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.35);border-radius:10px;padding:10px;font-size:13px"><b style="color:#F5B841">Stated requirements:</b> ${esc(reqs)}</div>`:`<div class="sub">No special requirements are stated on the official page beyond standard documents.</div>`}
-  <div class="sub" style="margin-top:8px">Documents are collected step by step, only what each stage needs, never everything at once. If the official page later shows a requirement we did not list here, your credit is returned.</div>
-  <div class="sub" style="margin-top:6px">Each case uses 1 credit and is prepared completely, end to end. Only this case is prepared.</div>
+  <div class="sub" style="margin-top:8px">Documents are collected step by step, only what each stage needs, never everything at once. If the official page later shows a requirement we did not list here, ${_st?'the customer\u2019s credit is returned':'your credit is returned'}.</div>
+  <div class="sub" style="margin-top:6px">${_st?'Staff accounts are not charged. For a customer, each case uses 1 credit.':'Each case uses 1 credit'} and is prepared completely, end to end. Only this case is prepared.</div>
   <button class="btn b-gold" style="width:100%;margin-top:12px" onclick="this.disabled=true;doStartApp('${id}',this)">Yes, I am sure. Prepare my case</button>
   <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-ack').remove()">Choose another opportunity</button></div>`;
   document.body.appendChild(w);
@@ -3609,7 +3643,7 @@ async function vAdmin(){
   if(cur==='universities')return adminUniversities();
   return adminOverview();
 }
-function simTierName(t){return {0:'a brand-new user',1:'a Solo member (1 case)',5:'a Smart member (5 cases)',10:'a Premium member (10 cases)'}[t]||'a user'}
+function simTierName(t){return {0:'a brand-new user',2:'a Basic member (2 cases)',5:'a Smart member (5 cases)',10:'a Premium member (10 cases)'}[t]||'a user'}
 function toggleSimUser(tier){
   if(tier===undefined||localStorage.getItem('ffSimUser')==='1'&&String(tier)===localStorage.getItem('ffSimTier')){
     localStorage.setItem('ffSimUser','0');toast('Back to admin view.');
@@ -3664,8 +3698,8 @@ async function adminOverview(){
   window.__mHtml=mHtml;
   let d;try{d=await api('/api/admin/overview')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   $('adminBody').innerHTML=aiHtml+(window.__mHtml||'')+`<div class="card" style="border-color:rgba(255,208,112,.6)">
-  <div class="spread"><h3 style="margin:0">🎁 Free Solo promo, limited time</h3></div>
-  <div class="sub" style="margin:4px 0 8px">Open a window where EVERY user can claim 1 free Solo case, once each. A live countdown shows on every dashboard. Great for launch days and ad campaigns.</div>
+  <div class="spread"><h3 style="margin:0">🎁 Free first case, limited time</h3></div>
+  <div class="sub" style="margin:4px 0 8px">Open a window where EVERY user can claim 1 free case, once each. A live countdown shows on every dashboard. Great for launch days and ad campaigns.</div>
   <div class="row" style="gap:8px;flex-wrap:wrap">
     <input id="promoHrs" type="number" value="48" min="1" max="168" style="width:90px">
     <button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{const h=parseInt(document.getElementById('promoHrs').value,10)||48;const d=await api('/api/admin/promo',{method:'POST',body:{hours:h}});toast('Promo LIVE for '+h+' hours! Countdown is on every dashboard.');}catch(e){toast(e.message)}b.disabled=false})(this)">Start promo</button>
@@ -3676,10 +3710,10 @@ async function adminOverview(){
   <div class="spread"><h3 style="margin:0">View as any client</h3>${localStorage.getItem('ffSimUser')==='1'?`<button class="btn b-line" style="padding:6px 14px" onclick="toggleSimUser()">Exit</button>`:''}</div>
   <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
     <button class="btn b-line" onclick="toggleSimUser(0)">New user (0)</button>
-    <button class="btn b-line" onclick="toggleSimUser(1)">Solo (1 case)</button>
+    <button class="btn b-line" onclick="toggleSimUser(2)">Basic (2 cases)</button>
     <button class="btn b-line" onclick="toggleSimUser(5)">Smart (5 cases)</button>
     <button class="btn b-gold" onclick="toggleSimUser(10)">Premium (10 cases)</button></div>
-  <div class="sub" style="line-height:1.6">One tap gives you the EXACT experience of that client: their visible matches (2, 8 or 15), their choose limits, package prompts, real cooldowns, the full funnel. Privileges are only reduced, never granted. Tap the banner to return to admin power.</div></div>
+  <div class="sub" style="line-height:1.6">One tap gives you the EXACT experience of that client: their visible matches for that plan, their choose limits, package prompts, their real daily search allowance, the full funnel. Privileges are only reduced, never granted. Tap the banner to return to admin power.</div></div>
 <div class="card" style="border-color:rgba(0,212,255,.45)">
   <div class="spread"><h3 style="margin:0">Apply Assistant — test without the Web Store</h3><button class="btn b-line" style="padding:6px 14px" onclick="assistStatus(document.getElementById('assistStat'))">Check connection</button></div>
   <div id="assistStat" style="margin:8px 0"><span class="chip ${FF_ASSIST?'c-green':'c-gray'}">${FF_ASSIST?'Connected':'Not checked yet'}</span></div>
@@ -3729,14 +3763,16 @@ async function adminSettings(){
       <div style="flex:1;min-width:90px"><label style="font-size:11px">Name</label><input value="${escAttr(t.name||'')}" oninput="window._cfg.packages.tiers[${i}].name=this.value"></div>
       <div style="flex:1;min-width:70px"><label style="font-size:11px">Price (Rs)</label><input type="number" value="${t.pkr||0}" oninput="window._cfg.packages.tiers[${i}].pkr=parseInt(this.value)||0"></div>
       <div style="flex:1;min-width:70px"><label style="font-size:11px">Cases (apply)</label><input type="number" value="${t.credits||1}" oninput="window._cfg.packages.tiers[${i}].credits=parseInt(this.value)||1"></div>
-      <div style="flex:1;min-width:70px"><label style="font-size:11px">Matches shown</label><input type="number" value="${t.view||2}" oninput="window._cfg.packages.tiers[${i}].view=parseInt(this.value)||2"></div>
+      <div style="flex:1;min-width:70px"><label style="font-size:11px">Matches shown</label><input type="number" value="${t.view||5}" oninput="window._cfg.packages.tiers[${i}].view=parseInt(this.value)||5"></div>
+      <div style="flex:1;min-width:80px"><label style="font-size:11px">Promo price (Rs)</label><input type="number" value="${t.promo_pkr||''}" placeholder="none" oninput="window._cfg.packages.tiers[${i}].promo_pkr=this.value?parseInt(this.value):null"></div>
     </div>
+    <div class="row" style="margin-top:6px"><div style="flex:1"><label style="font-size:11px">Description shown to the customer</label><input value="${escAttr(t.description||'')}" oninput="window._cfg.packages.tiers[${i}].description=this.value"></div></div>
     <div class="row" style="margin-top:6px;gap:8px">
       <button class="segbtn ${t.featured?'on':''}" onclick="window._cfg.packages.tiers.forEach((x,j)=>x.featured=(j===${i}));adminSettings()">${t.featured?'★ Featured':'Make featured'}</button>
       <button class="btn b-line" style="padding:3px 10px" onclick="window._cfg.packages.tiers.splice(${i},1);adminSettings()">Remove</button>
     </div></div>`).join('')}</div>
   <div class="row" style="margin-top:6px">
-    <button class="btn b-line" onclick="window._cfg.packages=window._cfg.packages||{tiers:[]};window._cfg.packages.tiers.push({key:'tier'+Date.now(),name:'New Package',credits:1,view:2,pkr:lowestPkgPrice(),feats:[]});adminSettings()">+ Add package</button>
+    <button class="btn b-line" onclick="window._cfg.packages=window._cfg.packages||{tiers:[]};window._cfg.packages.tiers.push({key:'tier'+Date.now(),name:'New Package',credits:2,view:5,pkr:lowestPkgPrice(),feats:[]});adminSettings()">+ Add package</button>
     <button class="btn b-gold" onclick="savePackages(this)">Save packages, deploy now</button>
   </div></div>
   <div class="card" style="border:2px solid #fb7185;background:rgba(251,113,133,.07)"><h3 style="color:#fb7185">🧹 Reset &amp; testing tools</h3>
@@ -3758,8 +3794,6 @@ async function adminSettings(){
       <input type="number" min="1" max="50" value="${((window._cfg||{}).limits||{}).max_upload_mb||10}" oninput="window._cfg.limits=window._cfg.limits||{};window._cfg.limits.max_upload_mb=parseInt(this.value)||10"></div>
     <div style="flex:1;min-width:120px"><label style="font-size:11px">Max files per upload</label>
       <input type="number" min="1" max="20" value="${((window._cfg||{}).limits||{}).max_files_per_upload||6}" oninput="window._cfg.limits.max_files_per_upload=parseInt(this.value)||6"></div>
-    <div style="flex:1;min-width:120px"><label style="font-size:11px">Search cooldown (min)</label>
-      <input type="number" min="0" max="240" value="${((window._cfg||{}).limits||{}).search_cooldown_minutes||30}" oninput="window._cfg.limits.search_cooldown_minutes=parseInt(this.value)||0"></div>
   </div>
   <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
     <div style="flex:1;min-width:140px"><label style="font-size:11px">USD to PKR rate</label>
@@ -3769,7 +3803,7 @@ async function adminSettings(){
   </div>
   <label style="font-size:11px;margin-top:10px;display:block">Documents prepared in every case</label>
   <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">
-    ${['cv','cover','sop','research_proposal','scholarship_statement','checklist','licensing_plan','visa_summary'].map(d=>{
+    ${['cv','cover','sop','research_proposal','scholarship_statement','checklist','visa_summary'].map(d=>{
       const on=((((window._cfg||{}).case_plan||{}).docs)||[]).includes(d);
       return `<button class="segbtn ${on?'on':''}" onclick="(function(){const c=window._cfg.case_plan=window._cfg.case_plan||{docs:[]};c.docs=c.docs||[];const i=c.docs.indexOf('${d}');i>=0?c.docs.splice(i,1):c.docs.push('${d}');adminSettings()})()">${on?'☑':'☐'} ${d.replace(/_/g,' ')}</button>`;
     }).join('')}
@@ -3781,18 +3815,14 @@ async function adminSettings(){
       return `<button class="segbtn ${on?'on':''}" onclick="(function(){const x=window._cfg.features=window._cfg.features||{};x['${f}']=!(x['${f}']!==false);adminSettings()})()">${on?'ON':'OFF'} ${f.replace(/_/g,' ')}</button>`;
     }).join('')}
   </div>
-  <label style="font-size:11px;margin-top:10px;display:block">Fair use, monthly AI spend per account (USD)</label>
+  <label style="font-size:11px;margin-top:10px;display:block">Searches per day</label>
   <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:4px">
-    <div style="flex:1;min-width:110px"><label style="font-size:10.5px">Soft warning</label>
-      <input type="number" step="0.5" value="${((window._cfg||{}).fair_use||{}).soft_usd||1.5}" oninput="window._cfg.fair_use=window._cfg.fair_use||{};window._cfg.fair_use.soft_usd=parseFloat(this.value)||1.5"></div>
-    <div style="flex:1;min-width:110px"><label style="font-size:10.5px">Hard pause</label>
-      <input type="number" step="0.5" value="${((window._cfg||{}).fair_use||{}).hard_usd||3}" oninput="window._cfg.fair_use.hard_usd=parseFloat(this.value)||3"></div>
-    <div style="flex:1;min-width:110px"><label style="font-size:10.5px">Paid multiplier</label>
-      <input type="number" step="1" value="${((window._cfg||{}).fair_use||{}).paid_multiplier||4}" oninput="window._cfg.fair_use.paid_multiplier=parseInt(this.value)||4"></div>
+    <div style="flex:1;min-width:130px"><label style="font-size:10.5px">Free accounts</label>
+      <input type="number" min="1" max="20" value="${((window._cfg||{}).fair_use||{}).daily_searches||3}" oninput="window._cfg.fair_use=window._cfg.fair_use||{};window._cfg.fair_use.daily_searches=parseInt(this.value)||3"></div>
+    <div style="flex:1;min-width:130px"><label style="font-size:10.5px">After buying a package</label>
+      <input type="number" min="1" max="20" value="${((window._cfg||{}).fair_use||{}).paid_daily_searches||5}" oninput="window._cfg.fair_use=window._cfg.fair_use||{};window._cfg.fair_use.paid_daily_searches=parseInt(this.value)||5"></div>
   </div>
-  <div style="flex:1;min-width:110px;margin-top:8px"><label style="font-size:10.5px">Daily cap (USD)</label>
-    <input type="number" step="0.05" value="${((window._cfg||{}).fair_use||{}).daily_usd||0.25}" oninput="window._cfg.fair_use=window._cfg.fair_use||{};window._cfg.fair_use.daily_usd=parseFloat(this.value)||0.25"></div>
-  <div class="sub" style="margin-top:4px;font-size:11px">Limits are per calendar month, resetting on the 1st, with a separate daily cap. About $0.10 per search, so 0.60 is roughly 6 searches a month and 0.25 is 2 a day. Staff are exempt and prepared cases are never blocked.</div>
+  <div class="sub" style="margin-top:4px;font-size:11px">Counted per calendar day, with no waiting between searches. Buying a package clears everything already used, that day or earlier, and starts the paid allowance clean. Staff are exempt and prepared cases are never blocked.</div>
   <label style="font-size:11px;margin-top:10px;display:block">AI models (leave blank for defaults)</label>
   <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:4px">
     <div style="flex:1;min-width:150px"><label style="font-size:10.5px">Gemini primary</label>
@@ -4000,7 +4030,7 @@ async function referralCard(fmt){
   ctr('done for you.',566+SH,'700 60px Georgia','#00D4FF',940);
   // Short, punchy lines. Three beats, no padding.
   ctr('Scholarships, degrees, jobs.',632+SH,'600 34px Arial','#EAF2FF',960);
-  ctr('Licensing exams: PLAB, DHA, USMLE etc.',678+SH,'600 34px Arial','#EAF2FF',960);
+  ctr('50+ countries, verified officially.',678+SH,'600 34px Arial','#EAF2FF',960);
   ctr('Undergraduate to postdoctoral.',724+SH,'600 34px Arial','#EAF2FF',960);
   // Reward: name the actual reward, not a vague "package".
   rr(120,782+SH,840,150,22);x.fillStyle='rgba(245,184,65,.13)';x.fill();x.strokeStyle='rgba(245,184,65,.55)';x.lineWidth=2;x.stroke();
@@ -4224,13 +4254,14 @@ function renderPacks(){
   $('adminBody').innerHTML=`<div class="sub" style="margin-bottom:8px">Edit packages without code. Saving affects only future purchases, past payments keep their original price.</div>
   ${packs.map((p,i)=>`<div class="card"><div class="spread"><b>Package ${i+1}</b><button class="btn b-line" style="padding:3px 10px" onclick="window._packs.splice(${i},1);renderPacks()">Remove</button></div>
   <label>Name</label><input value="${esc(p.name||'')}" onchange="window._packs[${i}].name=this.value">
-  <label>Cases (credits)</label><input type="number" value="${esc(p.credits)}" onchange="window._packs[${i}].credits=parseInt(this.value)">
+  <label>Cases (credits) &mdash; how many they can apply to</label><input type="number" value="${esc(p.credits)}" onchange="window._packs[${i}].credits=parseInt(this.value)">
+  <label>Matches shown &mdash; how many positions open for them to choose from</label><input type="number" value="${esc(p.view||'')}" placeholder="e.g. 5" onchange="window._packs[${i}].view=this.value?parseInt(this.value):null">
   <label>Price PKR</label><input type="number" value="${esc(p.pkr)}" onchange="window._packs[${i}].pkr=parseInt(this.value)">
   <label>Promo price PKR (blank = none)</label><input type="number" value="${esc(p.promo_pkr||'')}" onchange="window._packs[${i}].promo_pkr=this.value?parseInt(this.value):null">
   <label>Description</label><input value="${esc(p.description||'')}" onchange="window._packs[${i}].description=this.value">
   <div class="row" style="margin-top:8px"><label style="margin:0"><input type="checkbox" ${p.featured?'checked':''} style="width:auto" onchange="window._packs[${i}].featured=this.checked"> Featured</label>
   <label style="margin:0"><input type="checkbox" ${p.visible!==false?'checked':''} style="width:auto" onchange="window._packs[${i}].visible=this.checked"> Visible to users</label></div></div>`).join('')}
-  <div class="row"><button class="btn b-line" onclick="window._packs.push({credits:1,pkr:lowestPkgPrice(),name:'New package',visible:true});renderPacks()">+ Add package</button>
+  <div class="row"><button class="btn b-line" onclick="window._packs.push({credits:2,view:5,pkr:lowestPkgPrice(),name:'New package',visible:true});renderPacks()">+ Add package</button>
   <button class="btn b-gold" onclick="savePacks(this)">Save packages</button></div>`;
 }
 async function savePacks(btn){
@@ -4431,12 +4462,12 @@ async function adminSupport(){
   <div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.4);border-radius:10px;padding:10px;margin-top:8px">
     <b style="color:#F5B841">Free package request detected</b>
     <div class="row" style="gap:8px;margin-top:8px">
-      <button class="btn b-green" onclick="grantSolo('${t.id}',this)">Approve 1 free Solo case</button>
+      <button class="btn b-green" onclick="grantFreeCase('${t.id}',this)">Approve 1 free case</button>
       <button class="btn b-line" onclick="declineFree('${t.id}',this)">Decline politely</button></div>
     <div class="sub" style="margin-top:6px">Approve adds 1 case to this client instantly (once per ticket) and replies warmly. Decline sends a friendly no with the value pitch. Both mark the ticket answered.</div></div>`:''}</div>`).join('')||'<div class="empty">No tickets.</div>'}`;
 }
-async function grantSolo(id,btn){btn.disabled=true;
-  try{await api('/api/admin/support/'+id+'/grant-solo',{method:'POST'});toast('1 free Solo case granted. The client can apply now.');vAdmin();}
+async function grantFreeCase(id,btn){btn.disabled=true;
+  try{await api('/api/admin/support/'+id+'/grant-free-case',{method:'POST'});toast('1 free case granted. The client can apply now.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}}
 async function declineFree(id,btn){btn.disabled=true;
   try{await api('/api/admin/support/'+id+'/decline-free',{method:'POST'});toast('Declined politely and marked answered.');vAdmin();}
@@ -4461,7 +4492,7 @@ async function adminUsers(){
     <div class="sub" style="margin-top:6px;opacity:.8">If a country or level looks thin, run a broad search for it or let the harvester cycle.</div></div>`:''}
   ${dem?`<div class="card" style="border-color:rgba(0,212,255,.5)"><h3 style="margin-top:0">📊 What your users are asking for</h3>
     <div class="sub">Live demand from ${dem.users||0} saved searches, use it to target your ads.</div>
-    ${bar(dem.exams,'Top licensing exams')}${bar(dem.countries,'Top countries')}${bar(dem.levels,'Top levels')}${bar(dem.kinds,'Study vs work')}</div>`:''}
+    ${bar(dem.countries,'Top countries')}${bar(dem.levels,'Top levels')}${bar(dem.kinds,'Study vs work')}</div>`:''}
   ${aud&&(aud.entries||[]).length?`<div class="card"><h3 style="margin-top:0">🧾 Recent admin activity</h3>${(aud.entries||[]).slice(0,12).map(e=>`<div class="sub" style="padding:3px 0;border-bottom:1px solid rgba(140,178,255,.12)"><b>${esc(e.event||'')}</b> · ${esc(String(e.detail||'').slice(0,90))} <span style="opacity:.7">${esc(String(e.created_at||'').slice(0,16).replace('T',' '))}</span></div>`).join('')}</div>`:''}
   <div class="sub" style="margin-bottom:8px">${(d.users||[]).length} registered user${(d.users||[]).length===1?'':'s'}. Assign roles, message on WhatsApp, or remove an account. Only a super admin can grant admin-level roles.</div>
   ${(d.users||[]).map(u=>`<div class="card"><div class="spread"><div><b>${esc(u.full_name||'(no name)')}</b><div class="sub">${esc((u.id||'').slice(0,8))}… · joined ${esc((u.created_at||'').slice(0,10))}${u.role&&u.role!=='user'?' · <span style="color:#F5B841">'+esc(u.role)+'</span>':''}</div></div>
@@ -4615,25 +4646,50 @@ async function vBuy(){
   try{const r=await apiFast('/api/pricing',300000);d=r.cached}
   catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const packs=((d.pricing||{}).packs)||[];
+  // Cache for the copy that quotes a "from" price on pages that never load pricing.
+  window._pricingPacks=packs;
   // Named, benefit-rich packages. Featured = Smart (best value), highlighted in gold.
   const cfgTiers=((SITE&&SITE.packages&&SITE.packages.tiers)||[]);
   const META={};
-  cfgTiers.forEach(t=>{META[t.credits]={name:t.name,view:t.view,apply:t.credits,tag:t.featured?'MOST POPULAR':'',feats:t.feats||['See your '+t.view+' best-matched opportunities','Prepare and apply to any '+t.credits]};});
-  if(!Object.keys(META).length){META[1]={name:'Solo',view:2,apply:1,tag:'',feats:['See your 2 best-matched opportunities','Prepare and apply to any 1']};META[5]={name:'Smart',view:8,apply:5,tag:'MOST POPULAR',feats:['See your 8 best-matched opportunities','Prepare and apply to any 5']};META[10]={name:'Premium',view:15,apply:10,tag:'BEST VALUE',feats:['See your 15 best-matched opportunities','Prepare and apply to any 10']};}
-  const packCard=p=>{const m=META[p.credits]||{name:p.credits+(p.credits===1?' case':' cases'),view:p.credits<=1?2:p.credits*2,apply:p.credits,tag:'',feats:['See your '+(p.credits<=1?2:p.credits*2)+' best-matched opportunities','Prepare and apply to any '+p.credits,'Every document tailored to each position, verified from official pages']};const feat=m.tag==='MOST POPULAR';
+  cfgTiers.forEach(t=>{META[t.credits]={name:t.name,view:t.view,apply:t.credits,tag:t.featured?'MOST POPULAR':'',feats:t.feats||['See your '+t.view+' best-matched opportunities','Choose and apply to any '+t.credits+' of them']};});
+  // Whatever the admin saved on the pack itself always wins over the tier config.
+  packs.forEach(p=>{const v=p.view||((META[p.credits]||{}).view)||Math.max(p.credits*2,p.credits);
+    META[p.credits]=Object.assign({},META[p.credits]||{},{name:p.name||((META[p.credits]||{}).name)||(p.credits+' cases'),view:v,apply:p.credits,
+      tag:p.featured?'MOST POPULAR':((META[p.credits]||{}).tag||''),
+      feats:((META[p.credits]||{}).feats)||['See your '+v+' best-matched opportunities','Choose and apply to any '+p.credits+' of them']});});
+  const packCard=p=>{const _v=p.view||Math.max(p.credits*2,p.credits);const m=META[p.credits]||{name:p.credits+(p.credits===1?' case':' cases'),view:_v,apply:p.credits,tag:'',feats:['See your '+_v+' best-matched opportunities','Choose and apply to any '+p.credits+' of them','Customized documents prepared for every position, from official pages']};const feat=m.tag==='MOST POPULAR';
+    const metricB={n:m.apply,lbl:'you can apply'};
     return `<div class="card" style="position:relative;border:${feat?'2px solid #F5B841':'1px solid rgba(140,178,255,.3)'};background:${feat?'linear-gradient(160deg,rgba(245,184,65,.12),rgba(22,131,255,.05))':'rgba(10,22,44,.6)'};margin-bottom:12px;overflow:hidden">
       ${m.tag?`<div style="position:absolute;top:0;right:0;background:${feat?'#F5B841':'#1683FF'};color:${feat?'#3a2a00':'#fff'};font:800 10px Inter;padding:4px 12px;border-radius:0 0 0 10px;letter-spacing:.05em">${m.tag}</div>`:''}
       <div style="font:800 22px Georgia,serif;color:${feat?'#FFD070':'#fff'}">${esc(m.name)}</div>
-      <div style="margin:2px 0 8px"><span style="font:800 20px Inter;color:#2dd4bf">${p.pkr>0?'Rs '+p.pkr.toLocaleString():'Soon'}</span> <span class="sub">one-time</span></div>
+      ${(()=>{ // The promo price was captured in admin and never shown anywhere, so a
+               // discount the owner had set was invisible and uncharged. It leads now.
+        const promo=Number(p.promo_pkr)||0, full=Number(p.pkr)||0;
+        const on=promo>0&&promo<full;
+        if(!full)return '<div style="margin:2px 0 8px"><span style="font:800 20px Inter;color:#2dd4bf">Soon</span></div>';
+        return `<div style="margin:2px 0 8px">
+          <span style="font:800 20px Inter;color:#2dd4bf">Rs ${(on?promo:full).toLocaleString()}</span>
+          ${on?`<span style="font:600 14px Inter;color:#8FA9CE;text-decoration:line-through;margin-left:7px">Rs ${full.toLocaleString()}</span>
+          <span class="chip c-gold" style="margin-left:6px;font-size:10.5px">Save Rs ${(full-promo).toLocaleString()}</span>`:''}
+          <span class="sub">one-time</span></div>`;})()}
       <div style="display:flex;gap:16px;margin-bottom:8px">
-        <div><div style="font:800 18px Inter;color:#00D4FF">${m.view}</div><div class="sub" style="font-size:10.5px">matches shown</div></div>
-        <div><div style="font:800 18px Inter;color:#00D4FF">${m.apply}</div><div class="sub" style="font-size:10.5px">you can apply</div></div>
+        <div><div style="font:800 18px Inter;color:#00D4FF">${m.view}</div><div class="sub" style="font-size:10.5px">matches to choose from</div></div>
+        <div><div style="font:800 18px Inter;color:#00D4FF">${metricB.n}</div><div class="sub" style="font-size:10.5px">${metricB.lbl}</div></div>
       </div>
+      <div class="sub" style="margin:0 0 8px;padding:6px 9px;border:1px solid rgba(0,212,255,.35);border-radius:8px;background:rgba(0,212,255,.07);line-height:1.5">Includes <b>${(((SITE||{}).fair_use||{}).paid_daily_searches)||5} searches a day</b> from the moment it activates, and your used searches are cleared.</div>
+      ${p.description?`<div class="sub" style="margin:0 0 8px;line-height:1.55;color:#D6E9FF">${esc(p.description)}</div>`:''}
       ${(m.feats||[]).map(f=>`<div class="sub" style="padding:2px 0;line-height:1.5"><span style="color:#2dd4bf">✓</span> ${esc(f)}</div>`).join('')}
       <button class="btn ${feat?'b-gold':'b-line'}" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="buyPack(${p.credits})">Choose ${esc(m.name)}</button>
     </div>`;};
   setTimeout(promoTicker,300);
+  const _staff=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
   $('view').innerHTML=`<div class="spread" style="margin-bottom:6px"><h2 style="margin:0">Choose your package</h2><button class="btn b-line" style="padding:4px 12px" onclick="go('home')" aria-label="Close">✕</button></div>
+  ${_staff?`<div class="card" style="border-color:rgba(245,184,65,.6);background:rgba(245,184,65,.07);margin-bottom:12px">
+    <b style="color:#FFD070">\u2699 Staff view</b>
+    <div class="sub" style="margin-top:4px;line-height:1.6">This is the page exactly as a customer sees it, including the payment account block below. Nothing here is hidden from you and nothing extra is shown to them. Use it to check the plan numbers, the prices and the payment details before a client does.</div>
+    <div class="sub" style="margin-top:4px">You can start any case without paying from the <b>Admin: open and apply</b> button on any opportunity card.</div>
+    <div class="row" style="margin-top:8px"><button class="btn b-line" style="padding:4px 12px;font-size:12px" onclick="go('adminx')">Open admin panel</button>
+    <button class="btn b-line" style="padding:4px 12px;font-size:12px" onclick="toggleSimUser(0)">Preview as a brand-new user</button></div></div>`:''}
   <div id="refBox"></div>
   <div style="border:1px solid rgba(0,212,255,.4);background:linear-gradient(135deg,rgba(0,212,255,.1),rgba(22,131,255,.05));border-radius:12px;padding:12px 14px;margin-bottom:14px">
     <b style="color:#7EE6FF;font-size:14px">These are not random listings, they are hand-picked for you.</b>
@@ -4641,15 +4697,22 @@ async function vBuy(){
   </div>
   ${HM&&HM.promo&&HM.promo.active?`<div style="position:relative;border:2px solid #F5B841;background:linear-gradient(160deg,rgba(245,184,65,.18),rgba(22,131,255,.05));border-radius:14px;padding:16px;margin-bottom:12px;overflow:hidden">
     <div style="position:absolute;top:0;right:0;background:#F5B841;color:#3a2a00;font:800 10px Inter;padding:4px 12px;border-radius:0 0 0 10px;letter-spacing:.05em">LIMITED TIME</div>
-    <div style="font:800 22px Georgia,serif;color:#FFD070">🎁 Free Solo</div>
+    <div style="font:800 22px Georgia,serif;color:#FFD070">🎁 Your first case, free</div>
     <div class="sub" style="margin:4px 0 8px">1 complete application, prepared free. Ends in <b id="promoTick" style="color:#FFD070">…</b></div>
-    <div class="sub" style="padding:2px 0"><span style="color:#2dd4bf">✓</span> See your 2 best-matched opportunities</div>
+    <div class="sub" style="padding:2px 0"><span style="color:#2dd4bf">✓</span> See your best-matched opportunities</div>
     <div class="sub" style="padding:2px 0"><span style="color:#2dd4bf">✓</span> Prepare and apply to any 1, completely free</div>
     ${HM.promo.claimed
       ?`<div class="chip c-green" style="margin-top:12px;display:inline-block">Claimed ✓ your free case is active</div>`
-      :`<button class="btn b-gold" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="(async b=>{b.disabled=true;try{await api('/api/promo/claim',{method:'POST'});await refreshCredits();toast('Your free Solo case is active! Opening your best matches…');HM=null;if(window._lastMatches){showMatches(window._lastMatches.kind,Object.assign({},window._lastMatches.opts||{},{_fromCache:true}))}else{go('home')}}catch(e){toast(e.message);b.disabled=false}})(this)">Activate my free Solo package</button>`}
+      :`<button class="btn b-gold" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="(async b=>{b.disabled=true;try{await api('/api/promo/claim',{method:'POST'});await refreshCredits();toast('Your free case is active! Opening your best matches…');HM=null;if(window._lastMatches){showMatches(window._lastMatches.kind,Object.assign({},window._lastMatches.opts||{},{_fromCache:true}))}else{go('home')}}catch(e){toast(e.message);b.disabled=false}})(this)">Activate my free case</button>`}
   </div>`:''}
-  ${packs.map(packCard).join('')}
+  ${(()=>{ // "Visible to users" was saved and then ignored, so a hidden plan still sold.
+       // Staff keep seeing hidden plans, clearly marked, so they can check them.
+       const shown=packs.filter(p=>p.visible!==false||_staff);
+       if(!shown.length)return '<div class="empty">No packages are available right now. Please contact support.</div>';
+       return shown.map(p=>(p.visible===false&&_staff)
+         ? packCard(p).replace('<div class="card"','<div class="card" data-hidden="1"')
+             .replace('style="position:relative;','style="position:relative;opacity:.75;outline:1px dashed rgba(245,184,65,.6);')
+         : packCard(p)).join('');})()}
   <div style="border:1px solid rgba(245,184,65,.35);background:rgba(245,184,65,.06);border-radius:12px;padding:10px 14px;margin:4px 0 12px;font-size:12.5px">
     A consultant in Pakistan charges <b>Rs 50,000–150,000</b> per application, verifies nothing, and you still write everything yourself. <b style="color:#F5B841">ForiForeign starts at Rs ${lowestPkgPrice().toLocaleString()}</b>, fully prepared, officially verified, you simply press Send.
   </div>
@@ -4659,7 +4722,7 @@ async function vBuy(){
       ${rv.map(r=>`<div style="margin-top:7px"><span style="color:#FFD070">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</span> <span class="sub" style="color:#EAF2FF">${esc(String(r.text).slice(0,90))}</span> <span class="sub">— ${esc(r.name||'Client')}</span></div>`).join('')}
     </div>`:'';})()}
   <div class="card"><h3 style="margin-top:0">How credits work</h3>
-  <div class="sub" style="line-height:1.7">Your credits never expire before your chosen opportunities do, use them anytime. Everyone gets 3 searches a day, and activating a package resets your searches immediately so you start again from three. A credit is spent only when YOU pick an opportunity and confirm. Every prepared case is fully editable and re-openable at no extra cost.</div></div>
+  <div class="sub" style="line-height:1.7">Every account gets <b>${(((SITE||{}).fair_use||{}).daily_searches)||3} searches a day</b>, with no waiting between them, and each search shows your full analysis and your best-matched positions with country, deadline, funding and the stipend or salary. Buying any package clears whatever you have already used and gives you <b>${(((SITE||{}).fair_use||{}).paid_daily_searches)||5} searches a day</b> from then on. A case credit is spent only when YOU pick a position and confirm, never by searching. Credits never expire before your chosen opportunities do, and every prepared case is fully editable and re-openable at no extra cost.</div></div>
   <div class="card" style="margin-top:14px"><h3>How to pay</h3>
   <div class="sub" style="margin-top:6px;line-height:1.7">${esc((SITE&&SITE.payment&&SITE.payment.instructions)||'Transfer to the account below, then submit your reference.')}</div>
   ${SITE&&SITE.payment&&(SITE.payment.account_number||SITE.payment.iban||SITE.payment.jazzcash_number||SITE.payment.easypaisa_number)?`<div class="card" style="background:var(--soft);margin-top:8px">
@@ -4684,17 +4747,33 @@ async function buyPack(credits){
   const w=document.createElement('div');w.className='ff-ack';
   w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:75;display:flex;align-items:center;justify-content:center;padding:16px';
   w.innerHTML=`<div style="max-width:430px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.97);border:1px solid rgba(0,212,255,.5);border-radius:16px;padding:18px;color:#eef4ff">
-    <div class="spread"><h3 style="margin:0">Pay for ${credits} case${credits===1?'':'s'}, one step</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-ack').remove()" aria-label="Close">✕</button></div>
-    <div class="sub" style="margin:6px 0 8px">1. Send the amount to ANY account below. 2. Tap I HAVE PAID. Done, we verify and your cases activate, usually under 30 minutes.</div>
+    <div class="spread"><h3 style="margin:0">${(()=>{const t=pkgByCredits(credits);
+      return 'Pay for '+(t?esc(t.name):(credits+' case'+(credits===1?'':'s')))+', one step';})()}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-ack').remove()" aria-label="Close">✕</button></div>
+    <div class="sub" style="margin:6px 0 8px" id="payQuote">Checking your exact amount&hellip;</div>
     ${row('JazzCash',P.jazzcash_number)}${row('Easypaisa',P.easypaisa_number)}${row('Bank',P.bank_name)}${row('Title',P.account_title)}${row('Account #',P.account_number)}${row('IBAN',P.iban)}
     <input id="payRef" placeholder="Transaction ID / reference (optional now)" style="margin-top:10px">
     <button class="btn b-gold" style="width:100%;margin-top:10px;padding:12px;font-size:15px" onclick="(async b=>{b.disabled=true;try{const d=await api('/api/payments',{method:'POST',body:{credits,reference:document.getElementById('payRef').value||'PENDING'}});this.closest&&0;w.remove();toast('Received! We are confirming your payment, usually under 30 minutes. You will see it on your dashboard.');}catch(e){toast(e.message);b.disabled=false}})(this)">I HAVE PAID, activate my cases</button>
     ${(()=>{const rv=((SITE&&SITE.reviews)||[]).filter(r=>r&&r.text).slice(0,2);return rv.length?`<div style="margin-top:10px">${rv.map(r=>`<div style="border:1px solid rgba(245,184,65,.4);background:rgba(245,184,65,.06);border-radius:10px;padding:8px 10px;margin-top:6px"><span style="color:#FFD070">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</span> <span class="sub" style="color:#EAF2FF">${esc(String(r.text).slice(0,80))}</span> <span class="sub">— ${esc(r.name||'Client')}</span></div>`).join('')}</div>`:''})()}
     <div class="sub" style="margin-top:8px;text-align:center">Every opportunity verified on official pages. Your money is safe: unverified payments are simply returned.</div></div>`;
   document.body.appendChild(w);
-  return;
-  try{const d=await api('/api/payments',{method:'POST',body:{credits,reference:'PENDING'}});
-  toast(d.note||'Submitted for confirmation.');}catch(e){toast(e.message)}
+  /* Ask the server what this actually costs THIS person: promo price if one is live,
+     minus any referral balance they hold. The sheet used to quote the list price from a
+     different source than the one that charges, so a customer with referral credit was
+     told to send more than they owed. */
+  (async()=>{
+    const box=document.getElementById('payQuote');if(!box)return;
+    try{
+      const q=await api('/api/payments/quote?credits='+encodeURIComponent(credits));
+      const bits=[];
+      if(q.promo_pkr!=null)bits.push('<span style="text-decoration:line-through;opacity:.6">Rs '+Number(q.list_pkr).toLocaleString()+'</span>');
+      if(q.discount_pkr>0)bits.push('<span class="chip c-green" style="font-size:10.5px">Referral credit &minus;Rs '+Number(q.discount_pkr).toLocaleString()+'</span>');
+      box.innerHTML='1. Send exactly <b style="color:#2dd4bf;font-size:15px">Rs '+Number(q.amount_pkr).toLocaleString()+'</b> '
+        +(bits.length?bits.join(' ')+' ':'')
+        +'to ANY account below. 2. Tap I HAVE PAID. Done, we verify and your cases activate, usually under 30 minutes.';
+    }catch(e){
+      box.textContent='1. Send the package amount to ANY account below. 2. Tap I HAVE PAID. Done, we verify and your cases activate, usually under 30 minutes.';
+    }
+  })();
 }
 </script>
 </body></html>

@@ -8,11 +8,18 @@ const checks = [
   ['credit consume ledger write', src.includes("delta: -1, reason: 'consume'")],
   ['post-insert credit race rollback', src.includes('balNow < 1')],
   ['payment confirm is atomic (pending flip)', /\.eq\('status', 'pending'\)\.select\('id'\)/.test(src)],
+  // Every plan is a case plan: entitlement is paid credits or staff, nothing else.
   ['entitlement is paid-or-staff only', src.includes('return (await balance(userId)) >= 1')],
+  ['nothing sells extra searches', !src.includes('searchpass') && !src.includes('search_only')],
   ['report endpoint is sealed by entitlement (sim-aware)', src.includes('await entitled(req.userId, simUser(req))')],
   ['no free-case grants remain', !src.includes("reason: 'free_case'")],
   ['payment confirmation notifies the user', src.includes('Payment confirmed')],
-  ['admin runs are exempt from cooldown', src.includes('!isAdminRun')]
+  // There is no cooldown to be exempt from; admin exemption now means an uncapped
+  // delivery target and no daily search gate.
+  ['no cooldown exists and staff bypass the daily gate',
+    !src.includes('searchCooldown') && src.includes('There is no cooldown between searches') &&
+    src.includes("['admin', 'super_admin', 'staff'].includes(req.userRole)) return next();") &&
+    src.includes('isAdminRun')]
 ];
 let fail = 0;
 for (const [name, ok] of checks) {

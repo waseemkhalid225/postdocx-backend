@@ -67,8 +67,8 @@ const checks = [
   ['extraction is two-stage with silent premium fallback', (() => { const d = fs.readFileSync(__dirname + '/../lib/docs.js', 'utf8'); return d.includes("callAI('profile_normalize'") && d.includes('research_papers') && d.includes('age'); })()],
   ['guide has the tabulated road to visa success', sv.includes('Your complete road, application to visa success') && sv.includes('Protector of Emigrants')],
   ['anthropic caller is retry-hardened', (() => { const a = fs.readFileSync(__dirname + '/../lib/anthropic.js', 'utf8'); return a.includes('anthropic-version') && a.includes('attempt < 2') && a.includes('429'); })()],
-  ['support can grant a free Solo case, once per ticket, with audit', sv.includes('grant-solo') && sv.includes("reason: 'support_grant'") && sv.includes('Already granted for this ticket') && sv.includes('SUPPORT_GRANT_SOLO')],
-  ['free-package requests are auto-detected with approve/decline', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('Free package request detected') && f.includes('grantSolo') && f.includes('declineFree'); })()],
+  ['support can grant a free case, once per ticket, with audit', sv.includes('grant-free-case') && sv.includes("reason: 'support_grant'") && sv.includes('Already granted for this ticket') && sv.includes('SUPPORT_GRANT_SOLO')],
+  ['free-package requests are auto-detected with approve/decline', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('Free package request detected') && f.includes('grantFreeCase') && f.includes('declineFree'); })()],
   ['signup auto-confirms and signs straight in (no email loop)', (() => { const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); return f.includes('/api/auth/confirmed') && f.includes('_authBusy') && sv.includes('email_confirm: true') && sv.includes('never reveal whether an email exists'); })()],
   ['deep diagnosis probes the Claude lane and reports missing key', sv.includes("model: 'CLAUDE:'") && sv.includes('ANTHROPIC_API_KEY not set in Railway') && sv.includes("ANTHROPIC_API_KEY: has('ANTHROPIC_API_KEY')")],
   ['premium writing chain is Sonnet -> GPT, Flash excluded', (() => { const r = fs.readFileSync(__dirname + '/../lib/router.js', 'utf8'); return r.includes('Flash never writes premium documents') && r.includes('openaiPlain(purpose, prompt, opts)') && r.includes('throw e; // both premium writers down'); })()],
@@ -143,9 +143,10 @@ const checks = [
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     return (f.match(/PDF downloaded\. Check your Downloads/g) || []).length >= 2;
   })()],
-  ['CV analysis is context-aware (job vs study vs licensing) + classy', (() => {
+  ['CV analysis is context-aware (job vs study) + classy, with no licensing lane', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    return f.includes('Your Job Match Analysis') && f.includes('Your Licensing Pathway Analysis') &&
+    // Two lanes only: study abroad and work abroad. The licensing lane is retired.
+    return f.includes('Your Job Match Analysis') && !f.includes('Your Licensing Pathway Analysis') &&
       f.includes('Your CV Analysis & Search Report') && f.includes('CTX.section');
   })()],
   ['packages are admin-editable and deploy app-wide (visibility + pricing driven by config)', (() => {
@@ -182,11 +183,40 @@ const checks = [
     const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
     return f.includes('lowestPkgPrice') && f.includes('pricingSentence') && f.includes('saveFaqs') && st.includes('faqs:');
   })()],
-  ['locked preview is capped at 3 cards with identity withheld', (() => {
+  ['locked preview shows 15 cards with identity withheld', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    // A blank page gave the user no reason to believe. Three locked cards prove the
-    // value; institution name and official link stay hidden until purchase.
-    return f.includes('noneOpen?shown.slice(0,3)') && f.includes('revealed?esc(o.institution)');
+    // Three cards read as a teaser and looked like a broken search. Fifteen is the same
+    // ceiling the server applies, so the applicant sees the whole shortlist; institution
+    // name and official link still stay hidden until purchase.
+    return f.includes('noneOpen?shown.slice(0,15)') && f.includes('revealed?esc(o.institution)');
+  })()],
+  ['every Apply button closes the matches overlay before routing', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // The sheet is position:fixed above #view. Routing without removing it rendered the
+    // plans page underneath, so every CTA inside the sheet appeared dead.
+    return f.includes("document.querySelectorAll('.ffmatches,.ff-sheet').forEach(x=>x.remove())")
+      && f.includes('function openPlans()') && f.includes('onclick="openPlans()">Apply</button>')
+      && !f.includes('See packages &amp; unlock');
+  })()],
+  ['remote filter is enforced on evidence, both sides', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    // The old client line only dropped rows explicitly flagged false, and the old server
+    // line used eq('remote', true) on a column that is null almost everywhere.
+    return f.includes('keep:isRemoteOpp') && f.includes('function remoteText(o)')
+      && sv.includes('const remoteEvidence = o =>') && sv.includes('if (wantRemote) rows = rows.filter(remoteEvidence)')
+      && !sv.includes("query.eq('remote', true)");
+  })()],
+  ['no bare country codes and a money line on every card', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes('function placeLabel(o)') && f.includes('function moneyBlock(o)')
+      && !f.includes('c-blue">${esc(o.country_code)}</span>');
+  })()],
+  ['admin is never capped, but is never silently unlocked either', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // The view cap still exempts staff, but the card itself is the customer's card.
+    return f.includes('if(cap&&!staff)') && f.includes('const _isStaff=') &&
+      !f.includes('if(o.locked&&window.ME&&isAdminRole(ME.role))o=Object.assign');
   })()],
   ['SQL level gate accepts levels= (postdoc seeker never loads PhD rows)', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
@@ -200,36 +230,59 @@ const checks = [
   })()],
   ['work lane: every user selection reaches the API (job type, exp, remote, country, licences)', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    return f.includes("push('job_type'") && f.includes("push('exp'") && f.includes("push('licenses'") &&
+    return f.includes("push('job_type'") && f.includes("push('exp'") && !f.includes("push('licenses'") &&
       f.includes("push('country'") && f.includes("push('remote','1')");
   })()],
   ['level gate is academic-only (work postings are never filtered to zero)', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
-    return sv.includes('academicLane') && sv.includes('level.is.null') && sv.includes('req_license.ilike');
+    return sv.includes('academicLane') && sv.includes('level.is.null') && sv.includes('req._inferLevels');
   })()],
-  ['gift guide carries a per-exam licensing pathway (authority, steps, docs, timing)', (() => {
+  ['platform batch: admin insight, safety caps, no hardcoded localhost', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
-    return sv.includes('EXAM_GUIDE') && sv.includes('Your licensing pathway: ') &&
-      sv.includes('Mumaris Plus') && sv.includes('physiciansapply.ca') && sv.includes('CGFNS');
+    const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    return en.includes('MAXLEN') && en.includes('visa_summary') && en.includes('Multi-CV aware') &&
+      sv.includes('/api/admin/demand') && sv.includes('/api/admin/audit') &&
+      sv.includes('settings/export') && sv.includes('_promoHits') && sv.includes('salaryBandFor') &&
+      !sv.includes("origin === 'http://localhost:3000'");
   })()],
-  ['licence cases generate a personalised Licensing Action Plan document', (() => {
-    const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
-    return e.includes('licensing_plan') && e.includes('LICENSING ACTION PLAN') && e.includes('licensing_plan: 2600');
-  })()],
-  ['R3100 batch: all 36 exams, licence docs, tracker, admin insight, safety caps', (() => {
+  ['the licensing SERVICE is gone from every surface', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
     const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
-    const ex = fs.readFileSync(__dirname + '/../extension/filler.js', 'utf8');
-    return (sv.match(/\n  [A-Z_]{2,10}: \{ auth/g) || []).length >= 36 &&
-      en.includes('_isLicenceCase') && en.includes('MAXLEN') && en.includes('visa_summary') &&
-      en.includes('BOOKING AND SLOTS') && en.includes('INDICATIVE COST') && en.includes('Multi-CV aware') &&
-      sv.includes('licence-journey') && sv.includes('/api/admin/demand') && sv.includes('/api/admin/audit') &&
-      sv.includes('settings/export') && sv.includes('_promoHits') && sv.includes('salaryBandFor') &&
-      !sv.includes('http://localhost:') && sv.includes('_inferLevels') &&
-      fe.includes('toggleLicStage') && fe.includes('Notification wording') && fe.includes('Client-side safety net') &&
-      st.includes('notify:') && ex.includes('license_number');
+    const qa = fs.readFileSync(__dirname + '/../lib/docqa.js', 'utf8');
+    // No exam picker, no status select, no journey tracker, no pathway document,
+    // no exam atlas in the prompt, and no licensing claim in the marketing copy.
+    const dead = ['licensing_plan', 'licenseExam', 'licenseStatus', 'LIC_ATLAS', 'LIC_BOARDS',
+                  'EXAM_GUIDE', 'licence-journey', 'toggleLicStage', 'licensing_exam',
+                  'Licensing exam pathway', 'Your licensing journey'];
+    const blob = sv + en + fe + st + qa;
+    return dead.every(d => !blob.includes(d)) &&
+      !/licensing pathways abroad/i.test(fe) &&
+      fe.includes('Do you help with professional licensing?');
+  })()],
+  ['a held credential is captured in the applicant own words and resolved', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    const lc = fs.readFileSync(__dirname + '/../lib/licence.js', 'utf8');
+    // One free-text question, never a menu; backend spell-corrects and names the regulator.
+    return fe.includes('Do you already hold a professional licence or registration?') &&
+      fe.includes('async function resolveHeldLicence') &&
+      sv.includes("app.post('/api/license/resolve'") &&
+      lc.includes('function matchAtlas') && lc.includes('function dist') &&
+      lc.includes('Never invent a regulator') &&
+      en.includes('CREDENTIAL THE CANDIDATE ALREADY HOLDS') &&
+      en.includes('never suggest we assist with obtaining any credential');
+  })()],
+  ['the offline licence matcher forgives real typing', (() => {
+    const { matchAtlas } = require(__dirname + '/../lib/licence.js');
+    const cases = [['scfsh', 'SCFHS'], ['nclx', 'NCLEX'], ['P.Eng', 'P.Eng'],
+                   ['pebc canada', 'PEBC'], ['ACCA', 'ACCA'], ['upda qatar', 'UPDA']];
+    return cases.every(([typed, want]) => {
+      const m = matchAtlas(typed);
+      return m && m.name.toUpperCase().includes(want.toUpperCase());
+    }) && matchAtlas('qwertyuiop') === null;
   })()],
   ['audit: client faults 4xx, auth cached+bounded, vulnerable xlsx removed entirely', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
@@ -298,8 +351,9 @@ const checks = [
   ['admin controls are real: limits enforced, ops panel, all tabs non-blocking', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    return sv.includes('enforceUploadLimits') && sv.includes('searchCooldown') &&
-      sv.includes('max_upload_mb') && sv.includes('search_cooldown_minutes') &&
+    // The search cooldown was removed on purpose: the daily count is the only limit.
+    return sv.includes('enforceUploadLimits') && !sv.includes('searchCooldown') &&
+      sv.includes('max_upload_mb') && !sv.includes('search_cooldown_minutes') &&
       sv.includes("['admin', 'super_admin', 'staff'].includes(req.userRole)") &&
       fe.includes('saveOps') && fe.includes('Operations &amp; limits') &&
       fe.includes('Paint immediately');
@@ -430,12 +484,239 @@ const checks = [
     return st.includes('daily_searches: 3') && !st.includes('monthly_searches') &&
       sv.includes('async function searchCounts') && sv.includes('resetSearchAllowance') &&
       sv.includes("event: 'SEARCH_RUN'") &&
-      sv.includes("reason: 'purchase', payment_id: p.id });\n  // A purchase restarts");
+      sv.includes("reason: 'purchase', payment_id: p.id })") && sv.includes('A purchase restarts the search allowance');
   })()],
   ['free users see real preview cards with identity withheld', (() => {
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    return fe.includes('noneOpen?shown.slice(0,3)') && fe.includes('revealed?esc(o.institution)') &&
+    return fe.includes('noneOpen?shown.slice(0,15)') && fe.includes('revealed?esc(o.institution)') &&
       fe.includes('more matched to you');
+  })()],
+  ['one enforcement rule for every filter, with an honest receipt', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // A selected filter is a promise. Country, level, funding, language, job type,
+    // experience and work mode all run through the same enforce-and-report loop.
+    return f.includes('const FILTERS=[') && f.includes('window._filterReport')
+      && f.includes('Your filters were applied')
+      && ['Remote only','Your selected countries','Your selected level','Fully funded only',
+          'No language certificate required','Your job type','Your experience level']
+         .every(l => f.includes(l));
+  })()],
+  ['remote is a worldwide lane driven by the applicant profile', (() => {
+    const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return e.includes('REMOTE SOURCE ATLAS') && e.includes('REMOTE RULES, ABSOLUTE')
+      && e.includes('WeWorkRemotely') && e.includes('EURAXESS')
+      && e.includes('COUNTRY SCOPE for the remote lane')
+      && sv.includes("workmode: ['', 'remote', 'onsite'].includes(String(b.workmode || ''))");
+  })()],
+  ['every destination country resolves to a full name', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const seed = fs.readFileSync(__dirname + '/../migrations/0017_seed_54_countries.sql', 'utf8');
+    const codes = Array.from(new Set((seed.match(/\('([A-Z]{2})',/g) || []).map(x => x.slice(2, 4))));
+    const block = (f.match(/const CC_NAME=\{[\s\S]*?\};/) || [''])[0];
+    return codes.length >= 50 && codes.every(c => block.includes(c + ":'"));
+  })()],
+  ['guide is a linked, live, whole-directory document', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const missions = (sv.match(/const MISSION = \{[\s\S]*?\n\};/) || [''])[0];
+    const n = (missions.match(/^  [A-Z]{2}: \{/gm) || []).length;
+    return n >= 50 && sv.includes('async function liveCountryBrief')
+      && sv.includes('const LINK = (k, url, note)') && sv.includes('const PK_OFFICES')
+      && sv.includes('NEVER invent a phone number');
+  })()],
+  ['no document type is named to the client', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    const tiers = (st.match(/tiers: \[[\s\S]*?\n    \]/) || [''])[0];
+    return !/Tailored CV/i.test(tiers) && !/cover letter/i.test(tiers)
+      && st.includes('Customized documents prepared')
+      && !/A CV, cover letter, motivation or SOP/.test(f);
+  })()],
+  ['plan ladder: choose from more than you can apply to', (() => {
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const tiers = (st.match(/tiers: \[[\s\S]*?\n    \]/) || [''])[0];
+    // Basic 5/2, Smart 8/5, Premium 20/10 - view is always the larger number.
+    const want = [["credits: 2, view: 5"], ["credits: 5, view: 8"], ["credits: 10, view: 20"]];
+    return want.every(([w]) => tiers.includes(w)) &&
+      // The admin editor can set both, and view can never fall below credits.
+      sv.includes('view: (() => { const v = parseInt(p.view);') &&
+      sv.includes('Math.max(v, credits)');
+  })()],
+  ['admin package edits actually reach the buy page', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // /api/pricing used to overwrite the admin's packs with the tier config, so renamed
+    // plans, promo prices and descriptions never appeared. It must merge, and saving
+    // packages must mirror into packages.tiers, which the reveal cap reads.
+    return sv.includes('MERGE, never overwrite') &&
+      sv.includes('ONE SOURCE OF TRUTH') &&
+      sv.includes('await siteSettings.saveConfig({ packages: { tiers } }') &&
+      fe.includes('Matches shown &mdash; how many positions open') &&
+      fe.includes('matches to choose from');
+  })()],
+  ['the installed app cannot run a stale build', (() => {
+    const sw = fs.readFileSync(__dirname + '/../public/sw.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return sw.includes('self.clients.claim()') && sw.includes('FF_SW_UPDATED') &&
+      sw.includes('Network first, always') &&
+      fe.includes('function ffUpdateWatch') && fe.includes("'/api/version',{cache:'no-store'}") &&
+      fe.includes("visibilitychange") && fe.includes("updatefound") &&
+      sv.includes("p.endsWith('sw.js')") &&
+      sv.includes("res.set('Cache-Control', 'no-store, no-cache, must-revalidate')");
+  })()],
+  ['no licensing claim survives anywhere in the marketing copy', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // Two landing cards still named DHA/SCFHS/NCLEX/PLAB and promised "licensing named
+    // for you" after the service was removed.
+    return !/Licensing routes named/i.test(fe) && !/Licensing named for you/i.test(fe) &&
+      !/DHA, SCFHS, NCLEX, PLAB/.test(fe) && !/Licensing exams: PLAB/.test(fe);
+  })()],
+  ['plan numbers are never hardcoded into copy', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('function planLadderLine()') && fe.includes('${planLadderLine()}') &&
+      !/Smart shows your 8 best/.test(fe) && !/Premium shows your 15 best/.test(fe) &&
+      !/visible matches \(2, 8 or 15\)/.test(fe);
+  })()],
+  ['the promo price is shown and charged', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    // promo_pkr was captured in admin, stored, and used by nothing.
+    return fe.includes('const promo=Number(p.promo_pkr)||0') && fe.includes('Save Rs') &&
+      sv.includes('Number(pack.promo_pkr) > 0 && Number(pack.promo_pkr) < listPkr') &&
+      sv.includes('promo_pkr: p.promo_pkr || null');
+  })()],
+  ['visible-to-users and description are honoured on the buy page', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('packs.filter(p=>p.visible!==false||_staff)') &&
+      fe.includes('${esc(p.description)}');
+  })()],
+  ['admin sees the customer view and gets one labelled override', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // Silently unlocking every card for staff hid every paywall bug from the owner.
+    return !fe.includes("o=Object.assign({},o,{locked:false,owned:true})") &&
+      fe.includes('async function adminOpenCase') &&
+      fe.includes('Admin: open and apply without payment') &&
+      fe.includes('Visible to staff only') &&
+      fe.includes('\\u2699 Staff view') &&
+      fe.includes("Preparing this case will use <b>no credit</b>");
+  })()],
+  ['every inline handler resolves to a real function', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const js = (fe.match(/<script>([\s\S]*?)<\/script>/g) || []).join('\n');
+    const defs = new Set();
+    (js.match(/function\s+([A-Za-z_$][\w$]*)/g) || []).forEach(m => defs.add(m.split(/\s+/)[1]));
+    (js.match(/window\.([A-Za-z_$][\w$]*)\s*=/g) || []).forEach(m => defs.add(m.slice(7).replace(/\s*=$/, '')));
+    (js.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g) || []).forEach(m => defs.add(m.split(/\s+/)[1]));
+    const named = ['openPlans','adminOpenCase','startApp','doStartApp','saveOpp','oppReport',
+                   'dismissOpp','buyPack','go','toggleSimUser','grantFreeCase','resolveHeldLicence',
+                   'renderPacks','savePacks','planLadderLine','pkgByCredits','lowestPkgPrice'];
+    return named.every(n => defs.has(n));
+  })()],
+  ['the Search Pass is gone from every file', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const blob = sv + st + fe;
+    const dead = ['Search Pass', 'searchpass', 'search_only', 'hasSearchPass',
+                  'searchPassActive', 'pass_daily_searches', 'SEARCH_PASS_GRANTED'];
+    return dead.every(d => !blob.includes(d));
+  })()],
+  ['three searches a day, five after a purchase, no waiting', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    return st.includes('daily_searches: 3') && st.includes('paid_daily_searches: 5') &&
+      sv.includes('const everPaid = await hasEverPaid(req.userId)') &&
+      sv.includes("everPaid ? (Number(fu.paid_daily_searches) || 5) : (Number(fu.daily_searches) || 3)") &&
+      // Nothing may sit between two searches.
+      !sv.includes('searchCooldown') && !sv.includes('_lastSearch') &&
+      !st.includes('search_cooldown_minutes') &&
+      sv.includes('There is no cooldown between searches');
+  })()],
+  ['a purchase clears searches used on any earlier day', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return sv.includes('await resetSearchAllowance(p.user_id)') &&
+      sv.includes("upsert({ key: 'searchreset:' + userId") &&
+      sv.includes('const since = (resetAt && resetAt > monthStart) ? resetAt : monthStart;');
+  })()],
+  ['the last-chance warning quotes real numbers', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    // It used to print a hardcoded "2 / 3" and never knew the paid allowance.
+    return sv.includes('req._searchLeft = { day: dayMax - day, limit: dayMax, used: day + 1, paid: everPaid }') &&
+      sv.includes('search_limit: (req._searchLeft || {}).limit') &&
+      fe.includes('${used} / ${total}') && !fe.includes('>2 / ${total}<') &&
+      fe.includes('if(d.searches_left===1)setTimeout(()=>showLastChance(d),1100)') &&
+      st.includes('paid_daily_searches: Number((cfg.fair_use||{}).paid_daily_searches) || 5');
+  })()],
+  ['every frontend API call resolves to a real server route', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const routes = [];
+    const rr = /app\.(get|post|put|delete|patch)\(\s*'([^']+)'/g;
+    let m; while ((m = rr.exec(sv))) routes.push([m[1].toUpperCase(), m[2]]);
+    const bad = [];
+    // A call path is usually built by concatenation: '/api/x/' + id + '/y'. Rebuild it as
+    // a pattern by joining every literal chunk with a single-segment wildcard.
+    const cr = /\bapi(?:Fast)?\(\s*('(?:[^']*)'(?:\s*\+\s*[^,()]+?\s*\+\s*'[^']*')*)\s*(?:,\s*\{([^}]*)\})?/g;
+    while ((m = cr.exec(fe))) {
+      // Strip the query string from the FIRST literal before anything else: '/api/x?a=' + v
+      // is a call to /api/x, and the parameters are none of this check's business.
+      const lits = (m[1].match(/'([^']*)'/g) || []).map(x => x.slice(1, -1));
+      if (lits[0] && lits[0].includes('?')) { lits[0] = lits[0].split('?')[0]; lits.length = 1; }
+      if (!lits.length || !lits[0].startsWith('/api')) continue;
+      const meth = ((m[2] || '').match(/method\s*:\s*'([A-Za-z]+)'/) || [, 'GET'])[1].toUpperCase();
+      // A literal may itself embed ${...} or a query string; both stand in for a segment.
+      const pat = '^' + lits.map(l => l.split('?')[0]
+        .replace(/\$\{[^}]*\}/g, '\u0001')
+        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        .split('\u0001').join('[^/]+'))
+        .join('[^/]+').replace(/\/$/, '') + '(/[^/]+)*/?$';
+      const ok = routes.some(([mt, r]) =>
+        mt === meth && new RegExp(pat).test(r.replace(/:[A-Za-z_]+/g, 'ID')));
+      if (!ok) bad.push(meth + ' ' + lits.join('<id>'));
+    }
+    if (bad.length) console.log('    dead calls:', bad.join(', '));
+    return bad.length === 0;
+  })()],
+  ['the payment sheet quotes exactly what the server will charge', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    // The sheet used to price from the tier config while the server charged from the
+    // stored packs, and it ignored the referral balance, so anyone holding referral
+    // credit was told to overpay.
+    return sv.includes("app.get('/api/payments/quote'") &&
+      sv.includes('RESOLVE FIRST, THEN PRICE') &&
+      sv.includes('pricing_version: (pr && pr.version) || null') &&
+      fe.includes("api('/api/payments/quote?credits='") &&
+      fe.includes('Referral credit');
+  })()],
+  ['the live plan ladder is seeded, not left at the 2020 prices', (() => {
+    const mig = fs.readFileSync(__dirname + '/../migrations/0030_plan_ladder_basic_smart_premium.sql', 'utf8');
+    const bundle = fs.readFileSync(__dirname + '/../ALL_MIGRATIONS_run_in_order.sql', 'utf8');
+    return /"credits":2,"view":5,"pkr":5000/.test(mig) &&
+      /"credits":5,"view":8,"pkr":15000/.test(mig) &&
+      /"credits":10,"view":20,"pkr":30000/.test(mig) &&
+      bundle.includes('"credits":2,"view":5,"pkr":5000');
+  })()],
+  ['the guide names every country it serves', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const full = (sv.match(/const CC_FULL = \{[\s\S]*?\};/) || [''])[0];
+    const mission = (sv.match(/const MISSION = \{[\s\S]*?\n\};/) || [''])[0];
+    const codes = Array.from(new Set((mission.match(/^  ([A-Z]{2}): \{/gm) || []).map(x => x.trim().slice(0, 2))));
+    return codes.length >= 50 && codes.every(c => full.includes(c + ": '")) &&
+      sv.includes('const countryLabel = cc => CC_FULL[') &&
+      sv.includes('FUTURE_PATH[_cc0] || (MISSION[_cc0]');
+  })()],
+  ['config has no duplicate keys and no dead globals remain', (() => {
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const body = (st.match(/const DEFAULTS = \{[\s\S]*?\n\};/) || [''])[0];
+    const keys = (body.match(/^  ([a-z_]+):/gm) || []).map(x => x.trim().replace(':', ''));
+    const dupes = keys.filter((k, i) => keys.indexOf(k) !== i);
+    return dupes.length === 0 && !fe.includes('_licDone') && !fe.includes('_remoteDropped');
   })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];

@@ -81,9 +81,13 @@ function pdfSafe(t) {
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R4200';
+const FF_BUILD = '2026-08-31-R4330';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
-app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
+app.get('/api/version', (req, res) => {
+  // The installed app polls this to decide whether to reload, so it must never be cached.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.json({ build: FF_BUILD, ok: true });
+});
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
    Confirming an address grants nothing without the password, so this is safe;
    lightly rate-limited per IP. */
@@ -201,7 +205,14 @@ function enforceUploadLimits(req, res, next) {
   next();
 }
 // Long-cache heavy static assets (video/icons); HTML always fresh.
-app.use(express.static('public', { maxAge: '7d', etag: true, lastModified: true, setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache, must-revalidate'); } }));
+/* The shell, the worker and the manifest must always be revalidated, or a phone will
+   happily run a week-old build from its own HTTP cache no matter what the worker does.
+   Everything else (video, icons) keeps the long cache, since those rarely change. */
+app.use(express.static('public', { maxAge: '7d', etag: true, lastModified: true, setHeaders: (res, p) => {
+  if (p.endsWith('.html') || p.endsWith('sw.js') || p.endsWith('manifest.json')) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  }
+} }));
 /* Uptime probe: deliberately does no database work so it stays fast and never fails
    during a brief database blip. Deep diagnostics live at /api/health/full. */
 app.get('/health', (req, res) => res.json({ ok: true, v: '0.7', up: process.uptime() | 0 }));
@@ -423,7 +434,7 @@ const SEO_GUIDES = {
   germany: { cc: 'DE', title: 'Study in Germany from Pakistan', body: '<h2>Why Germany</h2><div>Public universities charge no tuition - you pay only a semester fee of roughly €150–350 (≈ Rs 50,000–1.2 lakh per year). World-class engineering, pharmacy and research, with DAAD scholarships built for international students.</div><h2>Money reality</h2><div>Blocked account requirement ≈ €11,904 (≈ Rs 36 lakh) shown once for the visa. Monthly living ≈ €950.</div><h2>Visa for Pakistanis</h2><div>National (D) visa via the German Embassy Islamabad; APS certificate is now required before application. Plan 3–4 months.</div><h2>Funding names to know</h2><div>DAAD, Deutschlandstipendium, Erasmus Mundus.</div>' },
   finland: { cc: 'FI', title: 'Study in Finland from Pakistan', body: '<h2>Why Finland</h2><div>One of the world&#39;s best education systems, 400+ English programmes, and generous early-bird tuition waivers - many admits pay 50–100% less.</div><h2>Money reality</h2><div>Tuition €8,000–18,000 before waivers; living ≈ €800/month. Proof of funds ≈ €6,720/year (≈ Rs 21 lakh).</div><h2>Visa for Pakistanis</h2><div>Residence permit online via EnterFinland, biometrics at VFS Islamabad/Karachi.</div><h2>Funding names to know</h2><div>University scholarships (automatic with admission), EDUFI for doctoral research.</div>' },
   italy: { cc: 'IT', title: 'Study in Italy from Pakistan', body: '<h2>Why Italy</h2><div>Regional grants (DSU) can make study effectively free - many Pakistani students pay near-zero tuition AND receive a yearly grant with free meals and housing support.</div><h2>Money reality</h2><div>Tuition is income-based, often €150–1,000 with ISEE paperwork; DSU grants ≈ €5,000–7,000/year (≈ Rs 15–21 lakh).</div><h2>Visa for Pakistanis</h2><div>Pre-enrolment on Universitaly, then D-visa at the Embassy in Islamabad. Start documents early - attestation takes time.</div><h2>Funding names to know</h2><div>DSU regional scholarships, Invest Your Talent in Italy.</div>' },
-  'saudi-arabia': { cc: 'SA', title: 'Work in Saudi Arabia from Pakistan', body: '<h2>Why Saudi Arabia</h2><div>Tax-free salaries, large Pakistani community, and constant demand for pharmacists, nurses, doctors and engineers under Vision 2030.</div><h2>Licensing reality</h2><div>Healthcare professionals need SCFHS classification via Prometric + DataFlow verification - start DataFlow early, it is the slow step.</div><h2>Money reality</h2><div>Pharmacist salaries commonly SAR 5,000–12,000/month (≈ Rs 3.7–9 lakh) plus housing/transport in many contracts.</div><h2>Funding names to know</h2><div>For study instead: KAUST and Saudi government scholarships are fully funded with stipends.</div>' },
+  'saudi-arabia': { cc: 'SA', title: 'Work in Saudi Arabia from Pakistan', body: '<h2>Why Saudi Arabia</h2><div>Tax-free salaries, large Pakistani community, and constant demand for pharmacists, nurses, doctors and engineers under Vision 2030.</div><h2>Registration reality</h2><div>Regulated professions must be registered with the relevant Saudi authority before starting. You apply for that yourself, directly with the regulator; ForiForeign finds and prepares the job application only.</div><h2>Money reality</h2><div>Pharmacist salaries commonly SAR 5,000–12,000/month (≈ Rs 3.7–9 lakh) plus housing/transport in many contracts.</div><h2>Funding names to know</h2><div>For study instead: KAUST and Saudi government scholarships are fully funded with stipends.</div>' },
   'united-kingdom': { cc: 'GB', title: 'Study in the UK from Pakistan', body: '<h2>Why the UK</h2><div>One-year Master&#39;s degrees cut total cost dramatically, and the Graduate Route gives 2 years of post-study work.</div><h2>Money reality</h2><div>Tuition £14,000–28,000; maintenance funds ≈ £1,023/month outside London shown for 9 months (≈ Rs 32 lakh).</div><h2>Visa for Pakistanis</h2><div>Student visa with CAS; IHS surcharge applies. TB test required at approved Pakistani clinics.</div><h2>Funding names to know</h2><div>Chevening (fully funded), Commonwealth Shared Scholarships, GREAT Scholarships.</div>' },
   australia: { cc: 'AU', title: 'Study in Australia from Pakistan', body: '<h2>Why Australia</h2><div>Strong universities, paid part-time work rights, and 2–4 years of post-study work through the Temporary Graduate visa.</div><h2>Money reality</h2><div>Tuition AUD 30,000–45,000; proof of funds ≈ AUD 29,710/year (≈ Rs 55 lakh). Research degrees are often fully funded with stipends ≈ AUD 32,000.</div><h2>Visa for Pakistanis</h2><div>Subclass 500 with GS statement; strong, honest documentation matters more than agents claim.</div><h2>Funding names to know</h2><div>Australia Awards, RTP (research), Destination Australia.</div>' }
 };
@@ -432,7 +443,7 @@ app.get('/guide/:c', async (req, res) => {
   if (!g) return res.redirect('/');
   res.set('Cache-Control', 'public, max-age=3600');
   const links = SEO_SLUGS.filter(sl => { for (const [n, c] of Object.entries(SEO_COUNTRIES)) if (sl.endsWith(n) && c === g.cc) return true; return false; }).map(sl => `<a href="/s/${sl}">${sl.replace(/-/g, ' ')}</a>`).join(' · ');
-  res.send(seoPage(g.title, g.title + ' - real costs in PKR, visa steps, licensing and funding names, plus live verified opportunities.', `<h1>${g.title}</h1>${g.body}${links ? '<h2>Live openings</h2><div>' + links + '</div>' : ''}`));
+  res.send(seoPage(g.title, g.title + ' - real costs in PKR, visa steps and funding names, plus live verified opportunities.', `<h1>${g.title}</h1>${g.body}${links ? '<h2>Live openings</h2><div>' + links + '</div>' : ''}`));
 });
 app.get('/sitemap.xml', (req, res) => {
   const base = 'https://foriforeign.com';
@@ -565,19 +576,21 @@ async function salaryBandFor(role, cc) {
     return hit ? { currency: hit[0].split('|')[2], ...hit[1] } : null;
   } catch (e) { return null; }
 }
-const LIC_STAGES = ['documents_ready', 'verification_started', 'verification_cleared', 'eligibility_received', 'exam_booked', 'exam_passed', 'licence_activated'];
-app.get('/api/licence-journey', auth, async (req, res) => {
+/* ForiForeign runs NO licensing service. Licensing is applied for personally, on the
+   regulator's own portal, with original documents; it is slow, sensitive and nobody
+   else should touch it. The tracker and the pathway product that used to live here are
+   gone. What remains is the opposite question, answered below: if the applicant ALREADY
+   holds a credential, identify it correctly so we can match jobs that accept it. */
+app.post('/api/license/resolve', auth, async (req, res) => {
   try {
-    const { data } = await admin().from('app_settings').select('value').eq('key', 'licjourney:' + req.userId).single();
-    res.json({ stages: LIC_STAGES, done: (data && data.value && data.value.done) || [], updated_at: (data && data.value && data.value.updated_at) || null });
-  } catch (e) { res.json({ stages: LIC_STAGES, done: [] }); }
-});
-app.put('/api/licence-journey', auth, async (req, res) => {
-  try {
-    const done = Array.isArray(req.body && req.body.done) ? req.body.done.filter(x => LIC_STAGES.includes(x)) : [];
-    await admin().from('app_settings').upsert({ key: 'licjourney:' + req.userId, value: { done, updated_at: new Date().toISOString() } });
-    res.json({ ok: true, done });
-  } catch (e) { res.status(400).json({ error: e.message }); }
+    const text = String((req.body || {}).text || '').slice(0, 120);
+    const ctrys = Array.isArray((req.body || {}).countries)
+      ? (req.body.countries || []).filter(c => /^[A-Za-z]{2}$/.test(String(c))).map(c => String(c).toUpperCase()).slice(0, 15) : [];
+    if (!text.trim()) return res.json({ licence: null });
+    const { resolveLicence } = require('./lib/licence');
+    const licence = await resolveLicence(text, ctrys);
+    res.json({ licence });
+  } catch (e) { res.json({ licence: null }); }
 });
 /* Safe profile subset for the browser assistant: the exact fields a portal form needs.
    Never documents, never credentials, never payment data. */
@@ -613,7 +626,7 @@ app.get('/api/profile/assist', auth, async (req, res) => {
     try {
       const { data: pf } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single();
       const pv = (pf && pf.value) || {};
-      licAuth = (pv.licenses || [])[0] || pv.licenseExam || '';
+      licAuth = (pv.licenseResolved && pv.licenseResolved.authority) || pv.licenseHeld || '';
       const { data: px } = await admin().from('app_settings').select('value').eq('key', 'profilex:' + req.userId).single();
       const x = (px && px.value && px.value.x) || {};
       licNum = x.license_number || '';
@@ -684,8 +697,8 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
   const entOk = await entitled(req.userId, simUser(req));
   if (!entOk) list = list.map(o => lockTease(o));
   else if (String(req.query.match) === '1') {
-    // Package choice model: solo sees its 2 best matches, smart 8, premium 15 -
-    // choose freely among them; the rest stay reserved. Staff see everything.
+    // Package choice model: each plan opens its own 'view' count of matched positions and
+    // the buyer chooses freely among them; the rest stay reserved. Staff see everything.
     try {
       const { data: prf } = await admin().from('profiles').select('role').eq('id', req.userId).single();
       if (!(prf && ['admin', 'staff'].includes(prf.role) && !simUser(req))) {
@@ -695,7 +708,7 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
         else try { const { data: pays } = await admin().from('payments').select('credits').eq('user_id', req.userId).eq('status', 'confirmed').order('credits', { ascending: false }).limit(1); tier = Number(pays && pays[0] && pays[0].credits) || 0; } catch (e) {}
         // Package-first model: the user's real available credits decide the reveal.
         // 0 credits -> nothing is unlocked; they see the analysis and choose a package.
-        // After confirmation, their tier reveals 2 (solo) / 8 (smart) / 15 (premium), best first.
+        // After confirmation, their tier reveals its configured 'view' count, best first.
         const bal = await balance(req.userId);
         const effectiveTier = Math.max(tier, bal);
         const pv2 = o => (o.match && o.match.pct != null) ? o.match.pct : -1;
@@ -703,15 +716,15 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
           list = list.map(o => lockTease(o));  // convince with the analysis; reveal after purchase
         } else {
           // Visibility from admin-editable packages: find the tier whose credits the user
-          // holds and show its 'view' count. Falls back to the classic 2/8/15 if unset.
-          let visible = 2;
+          // holds and show its 'view' count.
+          let visible = 5;
           try {
             const cfg = await require('./lib/settings').getConfig();
             const tiers = ((cfg.packages && cfg.packages.tiers) || []).slice().sort((a, b) => (a.credits || 0) - (b.credits || 0));
             let picked = null;
             for (const t of tiers) if (effectiveTier >= (t.credits || 0)) picked = t;
-            visible = picked ? (picked.view || 2) : (tiers[0] ? tiers[0].view : 2);
-          } catch (e) { visible = effectiveTier >= 10 ? 15 : effectiveTier >= 5 ? 8 : 2; }
+            visible = picked ? (picked.view || picked.credits || 5) : (tiers[0] ? (tiers[0].view || 5) : 5);
+          } catch (e) { visible = effectiveTier >= 10 ? 20 : effectiveTier >= 5 ? 8 : 5; }
           const open = new Set([...list].sort((x, y) => pv2(y) - pv2(x)).slice(0, visible).map(o => o.id));
           list = list.map(o => open.has(o.id) ? o : lockTease(o));
         }
@@ -719,7 +732,8 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
     } catch (e) {}
   }
   // Tell the client honestly if we widened the net, so the wording matches reality.
-  res.json({ opportunities: list, relaxed: req._relaxNote || null, broadened: !!req._broadened, searches_left: (req._searchLeft || {}).day });
+  res.json({ opportunities: list, relaxed: req._relaxNote || null, broadened: !!req._broadened,
+    searches_left: (req._searchLeft || {}).day, search_limit: (req._searchLeft || {}).limit, searches_used: (req._searchLeft || {}).used });
 });
 /* ---------- Spec 2: configurable university database (admin) ---------- */
 app.get('/api/admin/universities', auth, perm('countries.read'), async (req, res) => {
@@ -982,13 +996,13 @@ app.post('/api/support/seen', auth, async (req, res) => {
 });
 /* Approve a user-submitted review ticket straight onto the public homepage. */
 /* SITE-WIDE FREE PROMO: admin opens a limited window (e.g. 48h); every user who
-   claims during it gets exactly 1 free Solo case, once per promo. */
+   claims during it gets exactly 1 free case, once per promo. */
 app.post('/api/admin/promo', auth, perm('settings.write'), async (req, res) => {
   try {
     const hours = Math.max(1, Math.min(168, parseInt(req.body && req.body.hours, 10) || 48));
     const ends = new Date(Date.now() + hours * 3600 * 1000).toISOString();
     await admin().from('app_settings').upsert({ key: 'free_promo', value: { active: true, started_at: new Date().toISOString(), ends_at: ends, hours } });
-    await admin().from('audit_log').insert({ actor: req.userId, event: 'PROMO_START', detail: hours + 'h free Solo, ends ' + ends }).then(() => {}, () => {});
+    await admin().from('audit_log').insert({ actor: req.userId, event: 'PROMO_START', detail: hours + 'h free case, ends ' + ends }).then(() => {}, () => {});
     res.json({ ok: true, ends_at: ends });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -1026,18 +1040,18 @@ async function claimPromo(req, res) {
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 }
-/* Free Solo grant from support: one tap approves 1 case for the requester
+/* Free case grant from support: one tap approves 1 case for the requester
    (idempotent per ticket), replies warmly, and the user can apply immediately. */
-app.post('/api/admin/support/:id/grant-solo', auth, perm('support.write'), async (req, res) => {
+app.post('/api/admin/support/:id/grant-free-case', auth, perm('support.write'), async (req, res) => {
   try {
     const { data: t } = await admin().from('support_tickets').select('*').eq('id', req.params.id).single();
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
     if (!t.user_id) return res.status(400).json({ error: 'Ticket has no linked user' });
-    const grantNote = 'Free Solo case via support ' + t.id;
+    const grantNote = 'Free case via support ' + t.id;
     const { data: prior } = await admin().from('credit_ledger').select('id').eq('user_id', t.user_id).eq('note', grantNote).limit(1);
     if (prior && prior.length) return res.status(409).json({ error: 'Already granted for this ticket' });
     await admin().from('credit_ledger').insert({ user_id: t.user_id, delta: 1, reason: 'support_grant', note: grantNote });
-    const reply = 'Good news! We have added 1 free Solo case to your account as a one-time gift. Run your search, view your 2 best matches and choose the one you want, your case will be prepared completely, end to end. We wish you success!';
+    const reply = 'Good news! We have added 1 free case to your account as a one-time gift. Run your search, view your best matches and choose the one you want, your case will be prepared completely, end to end. We wish you success!';
     await admin().from('support_tickets').update({ reply, status: 'answered', handled_by: req.userId }).eq('id', req.params.id);
     await admin().from('audit_log').insert({ actor: req.userId, event: 'SUPPORT_GRANT_SOLO', detail: 'ticket ' + t.id + ' -> user ' + t.user_id }).then(() => {}, () => {});
     res.json({ ok: true });
@@ -1045,7 +1059,7 @@ app.post('/api/admin/support/:id/grant-solo', auth, perm('support.write'), async
 });
 app.post('/api/admin/support/:id/decline-free', auth, perm('support.write'), async (req, res) => {
   try {
-    const reply = 'Thank you for asking! Free packages are offered only occasionally, and we cannot add one this time. The Solo package costs less than one restaurant dinner and prepares your complete case end to end, and every payment supports the free CV analysis we give everyone. We would love to prepare your case whenever you are ready.';
+    const reply = 'Thank you for asking! Free packages are offered only occasionally, and we cannot add one this time. The Basic plan costs less than one restaurant dinner and prepares your complete case end to end, and every payment supports the free CV analysis we give everyone. We would love to prepare your case whenever you are ready.';
     await admin().from('support_tickets').update({ reply, status: 'answered', handled_by: req.userId }).eq('id', req.params.id);
     await admin().from('audit_log').insert({ actor: req.userId, event: 'SUPPORT_DECLINE_FREE', detail: 'ticket ' + req.params.id }).then(() => {}, () => {});
     res.json({ ok: true });
@@ -1262,11 +1276,38 @@ app.put('/api/admin/packages', auth, perm('packages.write'), async (req, res) =>
       credits, pkr,
       name: String(p.name || (credits + ' case' + (credits === 1 ? '' : 's'))).slice(0, 60),
       description: String(p.description || '').slice(0, 200),
+      /* How many matched positions this plan opens for reading. Always at least the
+         number they can apply to, because a plan that shows fewer than it lets you
+         apply to is nonsense. Blank means "twice the credits", a sane default. */
+      view: (() => { const v = parseInt(p.view); return isFinite(v) && v > 0 ? Math.max(v, credits) : Math.max(credits * 2, credits); })(),
       featured: !!p.featured, visible: p.visible !== false,
       promo_pkr: (isFinite(parseInt(p.promo_pkr)) && parseInt(p.promo_pkr) >= 0) ? parseInt(p.promo_pkr) : null
     });
   }
   if (!clean.length) return res.status(400).json({ error: 'No valid packages' });
+  /* ONE SOURCE OF TRUTH. The buy page, the reveal cap and the match sheet all read
+     packages.tiers, so editing packs without mirroring them left the admin changing
+     names and counts that nothing on the site ever used. */
+  try {
+    const cfg = await siteSettings.getConfig();
+    const prior = ((cfg.packages && cfg.packages.tiers) || []);
+    const tiers = clean.filter(p => p.visible !== false).map(p => {
+      const was = prior.find(t => t.credits === p.credits) || {};
+      return {
+        key: was.key || String(p.name || ('p' + p.credits)).toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 20),
+        name: p.name, credits: p.credits, view: p.view, pkr: p.pkr, promo_pkr: p.promo_pkr || null,
+        description: p.description || was.description || '',
+        featured: !!p.featured, feats: was.feats || [
+          'See your ' + p.view + ' best-matched opportunities',
+          'Choose and apply to any ' + p.credits + ' of them',
+          'Customized documents prepared for each position you choose'
+        ],
+      };
+    });
+    /* Every plan is a case plan now, so the packs the admin edits ARE the full ladder.
+       Nothing is carried over: a plan removed in the editor is removed from the site. */
+    if (tiers.length) await siteSettings.saveConfig({ packages: { tiers } }, req.userId);
+  } catch (e) { /* pricing still saves even if the mirror fails */ }
   const { data: cur } = await admin().from('pricing').select('*').eq('active', true).single().then(r => r, () => ({ data: null }));
   const oldPacks = (cur && cur.packs) || [];
   const nextVer = (() => { const n = parseInt(cur && cur.version); return isFinite(n) ? String(n + 1) : String(Date.now()); })();
@@ -1576,7 +1617,7 @@ function lockTease(o) {
     // City and country are given: an applicant must know where in the world this is.
     city: o.city || null,
     general_title: generalTitle(o),
-    remote_scope: remoteScope(o),
+    remote_scope: remoteScope(o), remote: (o.remote === true || o.remote === false) ? o.remote : null,
     field: o.req_field || o.field || null,
     funding: o.funding || null, funding_type: o.funding_type || null, level: o.level || null,
     stipend: o.stipend || null, tuition: o.tuition || null, salary_note: o.salary_note || null,
@@ -1599,17 +1640,78 @@ app.get('/api/pricing', async (req, res) => {
   try {
     const cfg = await siteSettings.getConfig();
     const tiers = (cfg.packages && cfg.packages.tiers) || [];
-    if (tiers.length) out.packs = tiers.map(t => ({ credits: t.credits, pkr: t.pkr, name: t.name, view: t.view }));
+    /* MERGE, never overwrite. This line used to replace the admin's saved packs
+       wholesale, so renamed plans, promo prices and descriptions silently vanished from
+       the buy page. Admin packs win; tiers only fill in what a pack does not carry. */
+    const packs = (out.packs || []).slice();
+    if (packs.length) {
+      out.packs = packs.map(p => {
+        const t = tiers.find(x => x.credits === p.credits) || {};
+        return Object.assign({}, t, p, {
+          view: p.view || t.view || Math.max((p.credits || 1) * 2, p.credits || 1),
+          name: p.name || t.name,
+          feats: p.feats || t.feats
+        });
+      });
+    } else if (tiers.length) {
+      out.packs = tiers.map(t => ({ credits: t.credits, pkr: t.pkr, promo_pkr: t.promo_pkr || null,
+        name: t.name, view: t.view, description: t.description || '',
+        feats: t.feats, featured: t.featured }));
+    }
   } catch (e) {}
   res.json({ pricing: out });
+});
+/* What will this plan actually cost ME, right now? The payment sheet used to compute
+   this from the tier config while the server charged from the stored packs, and it
+   ignored the referral balance entirely, so anyone holding referral credit was told to
+   overpay. One endpoint, one number, computed by the same code path that charges. */
+app.get('/api/payments/quote', auth, async (req, res) => {
+  try {
+    const credits = Number(req.query.credits);
+    if (!isFinite(credits)) return res.status(400).json({ error: 'credits required' });
+    const { data: pr } = await admin().from('pricing').select('*').eq('active', true).single().then(r => r, () => ({ data: null }));
+    let pack = ((pr || {}).packs || []).find(p => Number(p.credits) === credits);
+    if (!pack) {
+      try {
+        const cfg = await siteSettings.getConfig();
+        const t = ((cfg.packages && cfg.packages.tiers) || []).find(x => Number(x.credits) === credits);
+        if (t) pack = { credits: t.credits, pkr: t.pkr, promo_pkr: t.promo_pkr || null, name: t.name };
+      } catch (e) {}
+    }
+    if (!pack) return res.status(404).json({ error: 'Choose a valid credit pack' });
+    const listPkr = Number(pack.pkr) || 0;
+    const promo = (Number(pack.promo_pkr) > 0 && Number(pack.promo_pkr) < listPkr) ? Number(pack.promo_pkr) : null;
+    const base = promo != null ? promo : listPkr;
+    let discount = 0;
+    try {
+      const { data: me } = await admin().from('profiles').select('referral_balance_pkr').eq('id', req.userId).single();
+      discount = Math.min(Number(me && me.referral_balance_pkr) || 0, 500 * (pack.credits || 1));
+    } catch (e) {}
+    res.json({ name: pack.name || null, credits: pack.credits, list_pkr: listPkr, promo_pkr: promo,
+      discount_pkr: discount, amount_pkr: Math.max(0, base - discount) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.post('/api/payments', auth, async (req, res) => {
   try { const cfg = await siteSettings.getConfig(); if (cfg.features && cfg.features.payments === false) return res.status(503).json({ error: 'Payments are temporarily unavailable. Please try again shortly.' }); } catch (e) {}
   const { credits, reference } = req.body || {};
   const { data: pr } = await admin().from('pricing').select('*').eq('active', true).single();
-  let pack = ((pr || {}).packs || []).find(p => p.credits === Number(credits));
-  if (!pack) { try { const cfg = await siteSettings.getConfig(); const t = ((cfg.packages && cfg.packages.tiers) || []).find(x => Number(x.credits) === Number(credits)); if (t) pack = { credits: t.credits, pkr: t.pkr }; } catch (e) {} }
+  /* RESOLVE FIRST, THEN PRICE. The promo check used to run before this fallback, so a
+     plan that lived only in the tier config was charged at list price, and the fallback
+     itself dropped promo_pkr on the way past. */
+  let pack = ((pr || {}).packs || []).find(p => Number(p.credits) === Number(credits));
+  if (!pack) {
+    try {
+      const cfg = await siteSettings.getConfig();
+      const t = ((cfg.packages && cfg.packages.tiers) || []).find(x => Number(x.credits) === Number(credits));
+      if (t) pack = { credits: t.credits, pkr: t.pkr, promo_pkr: t.promo_pkr || null, name: t.name };
+    } catch (e) {}
+  }
   if (!pack) return res.status(400).json({ error: 'Choose a valid credit pack' });
+  // Charge the promo price whenever the admin has set one below list.
+  const listPkr = Number(pack.pkr) || 0;
+  if (Number(pack.promo_pkr) > 0 && Number(pack.promo_pkr) < listPkr) {
+    pack = Object.assign({}, pack, { pkr: Number(pack.promo_pkr), list_pkr: listPkr });
+  }
   // Referral discount: Rs 500 per case, automatically applied from the user's balance.
   let discount = 0;
   try {
@@ -1618,10 +1720,12 @@ app.post('/api/payments', auth, async (req, res) => {
   } catch (e) {}
   const { data, error } = await admin().from('payments').insert({
     user_id: req.userId, amount_pkr: Math.max(0, pack.pkr - discount), credits: pack.credits, discount_pkr: discount,
-    reference: String(reference || '').slice(0, 120), pricing_version: pr.version
+    reference: String(reference || '').slice(0, 120), pricing_version: (pr && pr.version) || null
   }).select().single();
   if (error) return res.status(400).json({ error: error.message });
-  res.json({ payment: data, note: 'Pending. Credits appear after staff confirms your bank transfer.' });
+  res.json({ payment: data, amount_pkr: Math.max(0, pack.pkr - discount), list_pkr: pack.list_pkr || pack.pkr,
+    promo_applied: !!pack.list_pkr, discount_pkr: discount,
+    note: 'Pending. Credits appear after staff confirms your bank transfer.' });
 });
 app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, res) => {
   const { data: p } = await admin().from('payments').select('*').eq('id', req.params.id).single();
@@ -1714,9 +1818,9 @@ app.get('/api/opportunities', auth, async (req, res) => {
   if (cc.length) query = query.in('country_code', cc);
   // Accept both ?level= and ?levels= (the finder sends the plural form). This is the
   // database-level gate: a postdoc seeker never even loads PhD or Master's rows.
-  const ALL_LEVELS = ['bachelors', 'masters', 'phd', 'postdoc', 'diploma', 'short_course', 'fellowship', 'observership', 'licensing_exam'];
+  const ALL_LEVELS = ['bachelors', 'masters', 'phd', 'postdoc', 'diploma', 'short_course', 'fellowship', 'observership'];
   const lvls = multi(req.query.level).concat(multi(req.query.levels)).filter(l => ALL_LEVELS.includes(l));
-  // The level gate applies to ACADEMIC lanes only. Work and licensing postings carry no
+  // The level gate applies to ACADEMIC lanes only. Work postings carry no
   // academic level, so filtering them by level would wrongly return nothing.
   const academicLane = !(kind === 'work' || kind === 'job');
   if (lvls.length && academicLane) {
@@ -1727,21 +1831,11 @@ app.get('/api/opportunities', auth, async (req, res) => {
     // but we then infer their level from the title so a postdoc search cannot leak PhD ads.
     req._inferLevels = wanted;
   }
-  // LICENSE GATE: when the applicant holds/targets specific credentials, prefer roles that
-  // name one of them. Rows with no stated licence still pass (many adverts omit it).
-  const licsQ = multi(req.query.licenses).map(x => String(x).toUpperCase()).filter(x => /^[A-Z]{2,10}$/.test(x));
-  if (licsQ.length) {
-    const ors = licsQ.map(l => 'req_license.ilike.%' + l + '%').concat(['req_license.is.null']);
-    query = query.or(ors.join(','));
-  }
   const fts = multi(req.query.funding_type).filter(f => ['fully', 'partial', 'self'].includes(f));
   if (fts.length) query = query.in('funding_type', fts);
   if (String(req.query.no_language_test) === '1') query = query.or('req_language.is.null,req_language.eq.none');
-  // Intake year: the user picked a specific intake, so only show opportunities whose
-  // deadline or stated intake belongs to it. Rows with no date stay (unclassified).
   // Intake year: applications for a September Y intake typically close in late Y-1, so
   // the valid window opens the year BEFORE the intake and closes at the end of it.
-  // (Filtering deadline >= Y-01-01 excluded precisely the right opportunities.)
   const intakeY = String(req.query.intake || '').match(/^(20\d{2})$/);
   if (intakeY) {
     const y = parseInt(intakeY[1], 10);
@@ -1749,7 +1843,6 @@ app.get('/api/opportunities', auth, async (req, res) => {
   }
   // Sector is not a stored column: opportunities carry req_field instead. We match the
   // sector against that, keeping rows with no stated field so nothing valid is lost.
-  // (Filtering a non-existent column made the whole query fail and return nothing.)
   const sectorQ = multi(req.query.sector).filter(x => /^[a-z_]{2,20}$/.test(x));
   if (sectorQ.length) {
     const terms = sectorQ.map(x => x.replace(/_/g, ' '));
@@ -1757,7 +1850,11 @@ app.get('/api/opportunities', auth, async (req, res) => {
   }
   if (String(req.query.has_stipend) === '1') query = query.neq('stipend', '');
   if (String(req.query.has_deadline) === '1') query = query.not('deadline', 'is', null);
-  if (String(req.query.remote) === '1') query = query.eq('remote', true);
+  // Remote is decided after fetch, from evidence, because the boolean column is null on
+  // most rows (the page never stated it) and eq(true) therefore returned an empty set,
+  // after which the query degraded to unfiltered and on-site posts reached the user.
+  const wantRemote = String(req.query.remote) === '1';
+  const wantOnsite = String(req.query.workmode || '') === 'onsite';
   if (String(req.query.visa) === '1') query = query.eq('visa_sponsorship', true);
   const jts = multi(req.query.job_type).filter(j => ['full_time','part_time','contract','internship'].includes(j));
   if (jts.length) query = query.in('job_type', jts);
@@ -1777,6 +1874,15 @@ app.get('/api/opportunities', auth, async (req, res) => {
     ({ data } = await q2);
   }
   let rows = data || [];
+  // Evidence-based remote decision, applied to every row the user is about to see.
+  const remoteEvidence = o => {
+    if (o.remote === false) return false;
+    if (o.remote === true) return true;
+    const blob = [o.title, o.funding, o.salary_note, o.duration, o.fee_structure, o.job_type].join(' ').toLowerCase();
+    return /\bremote\b|work from home|work from anywhere|telecommut|fully distributed/.test(blob);
+  };
+  if (wantRemote) rows = rows.filter(remoteEvidence);
+  if (wantOnsite) rows = rows.filter(o => !remoteEvidence(o));
   // USER PROTECTION (spec 18/41): never re-show an opportunity this user already applied to.
   try {
     const { data: apps } = await admin().from('applications').select('opportunity_id').eq('user_id', req.userId);
@@ -2293,7 +2399,7 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
   try {
     const { data: pf } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single();
     const pv = (pf && pf.value) || {};
-    licInfo.license_authority = (pv.licenses || [])[0] || pv.licenseExam || '';
+    licInfo.license_authority = (pv.licenseResolved && pv.licenseResolved.authority) || pv.licenseHeld || '';
     const { data: px } = await admin().from('app_settings').select('value').eq('key', 'profilex:' + req.userId).single();
     const x = (px && px.value && px.value.x) || {};
     licInfo.license_number = x.license_number || '';
@@ -2364,17 +2470,9 @@ app.post('/api/opportunities/:id/reject', auth, async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 /* Referral claim: a new user attaches to the friend whose link brought them. */
-/* ---------- Referral rewards: qualified referrals earn free Solo credits ---------- */
+/* ---------- Referral rewards: qualified referrals earn free case credits ---------- */
 /* Has this account ever paid? Referral rewards are for paying customers only, so the
    programme cannot be farmed by accounts that never buy anything. */
-/** Does this account hold an active Search Pass? */
-async function hasSearchPass(userId) {
-  try {
-    const { data } = await admin().from('app_settings').select('value').eq('key', 'searchpass:' + userId).single();
-    const until = data && data.value && data.value.until;
-    return !!(until && new Date(until).getTime() > Date.now());
-  } catch (e) { return false; }
-}
 async function hasEverPaid(userId) {
   try {
     const { data } = await admin().from('payments').select('id').eq('user_id', userId).eq('status', 'confirmed').limit(1);
@@ -2469,16 +2567,16 @@ app.get('/api/referral/status', auth, async (req, res) => {
     });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-/* Redeem one free Solo credit. Serialized per user so two taps cannot double-spend. */
+/* Redeem one free case credit. Serialized per user so two taps cannot double-spend. */
 app.post('/api/referral/redeem', auth, (req, res) => withUserLock(req.userId, async () => {
   try {
     const R = require('./lib/referral');
     const credit = await R.redeem(req.userId, 'solo_activation');
     if (!credit) return res.status(400).json({ error: 'You have no active free credits right now.' });
-    // Grant exactly one Solo case credit through the normal ledger.
+    // Grant exactly one case credit through the normal ledger.
     await admin().from('credit_ledger').insert({
       user_id: req.userId, delta: 1, reason: 'referral_reward',
-      note: 'Free Solo credit from referral milestone ' + credit.milestone
+      note: 'Free case credit from referral milestone ' + credit.milestone
     });
     try { await admin().from('audit_log').insert({ actor: req.userId, event: 'REFERRAL_REDEEM', detail: 'milestone ' + credit.milestone + ', credit ' + credit.id }); } catch (e) {}
     res.json({ ok: true, expires_at: credit.expires_at, milestone: credit.milestone });
@@ -2567,8 +2665,6 @@ app.get('/api/admin/demand', auth, perm('users.read'), async (req, res) => {
     const exams = {}, countries = {}, levels = {}, kinds = {};
     for (const r of (data || [])) {
       const v = r.value || {};
-      (v.licenses || []).forEach(x => { exams[x] = (exams[x] || 0) + 1; });
-      if (v.licenseExam) { const k = String(v.licenseExam).toUpperCase(); exams[k] = (exams[k] || 0) + 1; }
       (v.ctrys || []).forEach(x => { countries[x] = (countries[x] || 0) + 1; });
       (v.levels || []).forEach(x => { levels[x] = (levels[x] || 0) + 1; });
       if (v.kind) kinds[v.kind] = (kinds[v.kind] || 0) + 1;
@@ -2620,14 +2716,22 @@ app.put('/api/prefs', auth, async (req, res) => {
     langs: sArr(v.langs, /^[a-z_]{2,20}$/),
     jobTypes: sArr(v.jobTypes, /^[a-z_]{2,20}$/),
     exps: sArr(v.exps, /^[a-z]{2,10}$/),
-    licenses: sArr(v.licenses, /^[A-Z]{2,10}$/, 12),
+    // Retired: we no longer sell licensing help, so there is no exam selection to store.
+    licenses: [],
     programTypes: sArr(v.programTypes, /^[a-z_]{2,20}$/),
     sectors: sArr(v.sectors, /^[a-z_]{2,20}$/),
     workmode: ['', 'remote', 'onsite'].includes(String(v.workmode || '')) ? String(v.workmode || '') : '',
     field: /^[a-z][a-z-]{1,40}$/.test(String(v.field || '')) ? String(v.field) : '',
     intake: ['', '2026', '2027'].includes(String(v.intake || '')) ? String(v.intake || '') : '',
-    licenseExam: String(v.licenseExam || '').replace(/[^A-Za-z0-9 \-]/g, '').slice(0, 40),
-    licenseStatus: ['', 'preparing', 'passed', 'registered'].includes(String(v.licenseStatus || '')) ? String(v.licenseStatus || '') : ''
+    // What the applicant typed, plus the resolved credential they ALREADY hold.
+    licenseHeld: String(v.licenseHeld || '').slice(0, 120),
+    licenseResolved: (v.licenseResolved && typeof v.licenseResolved === 'object') ? {
+      code: String(v.licenseResolved.code || '').slice(0, 16),
+      name: String(v.licenseResolved.name || '').slice(0, 90),
+      authority: String(v.licenseResolved.authority || '').slice(0, 90),
+      profession: String(v.licenseResolved.profession || '').slice(0, 60),
+      confident: !!v.licenseResolved.confident
+    } : null
   };
   try { await admin().from('app_settings').upsert({ key: 'prefs:' + req.userId, value: clean }); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ error: e.message }); }
@@ -2652,44 +2756,92 @@ const FUTURE_PATH = {
   HU: { name: 'Hungary', embassy: 'Embassy of Hungary Islamabad', portal: 'Stipendium Hungaricum via apply.stipendiumhungaricum.hu (deadline mid-January), then D visa', funds: 'Stipendium is fully funded: tuition, stipend, housing allowance, insurance', extra: 'HEC Pakistan co-nominates - watch hec.gov.pk for the parallel window.' },
   NZ: { name: 'New Zealand', embassy: 'New Zealand visas are processed online (no local embassy visit needed)', portal: 'Student visa via immigration.govt.nz with offer of place', funds: 'NZD 20,000/year evidence plus tuition', extra: 'Post-study work rights up to 3 years; Manaaki New Zealand Scholarships are fully funded.' }
 };
-const EXAM_GUIDE = {
-  DHA: { auth: 'Dubai Health Authority, via the Sheryan portal', verify: 'DataFlow primary-source verification', steps: ['Create your Sheryan account and select the correct professional category', 'Submit degree, transcripts, experience and licence documents for DataFlow verification (30-45 days typical)', 'Receive eligibility, then book the Prometric/CBT assessment for your category', 'On passing, activate the licence and request the eligibility letter used for job applications'], docs: ['Degree and transcripts', 'Experience certificates from each employer', 'Current registration and good-standing certificate', 'Passport and professional photograph'], note: 'The DHA eligibility letter has a validity window, track its expiry and start job applications immediately after passing.' },
-  DOH: { auth: 'Department of Health Abu Dhabi (formerly HAAD)', verify: 'DataFlow primary-source verification', steps: ['Register on the DOH/TAMM licensing portal', 'Complete DataFlow verification of every credential', 'Book and pass the DOH assessment for your category', 'Employer completes the activation once you hold an offer'], docs: ['Degree and transcripts', 'Experience letters', 'Good-standing certificate', 'Passport copy and photograph'], note: 'Abu Dhabi activation is usually employer-linked, so secure the offer while your eligibility is valid.' },
-  MOHAP: { auth: 'Ministry of Health and Prevention, UAE (northern emirates)', verify: 'DataFlow primary-source verification', steps: ['Apply on the MOHAP licensing portal', 'Complete DataFlow verification', 'Pass the MOHAP assessment', 'Activate the licence with your employer'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'MOHAP covers Sharjah, Ajman, Fujairah, RAK and UAQ; Dubai and Abu Dhabi have their own authorities.' },
-  SCFHS: { auth: 'Saudi Commission for Health Specialties, via Mumaris Plus', verify: 'DataFlow primary-source verification', steps: ['Create a Mumaris Plus account and apply for professional classification', 'Complete DataFlow verification of degree and experience', 'Receive classification, then sit the Prometric examination for your specialty', 'Registration is completed once you hold a Saudi employment offer'], docs: ['Degree and transcripts', 'Experience certificates covering the required years', 'Good-standing certificate', 'Passport and photograph'], note: 'Classification typically follows 2-6 weeks after DataFlow clears; book Prometric early as Pakistan slots fill weeks ahead.' },
-  QCHP: { auth: 'Qatar Council for Healthcare Practitioners (DHP)', verify: 'DataFlow primary-source verification', steps: ['Submit the QCHP application with your sponsoring employer', 'Complete DataFlow verification', 'Sit the Prometric examination where your category requires it', 'Licence issued and linked to the employer'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'Qatar evaluation commonly takes 3-8 weeks; most categories are employer-sponsored.' },
-  OMSB: { auth: 'Oman Medical Specialty Board / Ministry of Health', verify: 'DataFlow primary-source verification', steps: ['Employer or you submit the OMSB application', 'Complete DataFlow verification', 'Sit the required assessment', 'Ministry issues the practice licence'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'Oman roles are usually employer-driven, keep documents verification-ready.' },
-  NHRA: { auth: 'National Health Regulatory Authority, Bahrain', verify: 'DataFlow primary-source verification', steps: ['Apply through NHRA with employer support', 'Complete DataFlow verification', 'Sit the assessment where required', 'Licence issued on approval'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'Bahrain often moves faster than larger Gulf markets once documents are verified.' },
-  PLAB: { auth: 'General Medical Council, UK', verify: 'Primary-source checks by the GMC', steps: ['Achieve the English requirement (IELTS Academic 7.5 overall or OET grade B)', 'Pass PLAB 1, then PLAB 2 (PLAB 2 is taken in the UK)', 'Apply for GMC registration with licence to practise and attend the ID check', 'Apply for posts on NHS Jobs or Trac and obtain a Certificate of Sponsorship'], docs: ['Primary medical qualification and transcripts', 'Internship/experience certificates', 'English test certificate under two years old', 'Passport and identification'], note: 'Registration decisions typically take 5-15 working days once the application is complete; most IMGs begin in trust-grade or SHO posts.' },
-  CBT: { auth: 'Nursing and Midwifery Council, UK', verify: 'NMC verification of qualification and registration', steps: ['Achieve IELTS or OET at the NMC standard', 'Pass the CBT (can be taken from Pakistan)', 'Receive the decision letter, secure a UK employer and visa', 'Pass the OSCE in the UK within the permitted window after arrival'], docs: ['Nursing qualification and transcripts', 'Current registration and good-standing certificate', 'English test certificate', 'Passport'], note: 'The OSCE is only taken in the UK, so plan finances and timing for that stage.' },
-  USMLE: { auth: 'ECFMG, then state medical boards, USA', verify: 'EPIC credential verification', steps: ['Create ECFMG and EPIC accounts and submit credentials for verification (2-8 weeks)', 'Pass USMLE Step 1 and Step 2 CK', 'Obtain ECFMG certification', 'Apply through ERAS for the residency Match'], docs: ['Medical degree and transcripts', 'Internship certificate', 'Passport and identification', 'Letters of recommendation for ERAS'], note: 'The Match runs on a fixed calendar: interviews October to January, Match in March, start in July. Align your timeline to it or lose a year.' },
-  NCLEX: { auth: 'State Board of Nursing, USA (with CGFNS where required)', verify: 'CGFNS credential evaluation and VisaScreen', steps: ['Choose a state board and submit the credential evaluation (CGFNS or equivalent, 6-12 weeks)', 'Receive the Authorization to Test and book NCLEX-RN', 'Pass NCLEX-RN and obtain licensure by examination', 'Complete VisaScreen for the immigration stage'], docs: ['Nursing degree and transcripts', 'Current registration and good-standing certificate', 'English test where the state requires it', 'Passport'], note: 'VisaScreen is required for the visa, not the licence; start it in parallel to save months.' },
-  PEBC: { auth: 'Pharmacy Examining Board of Canada', verify: 'PEBC document evaluation', steps: ['Submit documents for PEBC evaluation', 'Pass the Evaluating Examination', 'Pass the Qualifying Examination Parts I and II', 'Register with the provincial college where you will practise'], docs: ['Pharmacy degree and transcripts', 'Licence and good-standing certificate', 'English test (IELTS or CELPIP)', 'Passport'], note: 'Provincial colleges have their own bridging and language requirements on top of PEBC.' },
-  AMC: { auth: 'Australian Medical Council, then AHPRA', verify: 'AMC primary-source verification', steps: ['Verify your primary medical qualification with the AMC', 'Pass the AMC CAT MCQ examination', 'Complete the clinical examination or an approved workplace-based assessment', 'Register with AHPRA and apply for posts'], docs: ['Medical degree and transcripts', 'Internship and experience certificates', 'English test (IELTS or OET) at the AHPRA standard', 'Passport'], note: 'AHPRA English requirements are strict and must be met before registration.' },
-  AHPRA: { auth: 'AHPRA and the relevant national board, Australia', verify: 'Qualification and registration verification', steps: ['Confirm your qualification is recognised or complete the required assessment', 'Meet the English requirement', 'Apply for registration with the national board', 'Apply for roles once registered'], docs: ['Qualification and transcripts', 'Registration and good-standing certificate', 'English test at the board standard', 'Passport'], note: 'Each profession has its own national board under AHPRA with specific criteria.' },
-  KAPS: { auth: 'Australian Pharmacy Council / Pharmacy Board of Australia', verify: 'APC document assessment', steps: ['Submit documents for APC skills assessment', 'Pass the KAPS examination', 'Complete supervised practice as required', 'Register with the Pharmacy Board of Australia'], docs: ['Pharmacy degree and transcripts', 'Registration and good-standing certificate', 'English test at the board standard', 'Passport'], note: 'Supervised practice hours are a distinct stage after KAPS, plan for the additional time.' },
-  MCCQE: { auth: 'Medical Council of Canada, then provincial colleges', verify: 'physiciansapply.ca source verification', steps: ['Create a physiciansapply.ca account and verify credentials', 'Pass MCCQE Part I', 'Complete the required assessments and residency route', 'Register with the provincial college'], docs: ['Medical degree and transcripts', 'Internship certificates', 'English test (IELTS or CELPIP)', 'Passport'], note: 'Provincial routes differ significantly, choose your target province early.' },
-  ORE: { auth: 'General Dental Council, UK', verify: 'GDC verification', steps: ['Meet the English requirement', 'Pass ORE Part 1 and Part 2', 'Apply for GDC registration', 'Apply for NHS or private dental posts'], docs: ['Dental degree and transcripts', 'Experience certificates', 'English test certificate', 'Passport'], note: 'ORE places are limited and book out quickly, register for exam sittings as early as possible.' },
-  NZREX: { auth: 'Medical Council of New Zealand', verify: 'MCNZ primary-source verification', steps: ['Verify your primary medical qualification with MCNZ', 'Meet the English requirement (IELTS or OET)', 'Pass NZREX Clinical', 'Complete supervised practice and register'], docs: ['Medical degree and transcripts', 'Internship and experience certificates', 'English test certificate', 'Passport'], note: 'NZREX sittings are limited each year, plan your application around the published dates.' },
-  CGFNS: { auth: 'CGFNS International (for USA nursing routes)', verify: 'CGFNS credential evaluation and VisaScreen', steps: ['Submit your credentials for CGFNS evaluation', 'Complete the English requirement where applicable', 'Obtain the certificate or evaluation your state board requires', 'Complete VisaScreen for the immigration stage'], docs: ['Nursing degree and transcripts', 'Registration and good-standing certificate', 'English test certificate', 'Passport'], note: 'Evaluation commonly takes 6-12 weeks; start it in parallel with NCLEX preparation.' },
-  FPGEE: { auth: 'NABP, then the state Board of Pharmacy, USA', verify: 'NABP/FPGEC credential review', steps: ['Apply for FPGEC certification with NABP', 'Meet the English requirement (TOEFL iBT where required)', 'Pass the FPGEE examination', 'Complete internship hours and sit NAPLEX and MPJE for your state'], docs: ['Pharmacy degree and transcripts', 'Licence and good-standing certificate', 'English test certificate', 'Passport'], note: 'Requirements differ by state; choose your target state before starting.' },
-  OSPAP: { auth: 'General Pharmaceutical Council, UK', verify: 'GPhC qualification assessment', steps: ['Apply to GPhC for eligibility to enrol on an OSPAP course', 'Meet the English requirement (IELTS or OET)', 'Complete the OSPAP postgraduate diploma', 'Complete the foundation training year and pass the registration assessment'], docs: ['Pharmacy degree and transcripts', 'Registration and good-standing certificate', 'English test certificate', 'Passport'], note: 'OSPAP is a taught course, so budget for tuition and a full academic year.' },
-  NDEB: { auth: 'National Dental Examining Board of Canada', verify: 'NDEB document evaluation', steps: ['Submit credentials for NDEB assessment', 'Pass the Assessment of Fundamental Knowledge', 'Complete the Assessment of Clinical Judgement and Clinical Skills', 'Register with the provincial dental regulatory authority'], docs: ['Dental degree and transcripts', 'Registration and good-standing certificate', 'English or French test', 'Passport'], note: 'The equivalency process runs in stages over more than one year, plan accordingly.' },
-  ADC: { auth: 'Australian Dental Council, then AHPRA', verify: 'ADC document assessment', steps: ['Submit your qualification for ADC assessment', 'Pass the written examination', 'Pass the practical examination', 'Register with the Dental Board of Australia via AHPRA'], docs: ['Dental degree and transcripts', 'Registration and good-standing certificate', 'English test at AHPRA standard', 'Passport'], note: 'Practical examination places are limited, register as soon as you pass the written stage.' },
-  INBDE: { auth: 'Joint Commission on National Dental Examinations, USA', verify: 'ECE/credential evaluation by your target programme', steps: ['Have your dental degree evaluated', 'Pass the INBDE', 'Apply to an Advanced Standing programme', 'Obtain state licensure after graduation'], docs: ['Dental degree and transcripts', 'English test certificate', 'Letters of recommendation', 'Passport'], note: 'Most international dentists must complete a two to three year Advanced Standing programme in the USA.' },
-  NPTE: { auth: 'FSBPT and the state physical therapy board, USA', verify: 'Credentialing evaluation (FCCPT or equivalent)', steps: ['Complete a credentials evaluation of your degree', 'Meet the English requirement', 'Pass the NPTE', 'Apply for licensure in your chosen state'], docs: ['Physiotherapy degree and transcripts', 'Registration and good-standing certificate', 'English test certificate', 'Passport'], note: 'Each state sets its own additional requirements, confirm them before you apply.' },
-  ASCPI: { auth: 'ASCP Board of Certification International', verify: 'ASCPi credential evaluation', steps: ['Confirm your eligibility route for your laboratory speciality', 'Submit transcripts and experience for evaluation', 'Book and pass the ASCPi examination', 'Use the credential for Gulf and international laboratory roles'], docs: ['Degree and transcripts', 'Laboratory experience certificates', 'Passport', 'Professional photograph'], note: 'ASCPi is widely recognised in the Gulf and often paired with DataFlow verification for licensing.' },
-  PE: { auth: 'NCEES and the state engineering board, USA', verify: 'Credential evaluation of your engineering degree', steps: ['Have your degree evaluated for equivalence', 'Pass the FE examination', 'Accumulate the required supervised experience', 'Pass the PE examination and register with the state board'], docs: ['Engineering degree and transcripts', 'Experience records and referee details', 'Passport'], note: 'Supervised experience requirements are strict; keep detailed, verifiable project records.' },
-  CENG: { auth: 'Engineering Council, UK, through a licensed institution', verify: 'Institution assessment of qualifications and competence', steps: ['Join a relevant professional institution', 'Have your academic qualifications assessed', 'Prepare a competence report against the UK-SPEC standard', 'Attend the professional review interview'], docs: ['Engineering degree and transcripts', 'Detailed project and competence evidence', 'Referee details', 'Passport'], note: 'The competence report is the decisive document, allow real time to prepare it well.' },
-  PENG: { auth: 'The provincial engineering regulator in Canada (for example PEO or APEGA)', verify: 'Academic and experience assessment by the regulator', steps: ['Apply to the provincial regulator', 'Complete the academic assessment, with confirmatory examinations if required', 'Document the required years of engineering experience', 'Pass the professional practice examination and register'], docs: ['Engineering degree and transcripts', 'Detailed experience records with referees', 'English or French test where required', 'Passport'], note: 'Each province assesses separately; apply to the one where you intend to work.' },
-  SCE: { auth: 'Saudi Council of Engineers', verify: 'SCE membership verification of degree and experience', steps: ['Create an SCE account and submit your degree and experience', 'Complete verification and pay the membership fee', 'Sit the professional assessment where your grade requires it', 'Receive the membership grade used for work permits'], docs: ['Engineering degree and transcripts', 'Experience certificates', 'Passport and photograph'], note: 'SCE membership is normally required before a Saudi work permit is issued.' },
-  UPDA: { auth: 'MMUP / UPDA, Qatar', verify: 'Document verification by the ministry', steps: ['Submit your degree and experience for UPDA registration', 'Book and pass the UPDA examination for your discipline', 'Receive the engineer grade', 'Employers use the grade for project approvals and permits'], docs: ['Engineering degree and transcripts', 'Experience certificates', 'Passport and photograph'], note: 'The UPDA grade directly affects the roles and salary band you can be hired into.' },
-  MOH_KW: { auth: 'Ministry of Health, Kuwait', verify: 'DataFlow primary-source verification', steps: ['Employer or agency submits your application to the Ministry', 'Complete DataFlow verification', 'Sit the assessment where your category requires it', 'Licence issued and linked to the employer'], docs: ['Degree and transcripts', 'Experience certificates', 'Good-standing certificate', 'Passport and photograph'], note: 'Kuwait roles are almost always employer-sponsored, so secure the offer first.' },
-  OET: { auth: 'OET (accepted by GMC, NMC, AHPRA, DHA and most Gulf regulators)', verify: 'Direct result verification by the regulator', steps: ['Choose the profession-specific OET version', 'Book a test date early, centres fill weeks ahead', 'Achieve the grade your regulator requires (commonly B)', 'Send the result directly to the regulator'], docs: ['Passport for registration and identification'], note: 'Most regulators require the result to be under two years old at the time of registration.' },
-  DATAFLOW: { auth: 'DataFlow Group (primary-source verification for Gulf regulators)', verify: 'Direct verification with your universities and employers', steps: ['Create the DataFlow case for your target regulator', 'Upload degree, transcripts, experience and licence documents', 'Alert your university and past employers that DataFlow will contact them', 'Track the report and share it with the regulator'], docs: ['Degree and transcripts', 'Experience certificates from every employer', 'Current licence and good-standing certificate', 'Passport'], note: 'Delays are almost always caused by institutions not replying; contacting them in advance is the single biggest time-saver.' },
-  PROMETRIC: { auth: 'Prometric (test delivery for Gulf regulators and others)', verify: 'Eligibility issued by your regulator before booking', steps: ['Obtain eligibility from your regulator', 'Create a Prometric account and choose your exam and centre', 'Book early, Pakistan centres fill two to four weeks ahead', 'Sit the exam and share the result with your regulator'], docs: ['Eligibility letter from the regulator', 'Passport matching your registration exactly'], note: 'Your passport name must match the regulator record exactly or you can be refused entry to the test centre.' },
-  HCPC: { auth: 'Health and Care Professions Council, UK', verify: 'HCPC international application checks', steps: ['Submit the international registration application', 'Provide evidence your training meets UK standards', 'Meet the English requirement', 'Register and apply for posts'], docs: ['Professional qualification and transcripts', 'Experience and registration evidence', 'English test certificate', 'Passport'], note: 'Assessment of equivalence can take several months, apply well before you plan to move.' }
+/* Official routes for every destination we serve, so a guide is never thin because the
+   country happens to be Lithuania instead of Germany. Addresses are the mission in
+   Pakistan; portals are the government's own site, which is the only authority on fees,
+   appointments and document lists. Phone numbers are NOT hardcoded here on purpose:
+   mission numbers change, and a wrong number in a guide is worse than no number, so the
+   live brief below fetches the current contact details at generation time. */
+/* Every destination we serve, by name. A guide that says "LT" instead of "Lithuania"
+   reads like a database dump, and the applicant has to go and look it up. */
+const CC_FULL = { AU: 'Australia', AT: 'Austria', AZ: 'Azerbaijan', BH: 'Bahrain', BE: 'Belgium',
+  BN: 'Brunei', BG: 'Bulgaria', CA: 'Canada', CN: 'China', HR: 'Croatia', CY: 'Cyprus',
+  CZ: 'Czechia', DK: 'Denmark', EE: 'Estonia', FI: 'Finland', FR: 'France', GE: 'Georgia',
+  DE: 'Germany', GR: 'Greece', HK: 'Hong Kong', HU: 'Hungary', IE: 'Ireland', IT: 'Italy',
+  JP: 'Japan', KZ: 'Kazakhstan', KW: 'Kuwait', LV: 'Latvia', LT: 'Lithuania', LU: 'Luxembourg',
+  MY: 'Malaysia', MT: 'Malta', NL: 'Netherlands', NZ: 'New Zealand', NO: 'Norway', OM: 'Oman',
+  PL: 'Poland', PT: 'Portugal', QA: 'Qatar', RO: 'Romania', SA: 'Saudi Arabia', SG: 'Singapore',
+  SK: 'Slovakia', SI: 'Slovenia', KR: 'South Korea', ES: 'Spain', SE: 'Sweden', CH: 'Switzerland',
+  TW: 'Taiwan', TH: 'Thailand', TR: 'Turkiye', AE: 'United Arab Emirates', GB: 'United Kingdom',
+  US: 'United States', UZ: 'Uzbekistan', ZA: 'South Africa', PK: 'Pakistan' };
+const MISSION = {
+  AU: { m: 'Australian High Commission, Constitution Avenue, Diplomatic Enclave, Islamabad (visas processed online)', u: 'https://immi.homeaffairs.gov.au' },
+  AT: { m: 'Embassy of Austria, Diplomatic Enclave, Islamabad', u: 'https://www.bmeia.gv.at/en/austrian-embassy-islamabad' },
+  AZ: { m: 'Embassy of Azerbaijan, Diplomatic Enclave, Islamabad', u: 'https://evisa.gov.az' },
+  BH: { m: 'Embassy of Bahrain, Diplomatic Enclave, Islamabad (work visas are employer-sponsored)', u: 'https://www.evisa.gov.bh' },
+  BE: { m: 'Embassy of Belgium, Diplomatic Enclave, Islamabad (visa intake via VFS Global)', u: 'https://dofi.ibz.be/en' },
+  BN: { m: 'High Commission of Brunei Darussalam, Islamabad', u: 'https://www.imigresen.gov.bn' },
+  BG: { m: 'Embassy of Bulgaria, Islamabad', u: 'https://www.mfa.bg/en' },
+  CA: { m: 'VFS Global Canada Visa Application Centres, Islamabad, Lahore and Karachi', u: 'https://www.canada.ca/en/immigration-refugees-citizenship.html' },
+  CN: { m: 'Embassy of China, Diplomatic Enclave, Islamabad; consulates in Karachi and Lahore', u: 'https://www.visaforchina.cn' },
+  HR: { m: 'Croatia is represented for Pakistan from its mission in the region; applications via VFS Global', u: 'https://mup.gov.hr/en' },
+  CY: { m: 'High Commission of Cyprus (accredited to Pakistan); student visas via the Civil Registry and Migration Department', u: 'http://www.moi.gov.cy/crmd' },
+  CZ: { m: 'Embassy of the Czech Republic, Diplomatic Enclave, Islamabad', u: 'https://ipc.gov.cz/en' },
+  DK: { m: 'Embassy of Denmark, Diplomatic Enclave, Islamabad (applications via VFS Global)', u: 'https://www.nyidanmark.dk/en-GB' },
+  EE: { m: 'Estonia is represented via a nearby embassy; applications via VFS Global', u: 'https://www.politsei.ee/en' },
+  FI: { m: 'VFS Global Finland, Islamabad and Karachi (residence permits)', u: 'https://enterfinland.fi' },
+  FR: { m: 'Embassy of France, Diplomatic Enclave, Islamabad; intake via VFS Global', u: 'https://france-visas.gouv.fr/en' },
+  GE: { m: 'Embassy of Georgia (accredited to Pakistan); e-visa available online', u: 'https://www.evisa.gov.ge' },
+  GR: { m: 'Embassy of Greece, Islamabad', u: 'https://www.mfa.gr/en' },
+  HK: { m: 'Hong Kong immigration is handled online; the Chinese mission handles related entry queries', u: 'https://www.immd.gov.hk/eng' },
+  HU: { m: 'Embassy of Hungary, Diplomatic Enclave, Islamabad', u: 'https://konzuliszolgalat.kormany.hu/en' },
+  IE: { m: 'Embassy of Ireland, Islamabad; intake via VFS Global', u: 'https://www.irishimmigration.ie' },
+  IT: { m: 'Embassy of Italy, Diplomatic Enclave, Islamabad', u: 'https://www.universitaly.it' },
+  JP: { m: 'Embassy of Japan, Diplomatic Enclave, Islamabad; visa after the Certificate of Eligibility', u: 'https://www.mofa.go.jp/j_info/visit/visa/index.html' },
+  KZ: { m: 'Embassy of Kazakhstan, Islamabad', u: 'https://www.egov.kz/cms/en' },
+  KW: { m: 'Embassy of Kuwait, Diplomatic Enclave, Islamabad (work visas are employer-sponsored)', u: 'https://www.moi.gov.kw' },
+  LV: { m: 'Latvia is represented via a nearby embassy; applications via VFS Global', u: 'https://www.pmlp.gov.lv/en' },
+  LT: { m: 'Lithuania is represented via a nearby embassy; applications via VFS Global', u: 'https://migracija.lt/en' },
+  LU: { m: 'Luxembourg is represented via the Belgian mission for visa intake', u: 'https://guichet.public.lu/en.html' },
+  MY: { m: 'High Commission of Malaysia, Diplomatic Enclave, Islamabad', u: 'https://educationmalaysia.gov.my' },
+  MT: { m: 'Malta is represented via a nearby embassy; applications via VFS Global', u: 'https://identita.gov.mt' },
+  NL: { m: 'Netherlands student and knowledge-migrant permits are applied for BY the university (TEV procedure); biometrics at VFS Global', u: 'https://ind.nl/en' },
+  NZ: { m: 'New Zealand visas are decided online; no local mission visit is normally needed', u: 'https://www.immigration.govt.nz' },
+  NO: { m: 'Embassy of Norway, Islamabad; intake via VFS Global', u: 'https://www.udi.no/en' },
+  OM: { m: 'Embassy of Oman, Diplomatic Enclave, Islamabad (work visas are employer-sponsored)', u: 'https://evisa.rop.gov.om' },
+  PL: { m: 'Embassy of Poland, Diplomatic Enclave, Islamabad', u: 'https://www.gov.pl/web/diplomacy' },
+  PT: { m: 'Portugal is represented for Pakistan via a regional mission; intake via VFS Global', u: 'https://aima.gov.pt/en' },
+  QA: { m: 'Embassy of Qatar, Diplomatic Enclave, Islamabad (work visas are employer-sponsored)', u: 'https://portal.moi.gov.qa' },
+  RO: { m: 'Embassy of Romania, Islamabad', u: 'https://evisa.mae.ro' },
+  SA: { m: 'Royal Embassy of Saudi Arabia, Diplomatic Enclave, Islamabad; work visas via Musaned/Enjaz through your employer', u: 'https://visa.mofa.gov.sa' },
+  SG: { m: 'High Commission of Singapore (accredited to Pakistan); passes are applied for by the employer or institution', u: 'https://www.mom.gov.sg' },
+  SK: { m: 'Slovakia is represented via a nearby embassy; applications via VFS Global', u: 'https://www.mzv.sk/en' },
+  SI: { m: 'Slovenia is represented via a nearby embassy; applications via VFS Global', u: 'https://www.gov.si/en' },
+  KR: { m: 'Embassy of the Republic of Korea, Diplomatic Enclave, Islamabad', u: 'https://www.visa.go.kr/openPage.do?MENU_ID=10101' },
+  ES: { m: 'Embassy of Spain, Diplomatic Enclave, Islamabad; intake via BLS International', u: 'https://www.exteriores.gob.es/en' },
+  SE: { m: 'Embassy of Sweden, Diplomatic Enclave, Islamabad; applications online then biometrics', u: 'https://www.migrationsverket.se/en' },
+  CH: { m: 'Embassy of Switzerland, Diplomatic Enclave, Islamabad', u: 'https://www.sem.admin.ch/sem/en/home.html' },
+  TW: { m: 'Taipei Economic and Cultural Office (regional, accredited to Pakistan)', u: 'https://www.boca.gov.tw/mp-2.html' },
+  TH: { m: 'Royal Thai Embassy, Diplomatic Enclave, Islamabad', u: 'https://www.thaievisa.go.th' },
+  TR: { m: 'Embassy of Turkiye, Diplomatic Enclave, Islamabad', u: 'https://www.turkiyeburslari.gov.tr' },
+  AE: { m: 'Embassy of the UAE, Diplomatic Enclave, Islamabad; work permits are initiated by your employer', u: 'https://icp.gov.ae/en' },
+  GB: { m: 'UK Visa Application Centres (VFS Global), Islamabad, Lahore and Karachi', u: 'https://www.gov.uk/student-visa' },
+  US: { m: 'US Embassy Islamabad and US Consulate General Karachi', u: 'https://travel.state.gov/content/travel/en/us-visas.html' },
+  UZ: { m: 'Embassy of Uzbekistan, Islamabad; e-visa available online', u: 'https://e-visa.gov.uz' },
+  DE: { m: 'Embassy of Germany, Ramna 5, Diplomatic Enclave, Islamabad', u: 'https://videx.diplo.de' },
+  ZA: { m: 'High Commission of South Africa, Diplomatic Enclave, Islamabad', u: 'https://www.dha.gov.za' }
 };
+/* Pakistan-side offices every applicant needs, with the official page for each. */
+const PK_OFFICES = [
+  ['HEC degree attestation', 'https://eservices.hec.gov.pk', 'Islamabad HQ (Sector H-9) plus Regional Centres in Lahore, Karachi, Peshawar, Quetta, Multan, Faisalabad, D.I. Khan, Gilgit and Muzaffarabad. Start the online account first, then book or courier.'],
+  ['MOFA attestation (after HEC)', 'https://mofa.gov.pk', 'Islamabad HQ in the Mauve Area, plus Camp Offices in Karachi, Lahore, Peshawar, Quetta, Multan, Faisalabad, Sialkot and Gujranwala. Carry HEC-attested originals and your CNIC.'],
+  ['IBCC (school certificates)', 'https://ibcc.edu.pk', 'For Matric and Intermediate equivalence and attestation, before HEC where a school certificate is required.'],
+  ['Bureau of Emigration, Protector of Emigrants', 'https://beoe.gov.pk', 'Mandatory registration before departure for overseas employment. Offices in Islamabad, Rawalpindi, Lahore, Karachi, Peshawar, Multan and others.'],
+  ['NADRA (CNIC, NICOP, FRC)', 'https://www.nadra.gov.pk', 'Family Registration Certificate is required by several embassies for dependants.'],
+  ['Passport and Immigration', 'https://dgip.gov.pk', 'Keep at least 18 months validity before you apply for any long-stay visa.'],
+  ['Police character certificate', 'https://police.punjab.gov.pk', 'Punjab online; Sindh sindhpolice.gov.pk, KP kppolice.gov.pk, Balochistan balochistanpolice.gov.pk, or your district police office.'],
+  ['Foreign missions directory in Pakistan', 'https://mofa.gov.pk/foreign-missions-in-pakistan', 'The authoritative list of every embassy and high commission in Pakistan with current addresses and telephone numbers.']
+];
 const INSIDER = {
   GULF_LICENSE: [
     ['DataFlow PSV', '30-45 days typical; premium 10-12 days where offered. Delays almost always come from universities and past employers not replying - warn your referees TODAY that DataFlow will contact them.'],
@@ -2732,13 +2884,57 @@ app.get('/api/applications/:id/cv.docx', auth, async (req, res) => {
     res.send(buf);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+/* The guide must be CURRENT, not a snapshot of whatever was true when this file was
+   written. For each destination we fetch a short factual brief with grounded search and
+   cache it for seven days, so every applicant gets today's fees, timelines and contact
+   details without us hardcoding numbers that quietly go stale. */
+async function liveCountryBrief(cc, opp) {
+  const key = 'guidebrief:' + String(cc || 'XX').toUpperCase() + ':' + ((opp && opp.kind) === 'work' ? 'work' : 'study');
+  try {
+    const { data: row } = await admin().from('app_settings').select('value').eq('key', key).single();
+    if (row && row.value && row.value.at && (Date.now() - new Date(row.value.at).getTime()) < 7 * 86400000) return row.value.brief;
+  } catch (e) {}
+  const name = (MISSION[cc] && MISSION[cc].m) || '';
+  const prompt = 'You are briefing a Pakistani applicant who has been accepted for a '
+    + (((opp && opp.kind) === 'work') ? 'job' : 'study place') + ' in ' + (cc || 'the destination country')
+    + '. Using current official government and embassy sources ONLY, return STRICT JSON with these keys and nothing else: '
+    + '{"mission":"full current name and street address of that country\'s embassy, high commission or visa application centre in Pakistan",'
+    + '"phone":"its current public telephone number, or an empty string if you cannot verify one",'
+    + '"appointment":"exactly how an applicant in Pakistan books the appointment today, naming the portal or centre",'
+    + '"fee":"the current visa fee with currency","processing":"current published processing time",'
+    + '"funds":"the exact proof-of-funds amount currently required, with currency",'
+    + '"links":[{"label":"what it is","url":"official https url"}],'
+    + '"watch":["two to four things that change often and cost applicants time or money right now"]}. '
+    + 'Known mission on record: ' + (name || 'unknown') + '. '
+    + 'NEVER invent a phone number, fee or address. If you cannot verify a value from an official source, return an empty string for it. '
+    + 'Every url must be an official government, embassy or university domain.';
+  let brief = null;
+  try {
+    const { geminiCall } = require('./lib/gemini');
+    const raw = await geminiCall(prompt, { maxTokens: 900, search: true, json: true });
+    brief = typeof raw === 'string' ? JSON.parse(String(raw).replace(/```json|```/g, '').trim()) : raw;
+  } catch (e) { brief = null; }
+  if (brief) { try { await admin().from('app_settings').upsert({ key, value: { at: new Date().toISOString(), brief } }); } catch (e) {} }
+  return brief;
+}
 app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('*, opportunities(*)').eq('id', req.params.id).single();
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
   const opp = a.opportunities || {};
   const { data: pr } = await admin().from('profiles').select('full_name').eq('id', req.userId).single();
-  const g = FUTURE_PATH[opp.country_code] || null;
+  /* FUTURE_PATH carries the richest detail for the destinations we know deeply; MISSION
+     covers every country we serve. Fall back to MISSION so a guide for Lithuania is a
+     real guide, not a generic one with the country name missing. */
+  const _cc0 = String(opp.country_code || '').toUpperCase();
+  const g = FUTURE_PATH[_cc0] || (MISSION[_cc0] ? {
+    name: CC_FULL[_cc0] || _cc0,
+    embassy: MISSION[_cc0].m,
+    portal: MISSION[_cc0].u,
+    funds: '',
+    extra: ''
+  } : null);
   const clean = t => String(t || '').replace(/[\u2013\u2014]/g, '-');
+  const countryLabel = cc => CC_FULL[String(cc || '').toUpperCase()] || cc || '';
   const PDFDocument = require('pdfkit');
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="Future Path Guide - ' + clean(opp.institution || 'Your Case').replace(/[^A-Za-z0-9 .-]/g, '').slice(0, 60) + '.pdf"');
@@ -2765,6 +2961,15 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
     if (!v) return;
     pdf.font(FT.B).fontSize(10.5).fillColor('#333').text(pdfSafe(k), { continued: true });
     pdf.font(FT.R).fillColor('#000').text('  ' + pdfSafe(v), { lineGap: 1.4 });
+  };
+  /* A guide the applicant cannot click is a guide they have to retype. Every official
+     page in this document is a live link. */
+  const LINK = (k, url, note) => {
+    if (!url) return;
+    pdf.font(FT.B).fontSize(10.5).fillColor('#333').text(pdfSafe(k), { continued: true });
+    pdf.font(FT.R).fillColor('#0B57D0').text('  ' + pdfSafe(url), { link: String(url), underline: true, continued: !!note });
+    if (note) pdf.fillColor('#000').text('   ' + pdfSafe(note), { lineGap: 1.4 });
+    pdf.fillColor('#000');
   };
   pdf.font(FT.B).fontSize(17).text('Your Future Path', { align: 'center' });
   pdf.font(FT.R).fontSize(11.5).text(clean((opp.institution || '') + (g ? ' · ' + g.name : '')) + ((pr && pr.full_name) ? '  -  prepared for ' + pr.full_name : ''), { align: 'center' });
@@ -2808,7 +3013,7 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
      address, phone or official pages leaves the applicant to hunt for all of it. */
   H('Where to go and who to contact');
   KV('Institution:', opp.institution || '');
-  KV('Location:', [opp.city, opp.country_code].filter(Boolean).join(', '));
+  KV('Location:', [opp.city, countryLabel(opp.country_code)].filter(Boolean).join(', '));
   KV('Official page:', opp.url || '');
   KV('Application route:', /portal/i.test(String(opp.apply_via || '')) ? 'Online portal on the official page'
     : (opp.contact_email ? 'By email to ' + opp.contact_email : 'Confirm on the official page'));
@@ -2818,33 +3023,44 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   P('Always confirm these details on the official page before you travel, post documents or pay any fee. Institutions move offices and change contacts, and the official page is the only source that is always current.');
   try {
     const cc = String(opp.country_code || '').toUpperCase();
-    const EMB = { GB: 'British High Commission, Diplomatic Enclave, Islamabad', DE: 'Embassy of Germany, Ramna 5, Diplomatic Enclave, Islamabad',
-      US: 'U.S. Embassy, Diplomatic Enclave, Islamabad', CA: 'High Commission of Canada, Diplomatic Enclave, Islamabad',
-      AU: 'Australian High Commission, Constitution Avenue, Islamabad', SE: 'Embassy of Sweden, Diplomatic Enclave, Islamabad',
-      NL: 'Embassy of the Netherlands, Diplomatic Enclave, Islamabad', SA: 'Royal Embassy of Saudi Arabia, Diplomatic Enclave, Islamabad',
-      AE: 'Embassy of the UAE, Diplomatic Enclave, Islamabad', QA: 'Embassy of Qatar, Diplomatic Enclave, Islamabad' };
-    if (EMB[cc]) {
+    const ms = MISSION[cc];
+    if (ms) {
       pdf.moveDown(0.25);
-      KV('Visa mission in Pakistan:', EMB[cc]);
-      P('Check the mission website for current appointment booking, fees and document lists. Attestation of your degrees by HEC and then the Ministry of Foreign Affairs is normally required before submission.');
+      KV('Visa mission in Pakistan:', ms.m);
+      LINK('Official portal:', ms.u);
+      P('Attestation of your degrees by HEC and then the Ministry of Foreign Affairs is normally required before submission. Confirm the current fee, appointment route and document list on the portal above, which is the only authority.');
+    }
+    // Live, checked-this-week detail for this exact destination.
+    const lb = await liveCountryBrief(cc, opp);
+    if (lb) {
+      H('Current details for ' + (countryLabel(cc) || cc) + ', checked this week');
+      KV('Mission or visa centre:', lb.mission || '');
+      KV('Telephone:', lb.phone || 'Confirm on the mission website, numbers change');
+      KV('How to book:', lb.appointment || '');
+      KV('Current fee:', lb.fee || '');
+      KV('Processing time:', lb.processing || '');
+      KV('Proof of funds:', lb.funds || '');
+      (lb.links || []).slice(0, 8).forEach(l => { if (l && l.url) LINK((l.label || 'Official page') + ':', l.url); });
+      if ((lb.watch || []).length) {
+        pdf.moveDown(0.3);
+        pdf.font(FT.B).fontSize(10.5).fillColor('#333').text('What is changing right now:');
+        pdf.fillColor('#000');
+        (lb.watch || []).slice(0, 4).forEach(w => B(String(w)));
+      }
+      P('These figures were verified from official sources when this guide was generated. Fees and timelines move; the portal link above always outranks this page.');
     }
   } catch (e) {}
-  // LICENSING PATHWAY, customised to the exam(s) this applicant actually selected.
+  /* The licensing-pathway section that used to sit here has been removed. ForiForeign
+     does not advise on obtaining a licence and must never imply that it does. If the
+     applicant already holds one, it is noted below as a fact about them, nothing more. */
   try {
     const { data: pfx } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single();
-    const chosen = ((pfx && pfx.value && pfx.value.licenses) || []).map(x => String(x).toUpperCase());
-    const named = String((pfx && pfx.value && pfx.value.licenseExam) || '').toUpperCase();
-    const alias = k => (k === 'MOH' ? 'MOH_KW' : k);
-    const keys = Array.from(new Set(chosen.concat(named ? [named] : []).map(alias))).filter(k => EXAM_GUIDE[k]).slice(0, 3);
-    for (const k of keys) {
-      const g = EXAM_GUIDE[k];
-      H('Your licensing pathway: ' + k);
-      P('Authority: ' + g.auth + '. Verification: ' + g.verify + '.');
-      P('Steps, in order:');
-      g.steps.forEach((st, i) => B((i + 1) + '. ' + st));
-      P('Documents to keep ready:');
-      g.docs.forEach(d => B(d));
-      P(g.note);
+    const pv = (pfx && pfx.value) || {};
+    const heldName = (pv.licenseResolved && pv.licenseResolved.name) || pv.licenseHeld || '';
+    if (heldName) {
+      pdf.moveDown(0.3);
+      KV('Licence you already hold:', heldName + ((pv.licenseResolved && pv.licenseResolved.authority) ? '  (' + pv.licenseResolved.authority + ')' : ''));
+      P('Keep the certificate, registration number and a current good-standing letter scanned and ready; employers ask for them at contract stage. Anything still to be obtained is applied for by you, directly with the regulator, on its own portal.');
     }
   } catch (e) {}
   H('Insider timeline: what actually happens next, and when');
@@ -2871,11 +3087,9 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   B('Book the appointment yourself, pay the official fee only, and submit your own file. No agent adds anything a careful applicant cannot do.');
   H('3. Financial evidence');
   P(g && g.funds ? g.funds + '. Keep the funds seasoned in your own or an immediate family member\'s account, with a clean 6-month statement and a maintenance letter from the bank.' : 'Follow the exact amount stated in your offer or the embassy checklist; keep a clean 6-month bank statement and a bank maintenance letter.');
-  H('4. Pakistan offices, province wise');
-  B('HEC degree attestation (start online at eservices.hec.gov.pk, then walk-in or courier): Islamabad H-9 HQ; Regional Centres: Lahore (Punjab), Karachi (Sindh), Peshawar (KP), Quetta (Balochistan), Multan, Faisalabad, D.I. Khan, Gilgit (GB), Muzaffarabad (AJK). Mon-Fri office hours; nominal per-document fee.');
-  B('MOFA attestation (after HEC): Islamabad Mauve Area HQ plus Camp Offices in Karachi, Lahore, Peshawar, Quetta, Multan, Faisalabad, Sialkot and Gujranwala. Book via mofa.gov.pk; take HEC-attested originals and CNIC.');
-  B('Police character certificate: your district police office or online via the provincial police portal (Punjab: police.punjab.gov.pk; Sindh: sindhpolice.gov.pk; KP: kppolice.gov.pk; Balochistan: balochistanpolice.gov.pk).');
-  B('Exact addresses, timings and fees change; always confirm on the official page the same week you visit.');
+  H('4. Pakistan offices you will actually need, with official links');
+  for (const [nm, url, note] of PK_OFFICES) { LINK(nm + ':', url); P(note); pdf.moveDown(0.15); }
+  P('Exact addresses, timings and fees change; always confirm on the official page in the same week you visit. Every link above is the government\'s own site, never an agent or a middleman.');
   H('5. Before you fly');
   B('Verify your offer, CAS/admission letter, visa, passport validity (18+ months), and attested originals in hand luggage.');
   B('Arrange accommodation for the first weeks through the institution where possible.');
@@ -2994,11 +3208,16 @@ async function searchCounts(userId) {
   } catch (e) {}
   let day = 0, mon = 0;
   try {
-    const since = resetAt && resetAt > (month + '-01') ? resetAt : (month + '-01');
+    /* The reset point ALWAYS wins when it is later than the month boundary, and the
+       month boundary is only a floor to keep the query small. A purchase must clear
+       everything used before it, whichever day that was. */
+    const monthStart = month + '-01T00:00:00.000Z';
+    const since = (resetAt && resetAt > monthStart) ? resetAt : monthStart;
     const { data } = await admin().from('audit_log').select('created_at')
       .eq('actor', userId).eq('event', 'SEARCH_RUN').gte('created_at', since);
     for (const r of (data || [])) {
       mon++;
+      // Rows before the reset point never reach here, so a purchase genuinely zeroes today.
       if (String(r.created_at || '').slice(0, 10) === today) day++;
     }
   } catch (e) {}
@@ -3015,10 +3234,11 @@ async function fairUse(req, res, next) {
     const fu = cfg.fair_use || {};
     if (fu.enabled === false) return next();
     if (req.userRole && ['admin', 'super_admin', 'staff'].includes(req.userRole)) return next();
-    /* A Search Pass raises the daily allowance for its term; it never removes the limit.
-       We do not promise unlimited searching anywhere, so we must not grant it either. */
-    const pass = await hasSearchPass(req.userId).catch(() => false);
-    const dayMax = pass ? (Number(fu.pass_daily_searches) || 6) : (Number(fu.daily_searches) || 3);
+    /* THREE A DAY, FIVE ONCE THEY HAVE BOUGHT. Nothing raises it further and nothing is
+       sold that raises it. Buying a package also wipes whatever has already been used,
+       today or on any earlier day, so the five start clean. */
+    const everPaid = await hasEverPaid(req.userId).catch(() => false);
+    const dayMax = everPaid ? (Number(fu.paid_daily_searches) || 5) : (Number(fu.daily_searches) || 3);
     const { day } = await searchCounts(req.userId);
     if (day >= dayMax) {
       try { await admin().from('audit_log').insert({ actor: req.userId, event: 'SEARCH_LIMIT_DAY', detail: day + '/' + dayMax }); } catch (e) {}
@@ -3033,18 +3253,20 @@ async function fairUse(req, res, next) {
       const inWords = hrs > 0 ? (hrs + ' hour' + (hrs === 1 ? '' : 's') + (rem ? ' ' + rem + ' minutes' : '')) : (mins + ' minutes');
       return res.status(429).json({
         error: 'You have used all ' + dayMax + ' searches for today.',
-        fair_use: true, scope: 'day', used: day, limit: dayMax,
+        fair_use: true, scope: 'day', used: day, limit: dayMax, paid: everPaid,
         resets_at: resetsAt.toISOString(), resets_in_minutes: mins, resets_in_words: inWords
       });
     }
-    req._searchLeft = { day: dayMax - day };
+    // The client needs all three numbers to warn honestly before the last search is spent.
+    req._searchLeft = { day: dayMax - day, limit: dayMax, used: day + 1, paid: everPaid };
     // Count this search only once it has passed the gate.
     try { await admin().from('audit_log').insert({ actor: req.userId, event: 'SEARCH_RUN', detail: 'search' }); } catch (e) {}
     _spendCache.delete(req.userId);
   } catch (e) {}
   next();
 }
-/** Zero the counters. Called whenever a package is activated. */
+/** Zero the counters. Called whenever a package is activated, which is what makes a
+    purchase a genuinely fresh start: everything used before this moment stops counting. */
 async function resetSearchAllowance(userId) {
   try {
     await admin().from('app_settings').upsert({ key: 'searchreset:' + userId, value: { at: new Date().toISOString() } });
@@ -3052,72 +3274,43 @@ async function resetSearchAllowance(userId) {
     return true;
   } catch (e) { return false; }
 }
-const _lastSearch = new Map();
-function searchCooldown(req, res, next) {
-  try {
-    const lim = ((require('./lib/settings').cache() || {}).limits || {});
-    let mins = Number(lim.search_cooldown_minutes);
-    // Legacy installs stored 30 by default and it was locking people out after a
-    // mistaken tap. Only an explicitly chosen value now applies.
-    if (!isFinite(mins) || mins <= 0 || lim.cooldown_enabled !== true) mins = 0;
-    // Searches may be used back to back: the daily allowance is the only limit, and an
-    // artificial gap between them helps nobody.
-    if (!mins || mins <= 0) return next();
-    // Staff are exempt: support must be able to reproduce a user's search on demand.
-    if (req.userRole && ['admin', 'super_admin', 'staff'].includes(req.userRole)) return next();
-    const prev = _lastSearch.get(req.userId);
-    if (prev && Date.now() - prev < mins * 60000) {
-      const wait = Math.ceil((mins * 60000 - (Date.now() - prev)) / 60000);
-      return res.status(429).json({ error: 'Your last search is still fresh. You can search again in about ' + wait + ' minute' + (wait === 1 ? '' : 's') + ', and your saved matches are ready on your dashboard now.' });
-    }
-    _lastSearch.set(req.userId, Date.now());
-    if (_lastSearch.size > 5000) _lastSearch.clear();
-  } catch (e) {}
-  next();
-}
-app.post('/api/run', auth, searchCooldown, fairUse, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.discovery_enabled===false)return res.status(503).json({error:'Search is briefly paused for maintenance. Please try again soon.'});next();}, async (req, res) => {
+/* There is no cooldown between searches. The daily count is the only limit: three a day,
+   five once a package has been bought. An artificial gap between searches punished a
+   mistaken tap and protected nothing the daily count does not already protect. */
+app.post('/api/run', auth, fairUse, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.discovery_enabled===false)return res.status(503).json({error:'Search is briefly paused for maintenance. Please try again soon.'});next();}, async (req, res) => {
   // Search preferences + package fulfillment: paid credits define how many verified
   // opportunities the agent must deliver (min 5, max 20). Priority countries are
   // searched first; comparable nearby destinations complete the set only if needed.
   const b = req.body || {};
   const arr = (v, ok) => Array.isArray(v) ? v.map(x => String(x)).filter(x => ok.includes(x)).slice(0, 8) : [];
-  const LIC = ['DHA', 'HAAD', 'DOH', 'MOHAP', 'SCFHS', 'QCHP', 'OMSB', 'NHRA', 'MOH', 'PLAB', 'UKMLA', 'USMLE', 'MCCQE', 'AMC', 'NZREX', 'NCLEX', 'CBT', 'OSCE', 'CGFNS', 'PEBC', 'FPGEE', 'NAPLEX', 'KAPS', 'OSPAP', 'ORE', 'NDEB', 'ADC', 'INBDE', 'ASCPI', 'NPTE', 'HCPC', 'AHPRA', 'OET', 'DATAFLOW', 'PROMETRIC', 'PE', 'FE', 'CENG', 'PENG', 'SCE', 'UPDA'];
   const prefs = {
     countries: Array.isArray(b.countries) ? b.countries.filter(c => /^[A-Za-z]{2}$/.test(String(c))).map(c => String(c).toUpperCase()).slice(0, 15) : [],
     fundings: arr(b.fundings, ['fully', 'partial', 'self']),
-    levels: arr(b.levels, ['bachelors', 'masters', 'phd', 'postdoc', 'diploma', 'short_course', 'fellowship', 'observership', 'licensing_exam']),
+    levels: arr(b.levels, ['bachelors', 'masters', 'phd', 'postdoc', 'diploma', 'short_course', 'fellowship', 'observership']),
     langs: arr(b.langs, ['none', 'cert_before', 'course_after', 'local_lang']),
     jobTypes: arr(b.job_types, ['full_time', 'part_time', 'contract', 'internship']),
     exps: arr(b.exps, ['entry', 'mid', 'senior']),
-    licenses: Array.isArray(b.licenses) ? b.licenses.map(x => String(x).toUpperCase()).filter(x => LIC.includes(x)).slice(0, 8) : [],
+    // The only licence question we ask is what the applicant ALREADY holds, in their words.
+    licenseHeld: String(b.license_held || '').slice(0, 120),
     programTypes: arr(b.program_types, ['degree', 'diploma', 'short_course', 'training', 'fellowship', 'exchange', 'observership']),
     sectors: arr(b.sectors, ['hospital', 'university', 'industry', 'government', 'ngo', 'remote_company']),
     field: /^[a-z][a-z-]{1,40}$/.test(String(b.field || '')) ? String(b.field) : null,
     intake: ['2026', '2027'].includes(String(b.intake || '')) ? String(b.intake) : null,
     noLang: !!b.no_lang, remote: !!b.remote,
+    // Work mode rides through to the agent so an on-site request is honoured too.
+    workmode: ['', 'remote', 'onsite'].includes(String(b.workmode || '')) ? String(b.workmode || '') : (b.remote ? 'remote' : ''),
     target: 5
   };
   prefs.fundedOnly = !!b.funded_only || prefs.fundings.includes('fully');
-  prefs.level = prefs.levels[0] || null; prefs.license = prefs.licenses[0] || null; // back-compat
-  prefs.prefsHash = JSON.stringify({ k: b.kind || null, c: prefs.countries, f: prefs.fundings, l: prefs.levels, j: prefs.jobTypes, e: prefs.exps, x: prefs.licenses, fd: prefs.field, i: prefs.intake, n: prefs.noLang, r: prefs.remote });
+  prefs.level = prefs.levels[0] || null; // back-compat
+  prefs.prefsHash = JSON.stringify({ k: b.kind || null, c: prefs.countries, f: prefs.fundings, l: prefs.levels, j: prefs.jobTypes, e: prefs.exps, x: prefs.licenseHeld, fd: prefs.field, i: prefs.intake, n: prefs.noLang, r: prefs.remote });
   // Admin and staff run without limits: no cooldown, full delivery target.
   let isAdminRun = false;
   try { const { data: pr0 } = await admin().from('profiles').select('role').eq('id', req.userId).single(); isAdminRun = !!(pr0 && ['admin', 'staff'].includes(pr0.role)) && !simUser(req); } catch (e) {}
-  // Smart cooldown: 30 min between runs, WAIVED when the last run delivered zero
-  // or the user changed what they are searching for. A paid user with an empty
-  // result or an updated profile is never made to wait.
-  const { data: st } = await admin().from('app_settings').select('value').eq('key', 'lastRun:' + req.userId).single();
-  const last = st ? new Date(st.value.at || 0) : new Date(0);
-  const mins = (Date.now() - last.getTime()) / 60000;
-  if (mins < 30 && !isAdminRun) {
-    let waive = false;
-    try {
-      const { data: ds } = await admin().from('app_settings').select('value').eq('key', 'discover:' + req.userId).single();
-      const v = ds && ds.value;
-      if (!v || Number(v.found) === 0 || (v.prefsHash && v.prefsHash !== prefs.prefsHash)) waive = true;
-    } catch (e) { waive = true; }
-    if (!waive) return res.json({ ok: true, ran: false, cooldown: Math.ceil(30 - mins), message: 'Your matches from ' + Math.round(mins) + ' min ago are still fresh - opening them now. A new search is available in ' + Math.ceil(30 - mins) + ' min, or immediately if you change your filters.' });
-  }
+  /* NO WAITING BETWEEN SEARCHES. The daily count is the only limit: three a day, five
+     once a package has been bought. A user who has a search left may spend it whenever
+     they like, back to back if they want. The 30-minute gate that used to sit here made
+     a mistaken tap feel like a punishment. */
   await admin().from('app_settings').upsert({ key: 'lastRun:' + req.userId, value: { at: new Date().toISOString() } });
   try {
     const bal = await balance(req.userId);
@@ -3128,7 +3321,9 @@ app.post('/api/run', auth, searchCooldown, fairUse, (req,res,next)=>{const f=(re
   prefs.progressKey = progressKey;
   prefs.startedAt = new Date().toISOString();
   try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'running', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: 0, prefsHash: prefs.prefsHash } }); } catch (e) {}
-  res.json({ ok: true, ran: true, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.' });
+  res.json({ ok: true, ran: true, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.',
+    searches_left: (req._searchLeft || {}).day, search_limit: (req._searchLeft || {}).limit,
+    searches_used: (req._searchLeft || {}).used, paid: !!(req._searchLeft || {}).paid });
   require('./lib/jobs').runJob('discover', 'discover:' + req.userId + ':' + Math.floor(Date.now()/1800e3), req.userId, () =>
     discoverForUser(req.userId, b.kind, prefs)
       .then(async n => { try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'done', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: n, prefsHash: prefs.prefsHash } }); } catch (e) {}
