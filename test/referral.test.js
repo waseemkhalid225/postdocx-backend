@@ -66,7 +66,7 @@ t('redeem endpoint requires auth', sv.includes("app.post('/api/referral/redeem',
 // ---- dashboard + share card ----
 t('dashboard shows a Refer & Earn card', fe.includes('Refer &amp; Earn'));
 t('dashboard shows progress toward the next reward', fe.includes('to_next'));
-t('dashboard shows per-credit expiry dates', fe.includes('credit expires'));
+t('dashboard shows per-credit expiry dates', fe.includes('Expires ${esc(String(c.expires_at)'));
 t('user can redeem from the dashboard', fe.includes('useFreeCredit'));
 t('referral share card exists and is distinct from the application card',
   fe.includes('REFERRAL SHARE CARD') && fe.includes('async function referralCard'));
@@ -101,10 +101,10 @@ t('the referrer is credited automatically, with no admin step',
   lib.includes('async function syncRewards'));
 
 // ---- WHERE THE USER SEES THEIR SCORE ----
-t('dashboard shows the number of qualified referrals', fe.includes('Qualified referrals'));
+t('dashboard shows the number of qualified referrals', fe.includes('r.qualified||0}/${r.per_milestone'));
 t('dashboard shows progress to the next reward', fe.includes('to_next'));
 t('dashboard shows available free credits', fe.includes('free credit'));
-t('dashboard shows each credit\u2019s expiry date', fe.includes('credit expires'));
+t('dashboard shows each credit expiry date', fe.includes('Expires ${esc(String(c.expires_at)'));
 
 // ---- PAID-ONLY GATING ----
 t('rewards are limited to customers who have activated a package', sv.includes('hasEverPaid'));
@@ -136,6 +136,17 @@ t('two share formats: post and WhatsApp status',
   fe.includes("referralCard('post')") && fe.includes("referralCard('status')"));
 t('status format uses a 9:16 canvas', fe.includes('isStatus?1920:1350'));
 t('preview panel hugs its content', fe.includes('max-height:calc(100vh - 28px)'));
+
+// ---------- DASHBOARD LAYOUT: steps must stay visible ----------
+t('referral UI is one compact strip, not two large cards',
+  fe.includes('One compact strip instead of two large cards'));
+t('the strip is collapsed by default', fe.includes('if(!open) return'));
+t('it expands only when tapped', fe.includes('window._refOpen=!window._refOpen'));
+t('progress is visible while collapsed', fe.includes('r.qualified||0}/${r.per_milestone||5}'));
+t('available credits are visible while collapsed', fe.includes('r.available} free'));
+t('code entry survives inside the expanded strip', fe.includes('applyRefCode'));
+t('share and redeem survive inside the expanded strip',
+  fe.includes('referralCard()') && fe.includes('useFreeCredit'));
 
 const failed = results.filter(r => !r.ok);
 results.forEach(r => console.log((r.ok ? 'PASS  ' : 'FAIL  ') + r.n + (r.ok ? '' : '  [' + r.d + ']')));

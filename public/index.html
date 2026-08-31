@@ -1412,54 +1412,58 @@ async function vHome(){
       ${Object.keys(LBL).map(k=>`<div class="sub" style="padding:3px 0;cursor:pointer" onclick="toggleLicStage('${k}')"><span style="color:${done.includes(k)?'#2dd4bf':'#7d93b8'}">${done.includes(k)?'☑':'☐'}</span> ${LBL[k]}</div>`).join('')}</div>`;
     }catch(e){return ''}})()}
     ${(function(){
-      // A new user who heard about us by word of mouth needs a way to enter a friend's
-      // code. Shown only while they have no referrer recorded and have not applied one.
+      /* One compact strip instead of two large cards. The four steps are the point of
+         this page, so nothing above them may push them below the fold. Both the
+         invite-code entry and the rewards summary collapse into a single line that
+         expands only when tapped. */
       try{
-        const st=window._ref;
+        const r=window._ref;
         const noRef=!(ME&&ME.referred_by);
         const fresh=!(HM&&HM.credits&&HM.credits.creditsRemaining>0);
-        if(noRef&&fresh&&!window._refEntered){
-          return `<div class="card" style="border-color:rgba(140,178,255,.35);margin-bottom:12px">
-            <b style="font-size:14px">Invited by a friend?</b>
-            <div class="sub" style="margin:4px 0 8px">Enter their referral code so they get credit for inviting you.</div>
-            <div class="row" style="gap:8px;flex-wrap:wrap">
-              <input id="refCodeIn" placeholder="e.g. FF12AB34" style="flex:1;min-width:150px;text-transform:uppercase">
-              <button class="btn b-line" onclick="applyRefCode(this)">Apply code</button>
+        const canEnter=noRef&&fresh&&!window._refEntered;
+        const open=!!window._refOpen;
+
+        // Compact summary line, always one row high.
+        let right='';
+        if(r&&r.eligible===false) right='<span class="sub">Unlocks with a package</span>';
+        else if(r&&r.code) right=`<span class="chip c-gold" style="font-size:11px">${r.qualified||0}/${r.per_milestone||5}</span>`+
+          (r.available>0?` <span class="chip c-green" style="font-size:11px">${r.available} free</span>`:'');
+
+        const head=`<div class="spread" style="align-items:center;gap:8px;cursor:pointer"
+            onclick="window._refOpen=!window._refOpen;vHome()">
+            <div style="min-width:0"><b style="color:#FFD070;font-size:13px">Refer &amp; Earn</b>
+            ${canEnter?'<span class="sub" style="font-size:11px"> · have a friend\u2019s code?</span>':''}</div>
+            <div class="row" style="gap:6px;align-items:center">${right}<span class="sub">${open?'▲':'▼'}</span></div>
+          </div>`;
+
+        if(!open) return `<div class="card" style="padding:9px 12px;margin-bottom:10px;border-color:rgba(245,184,65,.35)">${head}</div>`;
+
+        // Expanded: everything, but only when the user asks for it.
+        let body='';
+        if(canEnter) body+=`<div style="margin-top:8px">
+            <div class="sub" style="margin-bottom:5px">Enter their code so they get credit for inviting you.</div>
+            <div class="row" style="gap:6px;flex-wrap:wrap">
+              <input id="refCodeIn" placeholder="e.g. FF12AB34" style="flex:1;min-width:130px;text-transform:uppercase">
+              <button class="btn b-line" onclick="event.stopPropagation();applyRefCode(this)">Apply</button>
+            </div></div>`;
+        if(r&&r.eligible===false) body+=`<div style="margin-top:8px"><div class="sub">${esc(r.reason||'Activate any package to start inviting and earning.')}</div>
+            <button class="btn b-line" style="margin-top:6px" onclick="event.stopPropagation();go('buy')">See packages</button></div>`;
+        else if(r&&r.code){
+          const pct=Math.round(100*(r.progress||0)/(r.per_milestone||5));
+          body+=`<div style="margin-top:8px">
+            <div class="sub">Invite ${r.per_milestone} people who upload a CV, earn ${r.credits_per_milestone} free application.</div>
+            <div style="height:6px;background:rgba(140,178,255,.18);border-radius:99px;overflow:hidden;margin-top:6px">
+              <div style="height:6px;width:${Math.max(2,pct)}%;background:linear-gradient(90deg,#1683FF,#F5B841)"></div></div>
+            ${r.to_next?`<div class="sub" style="margin-top:4px">${r.to_next} more to your next free application.</div>`:''}
+            ${(r.credits||[]).filter(c=>c.status==='active').slice(0,1).map(c=>`<div class="sub" style="color:#2dd4bf">Expires ${esc(String(c.expires_at).slice(0,10))}</div>`).join('')}
+            <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">
+              <button class="btn b-line" onclick="event.stopPropagation();copyTxt('${escAttr(r.link)}',this)">Copy link</button>
+              <button class="btn b-line" onclick="event.stopPropagation();referralCard()">Share card</button>
+              ${r.available>0?`<button class="btn b-gold" onclick="event.stopPropagation();useFreeCredit(this)">Use free credit</button>`:''}
             </div></div>`;
         }
-      }catch(e){}
-      return '';
-    })()}
-    ${(function(){
-      const r=window._ref;
-      if(!r)return '';
-      // Not yet a paying customer: show the offer and how to unlock it, never a blank space.
-      if(r.eligible===false){
-        return `<div class="card" style="border-color:rgba(245,184,65,.35);background:rgba(245,184,65,.06);margin-bottom:12px">
-          <b style="color:#FFD070;font-size:15px">Refer &amp; Earn</b>
-          <div class="sub" style="margin:4px 0 8px">${esc(r.reason||'Activate any package to start inviting friends and earning free cases.')}</div>
-          <button class="btn b-line" onclick="go('buy')">See packages</button></div>`;
-      }
-      if(!r.code)return '';
-      const pct=Math.round(100*(r.progress||0)/(r.per_milestone||5));
-      return `<div class="card" style="border:1px solid rgba(245,184,65,.5);background:linear-gradient(135deg,rgba(245,184,65,.10),rgba(22,131,255,.05));margin-bottom:12px">
-        <div class="spread" style="align-items:center;flex-wrap:wrap;gap:8px">
-          <div><b style="color:#FFD070;font-size:15px">Refer &amp; Earn</b>
-          <div class="sub" style="margin-top:2px">Invite ${r.per_milestone} people who upload a CV, earn ${r.credits_per_milestone} free Solo credit.</div></div>
-          ${r.available>0?`<span class="chip c-green">${r.available} free credit${r.available===1?'':'s'} ready</span>`:''}
-        </div>
-        <div style="margin-top:10px">
-          <div class="sub" style="display:flex;justify-content:space-between"><span>Qualified referrals</span><b>${r.qualified||0} · ${r.progress||0}/${r.per_milestone}</b></div>
-          <div style="height:8px;background:rgba(140,178,255,.18);border-radius:99px;overflow:hidden;margin-top:4px">
-            <div style="height:8px;width:${Math.max(2,pct)}%;background:linear-gradient(90deg,#1683FF,#F5B841)"></div></div>
-          ${r.to_next?`<div class="sub" style="margin-top:4px">${r.to_next} more to your next free credit.</div>`:''}
-        </div>
-        ${(r.credits||[]).filter(c=>c.status==='active').slice(0,2).map(c=>`<div class="sub" style="margin-top:6px;color:#2dd4bf">1 credit expires ${esc(String(c.expires_at).slice(0,10))}</div>`).join('')}
-        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
-          <button class="btn b-line" onclick="copyTxt('${escAttr(r.link)}',this)">Copy invite link</button>
-          <button class="btn b-line" onclick="referralCard()">Share card</button>
-          ${r.available>0?`<button class="btn b-gold" onclick="useFreeCredit(this)">Use free credit</button>`:''}
-        </div></div>`;
+        return `<div class="card" style="padding:9px 12px;margin-bottom:10px;border-color:rgba(245,184,65,.5)">${head}${body}</div>`;
+      }catch(e){return ''}
     })()}
     <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap"><div class="home-hero-badge">${ME&&ME.full_name?('Welcome, '+esc(ME.full_name.split(' ')[0])):H.badge}</div></div>
     <h1 class="home-hero-h" style="line-height:1.35">We Discover&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Personalize&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Prepare&nbsp;<span style="color:#00D4FF">|</span>&nbsp;You Approve</h1>
