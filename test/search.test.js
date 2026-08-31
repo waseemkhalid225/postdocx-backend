@@ -164,6 +164,54 @@ t('portal route is labelled', fe.includes('Apply via portal'));
 t('email route is labelled', fe.includes('Apply by email'));
 t('an unknown route is stated honestly, never guessed', fe.includes('Route confirmed on preparation'));
 
+// ---------- SHORTLIST AND PRESENTATION ----------
+t('results are capped at 15, highest score first',
+  sv.includes('opportunities.slice(0, 15)') && sv.includes('opportunities.sort'));
+t('every card leads with the match score', fe.includes('function scoreBadge'));
+t('score colour reflects the quality band', fe.includes("pct>=85") && fe.includes('band.color'));
+t('country is named, not just a code', fe.includes('function countryName') && fe.includes("GB:'United Kingdom'"));
+t('report has a headline statistics block', fe.includes('sources read') && fe.includes('average match'));
+t('statistics come from real scored data only',
+  fe.includes('const scores=list.map(pv).filter(p=>p>=0)'));
+t('report shows where the matches are', fe.includes('Where your matches are'));
+t('report flags closing deadlines', fe.includes('Closing within 30 days'));
+
+// ---------- QUALITY BANDS AND DAILY ALLOWANCE ----------
+t('three searches per day', (() => {
+  const st = fs.readFileSync(path.join(__dirname, '..', 'lib', 'settings.js'), 'utf8');
+  return st.includes('daily_searches: 3');
+})());
+t('searches may be used consecutively (no forced gap)',
+  sv.includes('cooldown_enabled !== true'));
+t('the user is warned after the second search', fe.includes('function showLastChance'));
+t('warning names the exact position (2 of 3)', fe.includes('You have used 2 of your'));
+t('bands: 85+ excellent', fe.includes("pct>=85") && fe.includes('Excellent match'));
+t('bands: 70-84 very good', fe.includes("pct>=70") && fe.includes('Very good match'));
+t('bands: 50-69 good', fe.includes("pct>=50") && fe.includes('Good match'));
+t('cards show the band name beside the score', fe.includes('band.label'));
+t('report breaks the shortlist down by band', fe.includes('Quality of your matches'));
+t('band counts come from real scores', fe.includes('scores.forEach(p=>{const b=matchBand(p)'));
+
+// ---------- HONEST, JUDGEABLE LOCKED CARDS ----------
+t('locked cards carry a real generalised description', sv.includes('function generalTitle'));
+t('employer names are stripped from that description', sv.includes('const ORG =') && sv.includes('employer reached'));
+t('city and country are always given', sv.includes('city: o.city || null') && fe.includes('placeLine'));
+t('institution stays hidden until purchase', fe.includes('revealed?esc(o.institution)'));
+t('remote scope is stated honestly', sv.includes('function remoteScope') && sv.includes('Remote, but only from'));
+t('worldwide remote is distinguished', sv.includes('Remote, open worldwide'));
+t('search is told not to misrepresent remote roles',
+  en.includes('cannot take a role that is remote within the USA only'));
+
+// ---------- NO FALSE PROMISES, NO REPEATS ----------
+t('the app never claims unlimited searching', !fe.includes('unlimited'));
+t('a purchase resets the daily counter', sv.includes('resetSearchAllowance'));
+t('the Search Pass raises the allowance rather than removing it',
+  sv.includes('pass_daily_searches') && sv.includes('never removes the limit'));
+t('applied opportunities are never shown again', sv.includes('!applied.has(o.id)'));
+t('dismissed opportunities are never shown again', sv.includes('!dismissed.has(o.id)'));
+t('the user can dismiss from the card', fe.includes('dismissOpp') && fe.includes('Not for me'));
+t('dismissal is reversible', sv.includes("app.post('/api/opportunities/:id/dismiss'") && sv.includes('undo'));
+
 const failed = results.filter(r => !r.ok);
 results.forEach(r => console.log((r.ok ? 'PASS  ' : 'FAIL  ') + r.n + (r.ok ? '' : '  [' + r.d + ']')));
 console.log('\nsearch net: ' + (results.length - failed.length) + '/' + results.length + ' passed');

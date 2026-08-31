@@ -36,14 +36,16 @@
     }
   } catch (e) {}
   // fetch prepared documents as files
-  const files = [];
+  const files = []; const failed = [];
   for (const a of (pkg.attachments || [])) {
     try {
       const r = await fetch(a.url.startsWith('http') ? a.url : 'https://foriforeign.com' + a.url);
-      if (!r.ok) continue;
+      if (!r.ok) { failed.push(a.filename + ' (' + r.status + ')'); continue; }
       const blob = await r.blob();
-      files.push(new File([blob], a.filename, { type: 'application/pdf' }));
-    } catch (e) {}
+      // Use the real type from the response: forcing application/pdf corrupted any
+      // Word or image file the applicant uploaded.
+      files.push(new File([blob], a.filename, { type: blob.type || 'application/octet-stream' }));
+    } catch (e) { failed.push(a.filename); }
   }
   if (files.length) {
     const dt = new DataTransfer();
@@ -54,8 +56,8 @@
     });
   }
   banner(files.length
-    ? 'ForiForeign: ' + files.length + ' document(s) attached. Review everything, then press Send yourself.'
-    : 'ForiForeign: email prepared. Attach your downloaded documents, review, then press Send.');
+    ? ('ForiForeign: ' + files.length + ' document(s) attached' + (failed.length ? ', ' + failed.length + ' could not be fetched' : '') + '. Review everything, then press Send yourself.')
+    : ('ForiForeign: could not attach automatically' + (failed.length ? ' (' + failed.slice(0,2).join(', ') + ')' : '') + '. Download your documents from the case and attach them, then press Send.'));
   chrome.storage.session.remove('ff_pending');
   function banner(text) {
     const b = document.createElement('div');

@@ -81,7 +81,7 @@ function pdfSafe(t) {
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R3900';
+const FF_BUILD = '2026-08-28-R4200';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -202,7 +202,9 @@ function enforceUploadLimits(req, res, next) {
 }
 // Long-cache heavy static assets (video/icons); HTML always fresh.
 app.use(express.static('public', { maxAge: '7d', etag: true, lastModified: true, setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache, must-revalidate'); } }));
-app.get('/health', (req, res) => res.json({ ok: true, up: process.uptime() | 0 }));
+/* Uptime probe: deliberately does no database work so it stays fast and never fails
+   during a brief database blip. Deep diagnostics live at /api/health/full. */
+app.get('/health', (req, res) => res.json({ ok: true, v: '0.7', up: process.uptime() | 0 }));
 
 /* Per-user limiter for AI-triggering actions: protects cost and stability under load.
    In-memory sliding window: 30 AI actions per user per hour (admin exempt). */
@@ -459,22 +461,52 @@ app.get('/api/opportunities/:id/report', auth, async (req, res) => {
   let match = null;
   try { const { matchOpportunity } = require('./lib/match'); match = await matchOpportunity(req.userId, o.id); } catch (e) {}
   // financial summary (spec 12): stated figures only + clearly-labeled living estimate
-  const { livingEstimate } = require('./lib/costs');
-  const cfg = await siteSettings.getConfig().catch(() => siteSettings.DEFAULTS);
-  const rate = Number(cfg.ai && cfg.ai.usd_to_pkr) || 278;
-  const living = livingEstimate(o.country_code);
+  /* We show what the opportunity GIVES: stipend, funding, fee waivers, work rights.
+     We do not present living-cost estimates. They are guesses about the applicant's
+     future expenses, they discourage strong candidates, and they are not what anyone is
+     paying us to find out. */
+  /* Make the stated pay meaningful: annualised, in its own currency, and in PKR at the
+     admin rate. Derived only from what the official page says; never invented. */
+  let payView = null;
+  try {
+    const cfgP = await siteSettings.getConfig().catch(() => siteSettings.DEFAULTS);
+    const rateP = Number(cfgP.ai && cfgP.ai.usd_to_pkr) || 278;
+    const { summarise } = require('./lib/pay');
+    payView = summarise(o.stipend || o.funding || o.salary_note || '', rateP);
+  } catch (e) {}
   const financial = {
     tuition_stated: o.tuition || null,
     application_fee_stated: o.application_fee || null,
     stipend_stated: o.stipend || null,
     funding_stated: o.funding || null,
-    living_estimate: living ? {
-      usd_per_month: living.usd_low + '–' + living.usd_high,
-      pkr_per_month_approx: Math.round(living.usd_low * rate).toLocaleString() + '–' + Math.round(living.usd_high * rate).toLocaleString(),
-      rate_used: '1 USD ≈ PKR ' + rate + ' (admin-set rate)',
-      basis: living.basis
-    } : null,
-    note: 'Stated figures come from the official source. Living cost is an approximate public average, not an official figure.'
+    pay: payView,
+    /* G1: an opportunity is only real if the applicant can actually take it up. Stated
+       facts from the page first; the country note is general guidance, labelled as such. */
+    mobility: (function () {
+      const cc = String(o.country_code || '').toUpperCase();
+      const NOTE = {
+        GB: { visa: 'Skilled Worker or Global Talent route; sponsorship required for most roles', dependants: 'Dependants usually permitted on Skilled Worker', stay: 'Settlement possible after 5 years' },
+        DE: { visa: 'EU Blue Card or research visa under a hosting agreement', dependants: 'Spouse may join and work', stay: 'Permanent residence possible after 21 to 33 months on a Blue Card' },
+        SE: { visa: 'Work or doctoral residence permit', dependants: 'Family may accompany and work', stay: 'Permanent residence possible after 4 years' },
+        DK: { visa: 'Researcher fast-track or Positive List scheme', dependants: 'Family may accompany and work', stay: 'Permanent residence after 8 years, sooner on some tracks' },
+        NL: { visa: 'Highly Skilled Migrant or orientation year', dependants: 'Partner may work without a separate permit', stay: 'Permanent residence after 5 years' },
+        CA: { visa: 'Work permit, often LMIA-exempt for research', dependants: 'Spouse usually eligible for an open work permit', stay: 'Express Entry pathway to residence' },
+        AU: { visa: 'Skilled or employer-sponsored visa', dependants: 'Family may accompany', stay: 'Permanent residence pathways available' },
+        US: { visa: 'H-1B, J-1 or O-1 depending on the role', dependants: 'J-2 or H-4 for family; work rights vary', stay: 'Green card sponsorship possible, long timelines' },
+        AE: { visa: 'Employer-sponsored work permit and residence visa', dependants: 'Family sponsorship above a salary threshold', stay: 'Renewable residence, Golden Visa for some' },
+        SA: { visa: 'Employer-sponsored Iqama', dependants: 'Family sponsorship subject to profession and salary', stay: 'Residence tied to employment' },
+        QA: { visa: 'Employer-sponsored work residence permit', dependants: 'Family sponsorship above a salary threshold', stay: 'Residence tied to employment' }
+      }[cc];
+      if (!NOTE && !o.work_rights && !o.pr_pathway_note) return null;
+      return {
+        visa_route: NOTE ? NOTE.visa : null,
+        dependants: NOTE ? NOTE.dependants : null,
+        long_term: o.pr_pathway_note || (NOTE ? NOTE.stay : null),
+        work_rights_stated: o.work_rights || null,
+        note: 'General guidance for Pakistani passport holders. Immigration rules change; confirm on the official government site before you commit.'
+      };
+    })(),
+    note: 'All figures are taken from the official source page.'
   };
   // Market band from our own verified inventory (never fabricated; only when >=2 datapoints exist)
   try {
@@ -687,7 +719,7 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
     } catch (e) {}
   }
   // Tell the client honestly if we widened the net, so the wording matches reality.
-  res.json({ opportunities: list, relaxed: req._relaxNote || null, broadened: !!req._broadened });
+  res.json({ opportunities: list, relaxed: req._relaxNote || null, broadened: !!req._broadened, searches_left: (req._searchLeft || {}).day });
 });
 /* ---------- Spec 2: configurable university database (admin) ---------- */
 app.get('/api/admin/universities', auth, perm('countries.read'), async (req, res) => {
@@ -839,12 +871,6 @@ app.get('/api/admin/settings/export', auth, perm('settings.write'), async (req, 
     res.setHeader('Content-Disposition', 'attachment; filename="foriforeign-settings-backup.json"');
     res.send(JSON.stringify(cfg, null, 2));
   } catch (e) { res.status(400).json({ error: e.message }); }
-});
-app.get('/api/admin/audit', auth, perm('users.read'), async (req, res) => {
-  try {
-    const { data } = await admin().from('audit_log').select('*').order('created_at', { ascending: false }).limit(100);
-    res.json({ entries: data || [] });
-  } catch (e) { res.json({ entries: [] }); }
 });
 app.get('/api/admin/users', auth, perm('users.read'), async (req, res) => {
   const q = String(req.query.q || '').trim();
@@ -1293,11 +1319,6 @@ app.use('/api', async (req, res, next) => {
 });
 
 /* ---------- health ---------- */
-app.get('/health', async (req, res) => {
-  let db = false;
-  try { const { error } = await admin().from('app_settings').select('key').limit(1); db = !error; } catch (e) {}
-  res.json({ ok: true, v: '0.7', db });
-});
 
 /* ---------- profile ---------- */
 app.get('/api/me', auth, async (req, res) => {
@@ -1509,9 +1530,54 @@ async function entitled(userId, sim) {
 }
 /* Teaser row: everything that sells (match %, funding, stipend figures, country,
    deadline) - nothing that identifies (no institution, title, url, city, contacts). */
+/* A generalised description of the role, honest and specific enough for the applicant to
+   judge whether it is worth paying for, without identifying the institution.
+   "Postdoctoral position in thrombosis and haemostasis" is useful and safe.
+   "Postdoctoral opportunity" is neither. */
+function generalTitle(o) {
+  let t = String(o.title || '').trim();
+  if (!t) return null;
+  // Drop reference numbers and bracketed asides first.
+  t = t.replace(/\b(ref|reference|vacancy|requisition|position id|no)\.?\s*[:#]?\s*[A-Z0-9][A-Z0-9\-\/]{2,}\b/gi, ' ');
+  t = t.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' ');
+  /* Then cut the segment that names the employer, and everything after it. A separator
+     followed by an institution word means the rest identifies the organisation. */
+  const ORG = /(university|universit[a-z]+|college|institut[a-z]*|hospital|centre|center|school|faculty|department|dept|clinic|trust|nhs|foundation|laborator[a-z]+|\blab\b|academy|akademi|karolinska|max planck|charit[eé])/i;
+  const parts = t.split(/\s*(?:,|\||\u2013|\u2014| - | at | with | for )\s*/i);
+  const kept = [];
+  for (const seg of parts) {
+    if (!seg) continue;
+    if (ORG.test(seg)) break;             // employer reached: stop, keep what came before
+    kept.push(seg.trim());
+  }
+  t = (kept.join(', ') || parts[0] || '').trim();
+  t = t.replace(/\s{2,}/g, ' ').replace(/^[\s,\-\u2013|]+|[\s,\-\u2013|]+$/g, '').trim();
+  // A topic makes the card genuinely judgeable, so keep the discipline when present.
+  const topic = (o.req_field || o.field || '').trim();
+  if (t.length < 12 && topic) t = t + ' in ' + topic;
+  if (!t) return null;
+  return t.length > 90 ? t.slice(0, 88).replace(/\s+\S*$/, '') + '…' : t;
+}
+/* Remote is not one thing. "Remote within the USA" is closed to a Pakistan-based
+   applicant; "remote worldwide" is open. Saying only "Remote" would mislead. */
+function remoteScope(o) {
+  const blob = [o.title, o.location, o.requirements, o.eligibility, o.req_nationality, o.work_rights]
+    .filter(Boolean).join(' ').toLowerCase();
+  if (!o.remote && !/remote|work from home|telecommut/.test(blob)) return null;
+  if (/worldwide|anywhere|any country|global(ly)?|from any location/.test(blob)) return 'Remote, open worldwide';
+  const within = blob.match(/remote[^.]{0,40}?\b(within|in|from|based in)\s+(the\s+)?(us|usa|united states|uk|united kingdom|eu|europe|canada|australia|germany|india)\b/);
+  if (within) return 'Remote, but only from ' + within[3].toUpperCase().replace('USA', 'the USA').replace('UK', 'the UK');
+  if (/must (be|reside|live)[^.]{0,30}(us|usa|uk|eu|eea|canada|australia)\b/.test(blob)) return 'Remote, with a residence requirement';
+  return 'Remote, confirm eligibility on the official page';
+}
 function lockTease(o) {
   return {
     id: o.id, kind: o.kind, country_code: o.country_code, deadline: o.deadline,
+    // City and country are given: an applicant must know where in the world this is.
+    city: o.city || null,
+    general_title: generalTitle(o),
+    remote_scope: remoteScope(o),
+    field: o.req_field || o.field || null,
     funding: o.funding || null, funding_type: o.funding_type || null, level: o.level || null,
     stipend: o.stipend || null, tuition: o.tuition || null, salary_note: o.salary_note || null,
     req_language: o.req_language || null, req_language_min: o.req_language_min || null,
@@ -1565,6 +1631,8 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
   const { data: flipped } = await admin().from('payments').update({ status: 'confirmed', confirmed_by: req.userId, confirmed_at: new Date().toISOString() }).eq('id', p.id).eq('status', 'pending').select('id');
   if (!flipped || !flipped.length) return res.status(400).json({ error: 'Already confirmed' });
   await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: p.credits, reason: 'purchase', payment_id: p.id });
+  // A purchase restarts the search allowance: previous usage no longer counts.
+  try { await resetSearchAllowance(p.user_id); } catch (e) {}
   // Referral settlement: consume the buyer's applied discount; reward the referrer
   // Rs 500 per case on the buyer's FIRST confirmed payment.
   try {
@@ -1713,7 +1781,14 @@ app.get('/api/opportunities', auth, async (req, res) => {
   try {
     const { data: apps } = await admin().from('applications').select('opportunity_id').eq('user_id', req.userId);
     const applied = new Set((apps || []).map(a => a.opportunity_id));
-    rows = rows.filter(o => !applied.has(o.id));
+    // Anything the user has explicitly dismissed is gone for good too: a search should
+    // never keep returning something they have already judged and rejected.
+    let dismissed = new Set();
+    try {
+      const { data: dm } = await admin().from('app_settings').select('value').eq('key', 'dismissed:' + req.userId).single();
+      dismissed = new Set(((dm && dm.value && dm.value.ids) || []));
+    } catch (e) {}
+    rows = rows.filter(o => !applied.has(o.id) && !dismissed.has(o.id));
   } catch (e) {}
   // Freshness (spec 38), computed from real timestamps only.
   const now = Date.now(), day = 86400000;
@@ -1847,6 +1922,9 @@ app.get('/api/opportunities', auth, async (req, res) => {
       req._relaxNote = relaxNote;
       // Highest match first, always.
       opportunities.sort((a, b) => ((b.match && b.match.pct) || 0) - ((a.match && a.match.pct) || 0));
+      /* Fifteen is the ceiling. Beyond that a list stops being a shortlist and becomes a
+         search engine, which is exactly what the applicant is paying us to avoid. */
+      opportunities = opportunities.slice(0, 15);
     } catch (e) { /* matching is best-effort; never blocks the list */ }
   }
   // Mark opportunities this user has already started - one case, one cost, ever.
@@ -2177,12 +2255,34 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
     return res.status(409).json({ error: 'portal_only', portal_url: o0.url || a.portal_url || '', message: 'This opportunity applies through its official portal. Your documents are ready to attach there.' });
   }
   const { data: docs } = await admin().from('application_documents').select('id,kind,title,themed_key').eq('application_id', a.id);
+  /* The applicant's OWN CV must always travel with the application. We no longer rewrite
+     it, so it is not in application_documents: we attach the uploaded original directly.
+     Without this, an application would go out with no CV at all. */
+  let ownDocs = [];
+  try {
+    const { data: mine } = await admin().from('documents')
+      .select('id,name,kind,storage_key,mime,created_at')
+      .eq('user_id', req.userId).eq('generated', false)
+      .order('created_at', { ascending: false }).limit(12);
+    const isCV = d => /cv|resume|curriculum/i.test(String(d.name || '') + ' ' + String(d.kind || ''));
+    const cv = (mine || []).find(isCV);
+    if (cv) ownDocs.push({ id: 'own:' + cv.id, filename: applyLib.niceName({ kind: 'cv', title: cv.name || 'CV' }),
+      url: '/api/apply/own/' + cv.id + '?' + applyLib.docQuery(cv.id, req.userId) });
+    // Supporting evidence the applicant chose to upload, capped so the email stays sane.
+    for (const d of (mine || [])) {
+      if (cv && d.id === cv.id) continue;
+      if (!/publication|thesis|licen|degree|transcript|certificate|experience|reference/i.test(String(d.name || '') + ' ' + String(d.kind || ''))) continue;
+      if (ownDocs.length >= 5) break;
+      ownDocs.push({ id: 'own:' + d.id, filename: (d.name || 'Document').replace(/\.[a-z0-9]+$/i, '') + '.pdf',
+        url: '/api/apply/own/' + d.id + '?' + applyLib.docQuery(d.id, req.userId) });
+    }
+  } catch (e) {}
   const o = a.opportunities || {};
   const pkg = applyLib.buildPackage({
     applicationId: a.id, opportunityId: o.id || '',
     recipient: recipientEmail, recipientName: o.contact_name || '',
     organization: o.institution || '', subject: msg.subject || '', body: msg.body || '',
-    attachments: (docs || []).map(d => ({ id: d.id, filename: applyLib.niceName(d), url: '/api/apply/doc/' + d.id + '?' + applyLib.docQuery(d.id, req.userId) }))
+    attachments: ownDocs.concat((docs || []).map(d => ({ id: d.id, filename: applyLib.niceName(d), url: '/api/apply/doc/' + d.id + '?' + applyLib.docQuery(d.id, req.userId) })))
   });
   await admin().from('audit_log').insert({ actor: req.userId, event: 'APPLY_PACKAGE', detail: a.id });
   // Safe profile subset for the extension form-filler (Phase 2) - never documents, never credentials.
@@ -2206,6 +2306,25 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
   res.json(pkg);
 });
 // Short-lived signed PDF fetch for one prepared document (used by the assistant to attach files).
+/* Serves the applicant's OWN uploaded file (their CV, publications, licence and so on)
+   to the Apply Assistant, so real documents travel with the application. Signed and
+   short-lived, exactly like generated documents. */
+app.get('/api/apply/own/:docId', async (req, res) => {
+  try {
+    const v = applyLib.verifyDocQuery(req.params.docId, req.query);
+    if (!v.ok) return res.status(403).json({ error: 'Link expired. Press APPLY again.' });
+    const { data: d } = await admin().from('documents').select('*').eq('id', req.params.docId).single();
+    if (!d || d.user_id !== v.userId) return res.status(404).json({ error: 'Not found' });
+    const { BUCKET } = require('./lib/docs');
+    const { data: file, error } = await admin().storage.from(BUCKET).download(d.storage_key);
+    if (error || !file) return res.status(404).json({ error: 'File unavailable' });
+    const buf = Buffer.from(await file.arrayBuffer());
+    const name = String(d.name || 'document').replace(/["\r\n]/g, '');
+    res.setHeader('Content-Type', d.mime || 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + name + '"');
+    res.send(buf);
+  } catch (e) { res.status(400).json({ error: 'Document unavailable' }); }
+});
 app.get('/api/apply/doc/:docId', async (req, res) => {
   try {
     const v = applyLib.verifyDocQuery(req.params.docId, req.query);
@@ -2248,6 +2367,14 @@ app.post('/api/opportunities/:id/reject', auth, async (req, res) => {
 /* ---------- Referral rewards: qualified referrals earn free Solo credits ---------- */
 /* Has this account ever paid? Referral rewards are for paying customers only, so the
    programme cannot be farmed by accounts that never buy anything. */
+/** Does this account hold an active Search Pass? */
+async function hasSearchPass(userId) {
+  try {
+    const { data } = await admin().from('app_settings').select('value').eq('key', 'searchpass:' + userId).single();
+    const until = data && data.value && data.value.until;
+    return !!(until && new Date(until).getTime() > Date.now());
+  } catch (e) { return false; }
+}
 async function hasEverPaid(userId) {
   try {
     const { data } = await admin().from('payments').select('id').eq('user_id', userId).eq('status', 'confirmed').limit(1);
@@ -2258,6 +2385,51 @@ async function hasEverPaid(userId) {
     return !!(led && led.length);
   } catch (e) { return false; }
 }
+/* G3: OUTCOME TRACKING. Without knowing which applications succeed we can never improve
+   ranking, and we can never tell a client what actually works. One question, optional. */
+app.post('/api/applications/:id/outcome', auth, async (req, res) => {
+  try {
+    const outcome = String((req.body && req.body.outcome) || '');
+    if (!['no_reply', 'rejected', 'interview', 'offer', 'accepted', 'withdrew'].includes(outcome))
+      return res.status(400).json({ error: 'Choose one of the listed outcomes.' });
+    const { data: a } = await admin().from('applications').select('id,user_id,opportunity_id').eq('id', req.params.id).single();
+    if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+    await admin().from('applications').update({
+      outcome, outcome_at: new Date().toISOString(),
+      outcome_note: String((req.body && req.body.note) || '').slice(0, 400)
+    }).eq('id', a.id);
+    try { await admin().from('audit_log').insert({ actor: req.userId, event: 'OUTCOME', detail: outcome + ' for ' + a.id }); } catch (e) {}
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* G5: SAVED SEARCHES. A user should not have to rebuild filters every time. */
+/* Dismissing an opportunity. The user has judged it and does not want it again, so we
+   respect that permanently rather than showing it in every future search. Reversible. */
+app.post('/api/opportunities/:id/dismiss', auth, async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    const undo = !!(req.body && req.body.undo);
+    const { data } = await admin().from('app_settings').select('value').eq('key', 'dismissed:' + req.userId).single();
+    let ids = ((data && data.value && data.value.ids) || []).filter(Boolean);
+    if (undo) ids = ids.filter(x => x !== id);
+    else if (!ids.includes(id)) ids.push(id);
+    await admin().from('app_settings').upsert({ key: 'dismissed:' + req.userId, value: { ids: ids.slice(-500), at: new Date().toISOString() } });
+    res.json({ ok: true, dismissed: !undo, count: ids.length });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/searches', auth, async (req, res) => {
+  try {
+    const { data } = await admin().from('app_settings').select('value').eq('key', 'savedsearch:' + req.userId).single();
+    res.json({ searches: (data && data.value && data.value.list) || [] });
+  } catch (e) { res.json({ searches: [] }); }
+});
+app.put('/api/searches', auth, async (req, res) => {
+  try {
+    const list = Array.isArray(req.body && req.body.list) ? req.body.list.slice(0, 8) : [];
+    await admin().from('app_settings').upsert({ key: 'savedsearch:' + req.userId, value: { list, at: new Date().toISOString() } });
+    res.json({ ok: true, list });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.get('/api/referral/status', auth, async (req, res) => {
   try {
     const R = require('./lib/referral');
@@ -2574,9 +2746,26 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
     info: { Title: 'Your Future Path', Author: 'ForiForeign', Creator: 'ForiForeign' } });
   pdf.pipe(res);
   const FT = usePdfFonts(pdf);
-  const H = t => { pdf.moveDown(0.6).font(FT.B).fontSize(13).fillColor('#000').text(pdfSafe(t)); pdf.moveDown(0.2); };
-  const P = t => pdf.font(FT.R).fontSize(11.5).fillColor('#000').text(pdfSafe(t), { align: 'justify' });
-  const B = t => pdf.font(FT.R).fontSize(11.5).text('•  ' + pdfSafe(t), { indent: 12 });
+  const LM = pdf.page.margins.left, RM = pdf.page.width - pdf.page.margins.right;
+  const H = t => {
+    // Keep a heading with at least a few lines of its section, never orphaned at a break.
+    if (pdf.y > pdf.page.height - pdf.page.margins.bottom - 90) pdf.addPage();
+    pdf.moveDown(0.65).font(FT.B).fontSize(11.5).fillColor('#111')
+      .text(pdfSafe(t).toUpperCase(), { characterSpacing: 0.9 });
+    const y = pdf.y + 2;
+    pdf.moveTo(LM, y).lineTo(RM, y).lineWidth(0.5).strokeColor('#9aa6b8').stroke();
+    pdf.moveDown(0.5); pdf.fillColor('#000');
+  };
+  const P = t => pdf.font(FT.R).fontSize(10.8).fillColor('#000')
+    .text(pdfSafe(t), { align: 'justify', lineGap: 2.2 });
+  const B = t => pdf.font(FT.R).fontSize(10.8).fillColor('#000')
+    .text('\u2022   ' + pdfSafe(t), { align: 'left', indent: 10, lineGap: 1.6 });
+  // A labelled fact line, for addresses, phones and web pages.
+  const KV = (k, v) => {
+    if (!v) return;
+    pdf.font(FT.B).fontSize(10.5).fillColor('#333').text(pdfSafe(k), { continued: true });
+    pdf.font(FT.R).fillColor('#000').text('  ' + pdfSafe(v), { lineGap: 1.4 });
+  };
   pdf.font(FT.B).fontSize(17).text('Your Future Path', { align: 'center' });
   pdf.font(FT.R).fontSize(11.5).text(clean((opp.institution || '') + (g ? ' · ' + g.name : '')) + ((pr && pr.full_name) ? '  -  prepared for ' + pr.full_name : ''), { align: 'center' });
   pdf.moveDown(0.5);
@@ -2615,6 +2804,31 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
     }
     pdf.moveDown(0.6);
   }
+  /* WHERE TO GO AND WHO TO CONTACT. A guide that names the institution but not its
+     address, phone or official pages leaves the applicant to hunt for all of it. */
+  H('Where to go and who to contact');
+  KV('Institution:', opp.institution || '');
+  KV('Location:', [opp.city, opp.country_code].filter(Boolean).join(', '));
+  KV('Official page:', opp.url || '');
+  KV('Application route:', /portal/i.test(String(opp.apply_via || '')) ? 'Online portal on the official page'
+    : (opp.contact_email ? 'By email to ' + opp.contact_email : 'Confirm on the official page'));
+  KV('Contact:', [opp.contact_name, opp.contact_email, opp.contact_phone].filter(Boolean).join('  ·  '));
+  KV('Deadline:', opp.deadline ? String(opp.deadline).slice(0, 10) : 'Rolling or not stated');
+  pdf.moveDown(0.35);
+  P('Always confirm these details on the official page before you travel, post documents or pay any fee. Institutions move offices and change contacts, and the official page is the only source that is always current.');
+  try {
+    const cc = String(opp.country_code || '').toUpperCase();
+    const EMB = { GB: 'British High Commission, Diplomatic Enclave, Islamabad', DE: 'Embassy of Germany, Ramna 5, Diplomatic Enclave, Islamabad',
+      US: 'U.S. Embassy, Diplomatic Enclave, Islamabad', CA: 'High Commission of Canada, Diplomatic Enclave, Islamabad',
+      AU: 'Australian High Commission, Constitution Avenue, Islamabad', SE: 'Embassy of Sweden, Diplomatic Enclave, Islamabad',
+      NL: 'Embassy of the Netherlands, Diplomatic Enclave, Islamabad', SA: 'Royal Embassy of Saudi Arabia, Diplomatic Enclave, Islamabad',
+      AE: 'Embassy of the UAE, Diplomatic Enclave, Islamabad', QA: 'Embassy of Qatar, Diplomatic Enclave, Islamabad' };
+    if (EMB[cc]) {
+      pdf.moveDown(0.25);
+      KV('Visa mission in Pakistan:', EMB[cc]);
+      P('Check the mission website for current appointment booking, fees and document lists. Attestation of your degrees by HEC and then the Ministry of Foreign Affairs is normally required before submission.');
+    }
+  } catch (e) {}
   // LICENSING PATHWAY, customised to the exam(s) this applicant actually selected.
   try {
     const { data: pfx } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single();
@@ -2759,6 +2973,85 @@ app.get('/api/applications/:id/documents/:docId/pdf', auth, async (req, res) => 
 const { discoverForUser, prepareApplication } = require('./lib/engine');
 /* Admin-configured search cooldown: protects AI spend and stops rapid repeat searches.
    Staff are exempt so support can always reproduce a user's search. */
+/* FAIR USE. Protects real API spend without punishing genuine users.
+   - Searching stays free and unlimited for normal usage.
+   - A soft limit warns kindly; a hard limit pauses discovery, never the whole account.
+   - Paying customers get a multiplied allowance, so spending money always buys headroom.
+   - Staff are exempt. Prepared cases and downloads are NEVER blocked: a client who has
+     paid must always be able to reach their own work. */
+const _spendCache = new Map();
+/* SEARCH COUNTER. Counted per calendar day and per calendar month from a reset point,
+   so buying a package genuinely restarts the allowance. */
+async function searchCounts(userId) {
+  const c = _spendCache.get(userId);
+  if (c && Date.now() - c.at < 60000) return c.val;
+  const today = new Date().toISOString().slice(0, 10);
+  const month = new Date().toISOString().slice(0, 7);
+  let resetAt = null;
+  try {
+    const { data } = await admin().from('app_settings').select('value').eq('key', 'searchreset:' + userId).single();
+    resetAt = data && data.value && data.value.at;
+  } catch (e) {}
+  let day = 0, mon = 0;
+  try {
+    const since = resetAt && resetAt > (month + '-01') ? resetAt : (month + '-01');
+    const { data } = await admin().from('audit_log').select('created_at')
+      .eq('actor', userId).eq('event', 'SEARCH_RUN').gte('created_at', since);
+    for (const r of (data || [])) {
+      mon++;
+      if (String(r.created_at || '').slice(0, 10) === today) day++;
+    }
+  } catch (e) {}
+  const val = { day, mon };
+  _spendCache.set(userId, { val, at: Date.now() });
+  if (_spendCache.size > 5000) _spendCache.clear();
+  return val;
+}
+/* The gate itself. Free and paying users share one honest allowance; buying a package
+   resets it, which is what makes a purchase feel like a fresh start. */
+async function fairUse(req, res, next) {
+  try {
+    const cfg = await siteSettings.getConfig();
+    const fu = cfg.fair_use || {};
+    if (fu.enabled === false) return next();
+    if (req.userRole && ['admin', 'super_admin', 'staff'].includes(req.userRole)) return next();
+    /* A Search Pass raises the daily allowance for its term; it never removes the limit.
+       We do not promise unlimited searching anywhere, so we must not grant it either. */
+    const pass = await hasSearchPass(req.userId).catch(() => false);
+    const dayMax = pass ? (Number(fu.pass_daily_searches) || 6) : (Number(fu.daily_searches) || 3);
+    const { day } = await searchCounts(req.userId);
+    if (day >= dayMax) {
+      try { await admin().from('audit_log').insert({ actor: req.userId, event: 'SEARCH_LIMIT_DAY', detail: day + '/' + dayMax }); } catch (e) {}
+      // Tell them exactly when it refills, in their own timezone, not a vague "tomorrow".
+      const tzOff = Number(req.headers['x-tz-offset']);              // minutes, from the client
+      const off = isFinite(tzOff) ? tzOff : -300;                     // default Pakistan, UTC+5
+      const nowLocal = new Date(Date.now() - off * 60000);
+      const nextLocal = new Date(nowLocal); nextLocal.setUTCHours(24, 0, 0, 0);
+      const resetsAt = new Date(nextLocal.getTime() + off * 60000);
+      const mins = Math.max(1, Math.round((resetsAt - Date.now()) / 60000));
+      const hrs = Math.floor(mins / 60), rem = mins % 60;
+      const inWords = hrs > 0 ? (hrs + ' hour' + (hrs === 1 ? '' : 's') + (rem ? ' ' + rem + ' minutes' : '')) : (mins + ' minutes');
+      return res.status(429).json({
+        error: 'You have used all ' + dayMax + ' searches for today.',
+        fair_use: true, scope: 'day', used: day, limit: dayMax,
+        resets_at: resetsAt.toISOString(), resets_in_minutes: mins, resets_in_words: inWords
+      });
+    }
+    req._searchLeft = { day: dayMax - day };
+    // Count this search only once it has passed the gate.
+    try { await admin().from('audit_log').insert({ actor: req.userId, event: 'SEARCH_RUN', detail: 'search' }); } catch (e) {}
+    _spendCache.delete(req.userId);
+  } catch (e) {}
+  next();
+}
+/** Zero the counters. Called whenever a package is activated. */
+async function resetSearchAllowance(userId) {
+  try {
+    await admin().from('app_settings').upsert({ key: 'searchreset:' + userId, value: { at: new Date().toISOString() } });
+    _spendCache.delete(userId);
+    return true;
+  } catch (e) { return false; }
+}
 const _lastSearch = new Map();
 function searchCooldown(req, res, next) {
   try {
@@ -2767,6 +3060,8 @@ function searchCooldown(req, res, next) {
     // Legacy installs stored 30 by default and it was locking people out after a
     // mistaken tap. Only an explicitly chosen value now applies.
     if (!isFinite(mins) || mins <= 0 || lim.cooldown_enabled !== true) mins = 0;
+    // Searches may be used back to back: the daily allowance is the only limit, and an
+    // artificial gap between them helps nobody.
     if (!mins || mins <= 0) return next();
     // Staff are exempt: support must be able to reproduce a user's search on demand.
     if (req.userRole && ['admin', 'super_admin', 'staff'].includes(req.userRole)) return next();
@@ -2780,7 +3075,7 @@ function searchCooldown(req, res, next) {
   } catch (e) {}
   next();
 }
-app.post('/api/run', auth, searchCooldown, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.discovery_enabled===false)return res.status(503).json({error:'Search is briefly paused for maintenance. Please try again soon.'});next();}, async (req, res) => {
+app.post('/api/run', auth, searchCooldown, fairUse, (req,res,next)=>{const f=(require('./lib/settings').cache()||{}).features||{};if(f.discovery_enabled===false)return res.status(503).json({error:'Search is briefly paused for maintenance. Please try again soon.'});next();}, async (req, res) => {
   // Search preferences + package fulfillment: paid credits define how many verified
   // opportunities the agent must deliver (min 5, max 20). Priority countries are
   // searched first; comparable nearby destinations complete the set only if needed.

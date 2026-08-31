@@ -31,14 +31,16 @@
       compose.dispatchEvent(new Event('input', { bubbles: true }));
     }
   } catch (e) {}
-  const files = [];
+  const files = []; const failed = [];
   for (const a of (pkg.attachments || [])) {
     try {
       const r = await fetch(a.url.startsWith('http') ? a.url : 'https://foriforeign.com' + a.url);
-      if (!r.ok) continue;
+      if (!r.ok) { failed.push(a.filename + ' (' + r.status + ')'); continue; }
       const blob = await r.blob();
-      files.push(new File([blob], a.filename, { type: 'application/pdf' }));
-    } catch (e) {}
+      // Use the real type from the response: forcing application/pdf corrupted any
+      // Word or image file the applicant uploaded.
+      files.push(new File([blob], a.filename, { type: blob.type || 'application/octet-stream' }));
+    } catch (e) { failed.push(a.filename); }
   }
   if (files.length) {
     const dt = new DataTransfer();

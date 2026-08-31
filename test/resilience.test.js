@@ -182,9 +182,11 @@ const checks = [
     const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
     return f.includes('lowestPkgPrice') && f.includes('pricingSentence') && f.includes('saveFaqs') && st.includes('faqs:');
   })()],
-  ['no opportunity list is rendered before a package is active', (() => {
+  ['locked preview is capped at 3 cards with identity withheld', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    return f.includes("+(noneOpen?'':shown.map(o=>oppCard(o)).join(''))");
+    // A blank page gave the user no reason to believe. Three locked cards prove the
+    // value; institution name and official link stay hidden until purchase.
+    return f.includes('noneOpen?shown.slice(0,3)') && f.includes('revealed?esc(o.institution)');
   })()],
   ['SQL level gate accepts levels= (postdoc seeker never loads PhD rows)', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
@@ -386,6 +388,54 @@ const checks = [
       sv.includes('!x.wrongTarget && !x.overqualified && !x.fieldMismatch') &&
       sv.includes('x.pct >= RELEVANCE_FLOOR') &&
       fe.includes('Your matches are ready') && fe.includes('ready to view');
+  })()],
+  ['case documents: uploaded CV kept, motivation + proposal for research roles', (() => {
+    const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    return en.includes("plan.filter(k => k !== 'cv')") &&
+      en.includes("plan.push('motivation')") && en.includes("plan.push('research_proposal')") &&
+      en.includes('at least 700 words') && en.includes('what THIS host group works on') &&
+      en.includes('My published work includes');
+  })()],
+  ['cover letter, per-case document request and guide contacts are all real', (() => {
+    const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return en.includes('450 to 600 words') && en.includes('cover: 2900') &&
+      fe.includes('Upload these to strengthen this application') && fe.includes('_myDocNames') &&
+      sv.includes('Where to go and who to contact') && sv.includes('Visa mission in Pakistan') &&
+      sv.includes('characterSpacing: 0.9');
+  })()],
+  ['no living-cost estimates shown; positive financial facts retained', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const noCost = !sv.includes('living_estimate') && !fe.includes('living_estimate') &&
+      !fe.includes('Living cost');
+    const keepsGood = fe.includes("R('Stipend'") && fe.includes("R('Funding'");
+    // Prepared cases are not a sales surface.
+    const noSell = !fe.includes('Buy Our Packages');
+    return noCost && keepsGood && noSell;
+  })()],
+  ['pay context, fair use, mobility, outcomes and saved searches all present', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const pay = fs.readFileSync(__dirname + '/../lib/pay.js', 'utf8');
+    return pay.includes('liveRates') && pay.includes('times a senior professional salary') &&
+      sv.includes('async function fairUse') && sv.includes('daily_searches') &&
+      sv.includes('mobility:') && sv.includes('/outcome') && sv.includes("'/api/searches'") &&
+      fe.includes('Did you hear back?') && !fs.existsSync(__dirname + '/../lib/costs.js');
+  })()],
+  ['search limit is 3 per day, reset by any purchase', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    return st.includes('daily_searches: 3') && !st.includes('monthly_searches') &&
+      sv.includes('async function searchCounts') && sv.includes('resetSearchAllowance') &&
+      sv.includes("event: 'SEARCH_RUN'") &&
+      sv.includes("reason: 'purchase', payment_id: p.id });\n  // A purchase restarts");
+  })()],
+  ['free users see real preview cards with identity withheld', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('noneOpen?shown.slice(0,3)') && fe.includes('revealed?esc(o.institution)') &&
+      fe.includes('more matched to you');
   })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];

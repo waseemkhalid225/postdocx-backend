@@ -832,6 +832,7 @@ function netEnd(){
 }
 async function api(p,o={}){
   netStart();
+  try{o.headers=Object.assign({'x-tz-offset':String(new Date().getTimezoneOffset())},o.headers||{})}catch(e){}
   try{ return await _apiRaw(p,o); } finally { netEnd(); }
 }
 async function _apiRaw(p,o={}){
@@ -840,7 +841,12 @@ async function _apiRaw(p,o={}){
   if(localStorage.getItem('ffSimUser')==='1'){o.headers['x-ff-simulate-user']='1';o.headers['x-ff-simulate-tier']=localStorage.getItem('ffSimTier')||'0'}
   if(o.body&&typeof o.body!=='string')o.body=JSON.stringify(o.body);
   const r=await fetch(p,o);const d=await r.json().catch(()=>({}));
-  if(!r.ok)throw new Error(d.error||('Error '+r.status));return d}
+  if(!r.ok){
+    // Carry the response body on the error so callers can react to structured cases
+    // such as the daily search allowance, not just a message string.
+    const err=new Error(d.error||('Error '+r.status));err.data=d;err.status=r.status;throw err;
+  }
+  return d}
 
 /* ---------- boot ---------- */
 (async function(){
@@ -896,7 +902,8 @@ async function saveOps(btn){
   try{
     const c=window._cfg||{};
     const patch={limits:c.limits||{},ai:c.ai||{},case_plan:c.case_plan||{docs:['cv','cover']},
-      features:c.features||{},background_video_url:c.background_video_url||''};
+      features:c.features||{},background_video_url:c.background_video_url||'',
+      fair_use:c.fair_use||{},models:c.models||{}};
     const d=await api('/api/admin/settings',{method:'PUT',body:{patch}});
     toast('Operations settings saved (v'+d.version+'). Live for all users now.');
     await loadSiteConfig();vAdmin();
@@ -1247,7 +1254,7 @@ const FF_FAQS=[
 ['How long does a search take?','Usually 1 to 3 minutes. Our agents check hundreds of official pages and show only verified matches above 50 percent relevance.'],
 ['Why do I see only 2 opportunities?','Your package decides the view: Solo shows your 2 best, Smart 8, Premium 15, always the highest matches first. More strong matches stay reserved for upgrades.'],
 ['Can I choose which opportunity to apply for?','Always. Nothing is ever selected for you. You view your matches and confirm each case yourself, with a clear are-you-sure step.'],
-['What documents do you prepare?','A tailored CV, cover letter, motivation or SOP, research proposal where relevant, and a complete professional application email, all from your real profile, nothing invented.'],
+['What documents do you prepare?','A CV, cover letter, motivation or SOP, research proposal where relevant, and a complete professional application email, all from your real profile, nothing invented.'],
 ['Do you send emails from my account?','Only you press Send, from your own email, with our free extension. We never see or store your password.'],
 ['Is my data safe?','Yes. Your documents are private, used only for your applications, and never shared or sold.'],
 ['I do not have IELTS, can I still apply?','Yes. Choose the language rules that suit you in filters, including no-certificate options and language-course routes. Every result states its exact language requirement.'],
@@ -1473,6 +1480,11 @@ async function vHome(){
   ${ME&&!ME.phone?`<div class="card" style="border-color:#00D4FF;margin-top:12px"><div class="row"><b style="flex:0 0 auto">WhatsApp</b><span class="sub" style="flex:1;min-width:120px">Case updates &amp; deadline reminders</span></div><div class="row" style="margin-top:6px"><input id="waNum" placeholder="+92 3xx xxxxxxx" style="flex:1;min-width:160px"><button class="btn b-gold" onclick="(async b=>{b.disabled=true;try{await api('/api/me',{method:'PUT',body:{phone:document.getElementById('waNum').value.trim()}});ME.phone=1;toast('✓ Saved');vHome()}catch(e){toast(e.message);b.disabled=false}})(this)">Save</button></div></div>`:``}
   <div class="dash-sec"><h3 style="margin-bottom:10px">Your steps</h3>
   <input id="doc-files" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic" style="display:none" onchange="uploadDocs()">
+  <div class="sub" style="margin:6px 2px 0;font-size:11.5px;line-height:1.55">
+    Upload your CV, and optionally anything that strengthens your case: publications, thesis, degree and transcripts,
+    experience letters, professional licence or registration, language test results. The more you add, the more precisely
+    we can match and write for you.
+  </div>
   <div id="uploadProgress"></div>
   ${(()=>{
     /* Every step stays open, always. A completed step keeps a working button so the
@@ -1660,12 +1672,39 @@ async function ensureCountries(){
   return window._countries;
 }
 function laneBar(active){ return ''; }
+/* The match score is the single most useful number on a card, so it leads rather than
+   hiding inside a status chip. Colour carries the strength; the status follows quietly. */
+const CC_NAME={GB:'United Kingdom',US:'United States',DE:'Germany',SE:'Sweden',NL:'Netherlands',
+  DK:'Denmark',NO:'Norway',FI:'Finland',IE:'Ireland',FR:'France',ES:'Spain',IT:'Italy',CH:'Switzerland',
+  AT:'Austria',BE:'Belgium',PL:'Poland',CZ:'Czechia',PT:'Portugal',CA:'Canada',AU:'Australia',
+  NZ:'New Zealand',JP:'Japan',KR:'South Korea',CN:'China',SG:'Singapore',HK:'Hong Kong',MY:'Malaysia',
+  AE:'United Arab Emirates',SA:'Saudi Arabia',QA:'Qatar',KW:'Kuwait',OM:'Oman',BH:'Bahrain',
+  TR:'Turkey',ZA:'South Africa',PK:'Pakistan'};
+function countryName(cc){return CC_NAME[String(cc||'').toUpperCase()]||String(cc||'').toUpperCase()}
+/* Quality bands. A bare percentage means little; a named band tells the applicant how
+   seriously to take an opportunity. 85+ excellent, 70-84 very good, 50-69 good. */
+function matchBand(pct){
+  if(pct==null)return null;
+  if(pct>=85)return {label:'Excellent match',color:'#2dd4bf',key:'excellent'};
+  if(pct>=70)return {label:'Very good match',color:'#00D4FF',key:'verygood'};
+  if(pct>=50)return {label:'Good match',color:'#F5B841',key:'good'};
+  return {label:'Possible match',color:'#8FA9CE',key:'possible'};
+}
+function scoreBadge(m,cc){
+  const pct=(m&&m.pct!=null)?m.pct:null;
+  const band=matchBand(pct);
+  const country=cc?`<span style="font:600 12px Inter;color:#B4E4FF">${esc(countryName(cc))}</span>`:'';
+  if(pct==null)return country?`<div style="margin-bottom:6px">${country}</div>`:'';
+  return `<div class="row" style="align-items:baseline;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+    <span style="font:800 21px Inter;color:${band.color};line-height:1">${pct}%</span>
+    <span style="font:700 12px Inter;color:${band.color}">${band.label}</span>
+    ${country}</div>`;
+}
 function matchBadge(m){
   if(!m||!m.status)return '';
   const map={eligible:['c-green','Eligible'],potentially_eligible:['c-gold','Potentially eligible'],not_eligible:['c-red','Not eligible'],criteria_not_published:['c-gray','Criteria not published']};
   const [cls,word]=map[m.status]||['c-gray',m.status];
-  const pct=(m.pct!=null)?' · '+m.pct+'%':'';
-  return `<span class="chip ${cls}">${word}${pct}</span>`;
+  return `<span class="chip ${cls}">${word}</span>`;
 }
 function pkrHint(txt){
   try{
@@ -1693,6 +1732,18 @@ function routeChip(o){
     return '<span class="chip" style="border-color:rgba(45,212,191,.6);color:#2dd4bf" title="Prepared as a draft in your own email, you press Send">Apply by email</span>';
   return '<span class="chip" style="border-color:rgba(140,178,255,.45);color:#B4E4FF" title="We confirm the exact route when your case is prepared">Route confirmed on preparation</span>';
 }
+/* Let the applicant reject an opportunity. It disappears from every future search, so
+   their shortlist keeps improving instead of repeating what they have already refused. */
+async function dismissOpp(id,btn){
+  btn.disabled=true;btn.textContent='Removing…';
+  try{
+    await api('/api/opportunities/'+id+'/dismiss',{method:'POST',body:{}});
+    const card=btn.closest('.card');
+    if(card){card.style.transition='opacity .25s ease';card.style.opacity='0';
+      setTimeout(()=>card.remove(),260);}
+    toast('Removed. We will not show you this one again.');
+  }catch(e){toast(e.message);btn.disabled=false;btn.textContent='Not for me'}
+}
 function oppCard(o,ctaColor){
   const dl=daysLeft(o.deadline);
   const dlChip=dl!=null?(dl<=14?`<span class="chip c-red">Closes in ${dl}d</span>`:`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`):'';
@@ -1714,6 +1765,11 @@ function oppCard(o,ctaColor){
       ${o.tuition?`<div class="sub" style="margin-top:2px">Tuition: ${esc(o.tuition)}${pkrHint(o.tuition)}</div>`:''}
       ${o.funding&&!fundingChip?`<div class="sub" style="margin-top:2px">${esc(o.funding)}</div>`:''}
       <div style="font:600 13px Inter;color:#D6E9FF;margin-top:8px">${consider}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:6px">
+        <button class="btn b-line" style="padding:4px 12px;font-size:11.5px;opacity:.85"
+          title="Remove this from your searches for good"
+          onclick="event.stopPropagation();dismissOpp('${escAttr(o.id)}',this)">Not for me</button>
+      </div>
       <div class="locked-blur" style="margin-top:8px"><b>Reserved for package members</b><div class="sub">Institution, official page and verified contact open with your package, and we prepare the complete application for you, end to end.</div></div>
       <div class="row" style="margin-top:10px;align-items:center">
       <button class="btn b-gold" onclick="go('buy')">View packages &amp; apply</button>
@@ -1723,13 +1779,24 @@ function oppCard(o,ctaColor){
   // name or the official-source link (so it cannot be copied and applied to directly). We show
   // a compelling, specific descriptor instead. Once started/owned, the full identity appears.
   const revealed=o.started||o.owned;
-  const titleLine=revealed?esc(o.institution):`${esc(({bachelors:'Bachelor',masters:'Master\u2019s',phd:'PhD',postdoc:'Postdoctoral'})[o.level]||'Verified')} opportunity${o.field?' in '+esc(o.field):''}`;
-  const subLine=revealed?esc(o.title):`A verified, officially-listed position matched to your profile${o.city?' \u00b7 '+esc(o.city):''}`;
+  /* Locked cards show a real, generalised description with city and country, so the
+     applicant can judge whether it is worth paying for. The institution name and the
+     official link remain hidden until they do. */
+  const titleLine=revealed?esc(o.institution):(
+    o.general_title?esc(o.general_title)
+    :`${esc(({bachelors:'Bachelor',masters:'Master\u2019s',phd:'PhD',postdoc:'Postdoctoral'})[o.level]||'Verified')} position${o.field?' in '+esc(o.field):''}`);
+  // Location is always given: an applicant must know where in the world this is.
+  const placeLine=[o.city,countryName(o.country_code)].filter(Boolean).join(', ');
+  const subLine=revealed?esc(o.title):[
+    placeLine?esc(placeLine):'',
+    o.remote_scope?esc(o.remote_scope):'',
+    'Verified on the official page'
+  ].filter(Boolean).join(' \u00b7 ');
   return `<div class="card">
     <div class="spread"><div style="min-width:0"><b>${titleLine}</b><div class="sub">${subLine}</div></div>
     ${o.country_code?`<span class="chip c-blue">${esc(o.country_code)}${revealed&&o.city?' · '+esc(o.city):''}</span>`:''}</div>
     <div class="chiprow">
-    ${routeChip(o)}${matchBadge(o.match)}${levelChip}${fundingChip}${newChip}${dlChip}
+    ${scoreBadge(o.match,o.country_code)}${routeChip(o)}${matchBadge(o.match)}${levelChip}${fundingChip}${newChip}${dlChip}
     ${o.stipend?`<span class="chip c-green">${esc(String(o.stipend).slice(0,38))}${pkrHint(o.stipend)}</span>`:''}
     ${o.tuition?`<span class="chip c-gray">Tuition ${esc(String(o.tuition).slice(0,30))}${pkrHint(o.tuition)}</span>`:''}
     ${o.req_language&&o.req_language!=='none'?`<span class="chip c-blue">${esc(o.req_language)}${o.req_language_min?' '+esc(o.req_language_min):''}</span>`:o.req_language==='none'?'<span class="chip c-green">No IELTS stated</span>':''}</div>
@@ -1798,10 +1865,17 @@ async function oppReport(id){
   ${R('Tuition (stated)',esc(f.tuition_stated||''))}
   ${R('Application fee',esc(f.application_fee_stated||''))}
   ${R('Stipend',esc(f.stipend_stated||''))}
-  ${f.living_estimate?R('Living cost (approx.)','PKR '+esc(f.living_estimate.pkr_per_month_approx)+'/mo'):''}
+  ${f.pay?R('What that works out to',esc(f.pay.annual)):''}
+  ${f.pay&&f.pay.pkr?R('In Pakistani rupees',esc(f.pay.pkr)+(f.pay.monthly_pkr?'  ·  '+esc(f.pay.monthly_pkr):'')):''}
+  ${f.pay&&f.pay.comparison?R('In perspective',esc(f.pay.comparison)):''}
+  ${f.mobility?R('Visa route',esc(f.mobility.visa_route||'')):''}
+  ${f.mobility&&f.mobility.dependants?R('Family',esc(f.mobility.dependants)):''}
+  ${f.mobility&&f.mobility.long_term?R('Longer term',esc(f.mobility.long_term)):''}
+  ${f.mobility&&f.mobility.work_rights_stated?R('Work rights (stated)',esc(f.mobility.work_rights_stated)):''}
+
   ${f.market_band?R('Typical pay for this role',esc(f.market_band.range)+' · '+esc(f.market_band.based_on)):''}
   </table>
-  <div class="sub" style="margin-top:6px">${esc(f.note||'')}${f.living_estimate?' '+esc(f.living_estimate.rate_used):''}</div>
+  <div class="sub" style="margin-top:6px">${esc(f.note||'')}</div>
   ${revealed&&o.url?`<h3 style="margin-top:12px">Official source</h3><div class="sub"><a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.url)}</a></div>`:'<div class="sub" style="margin-top:12px">✓ Confirmed on the official page. The direct link opens with your case.</div>'}
   <div class="row" style="margin-top:14px">
   <button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();startApp('${o.id}','${escAttr(o.institution)}')">Start my case</button>
@@ -1964,10 +2038,65 @@ async function renderWorkLane(){
       <button class="btn b-green" onclick="runSearch('work')">Search official sources for me</button><br>
       <span class="sub" style="margin-top:8px;display:inline-block">Set your profession in Profile first so licensing is matched correctly.</span></div>`);
 }
+/* Search allowance reached. Shown as a modal, not a toast: the user needs to read the
+   time it refills and decide what to do, which a two-second message does not allow. */
+/* One search remaining. A modal rather than a toast, because the user should decide
+   deliberately how to spend the last one. */
+function showLastChance(d){
+  document.querySelectorAll('.ff-lastchance').forEach(n=>n.remove());
+  const w=document.createElement('div');
+  w.className='ff-lastchance';
+  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.86);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.onclick=e=>{if(e.target===w)w.remove()};
+  const total=(d&&d.limit)||3;
+  w.innerHTML=`<div style="max-width:370px;width:100%;background:#0a1832;border:1px solid rgba(245,184,65,.5);border-radius:16px;padding:18px;text-align:center">
+    <div style="font:700 40px Georgia,serif;color:#FFD070;line-height:1">2 / ${total}</div>
+    <div style="font:700 16px Inter;color:#fff;margin-top:6px">You have used 2 of your ${total} free searches</div>
+    <div class="sub" style="margin:8px 0 14px;line-height:1.6">One search is left for today. Set your filters carefully before you use it, so the last one counts. Everything you have already found stays available.</div>
+    <button class="btn b-gold" style="width:100%;padding:12px;font-size:15px" onclick="this.closest('.ff-lastchance').remove()">Got it, I will use it carefully</button>
+    <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-lastchance').remove();go('buy')">Or activate a package to reset your searches now</button>
+  </div>`;
+  document.body.appendChild(w);
+}
+function showSearchLocked(d){
+  document.querySelectorAll('.ff-locked-modal').forEach(n=>n.remove());
+  const w=document.createElement('div');
+  w.className='ff-locked-modal';
+  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.88);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.onclick=e=>{if(e.target===w)w.remove()};
+  const when=d.resets_at?new Date(d.resets_at):null;
+  const clock=when?when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'midnight';
+  const dayName=when?when.toLocaleDateString([], {weekday:'long'}):'tomorrow';
+  w.innerHTML=`<div style="max-width:380px;width:100%;background:#0a1832;border:1px solid rgba(245,184,65,.5);border-radius:16px;padding:18px;text-align:center">
+    <div style="font:700 46px Georgia,serif;color:#FFD070;line-height:1">${d.limit||4}/${d.limit||4}</div>
+    <div style="font:700 17px Inter;color:#fff;margin-top:6px">Searches used for today</div>
+    <div class="sub" style="margin:8px 0 14px;line-height:1.6">Everything you have already found is still here, including your analysis and matches.</div>
+    <div style="border:1px solid rgba(0,212,255,.4);background:rgba(0,212,255,.08);border-radius:11px;padding:11px">
+      <div class="sub" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#7EE6FF">New searches in</div>
+      <div style="font:800 26px Inter;color:#00D4FF;margin-top:2px">${esc(d.resets_in_words||'a few hours')}</div>
+      <div class="sub" style="margin-top:3px">at ${esc(clock)} on ${esc(dayName)}</div>
+    </div>
+    <button class="btn b-gold" style="width:100%;margin-top:14px;padding:12px;font-size:15px" onclick="this.closest('.ff-locked-modal').remove();go('buy')">Activate a package to search now</button>
+    <div class="sub" style="margin-top:7px;font-size:11px">Any package resets your searches immediately.</div>
+    <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-locked-modal').remove()">I will wait</button>
+  </div>`;
+  document.body.appendChild(w);
+}
 async function runSearch(kind,opts){
   opts=opts||{};
   window._chkFinal=null;window._chk=null; // fresh scanned counter per search
-  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,licenses:opts.licenses||[],job_types:opts.jobTypes||[],exps:opts.exps||[],program_types:opts.programTypes||[],sectors:opts.sectors||[],langs:opts.langs||[],license_exam:opts.licenseExam||'',license_status:opts.licenseStatus||'',field:opts.field||undefined,intake:opts.intake||undefined}})}catch(e){toast(e.message);return}
+  let d;try{d=await api('/api/run',{method:'POST',body:{kind:kind||undefined,countries:opts.countries||[],funded_only:!!opts.fundedOnly,fundings:opts.fundings||[],levels:opts.levels||[],no_lang:!!opts.noLang,remote:!!opts.remote,licenses:opts.licenses||[],job_types:opts.jobTypes||[],exps:opts.exps||[],program_types:opts.programTypes||[],sectors:opts.sectors||[],langs:opts.langs||[],license_exam:opts.licenseExam||'',license_status:opts.licenseStatus||'',field:opts.field||undefined,intake:opts.intake||undefined}});
+    if(d&&d.searches_left!=null){
+      window._searchLeft=d.searches_left;
+      /* After the second search the user has one left, which is worth saying clearly and
+         calmly before they spend it, not after. */
+      if(d.searches_left===1)setTimeout(()=>showLastChance(d),1100);
+      else if(d.searches_left===0)setTimeout(()=>toast('That was your last search for today. New searches unlock at midnight.'),1100);
+    }
+  }catch(e){
+    // The daily allowance is a normal state, not an error: show the modal, not a toast.
+    if(e&&e.data&&e.data.fair_use){showSearchLocked(e.data);return}
+    toast(e.message);return}
   if(d&&d.ran===false){toast(d.message||'Your recent matches are still fresh.');showMatches(kind,opts);return}
   if(!d.ran){toast(d.message);return}
   // Staged progress ring. Stages reflect the real backend pipeline; the timer paces
@@ -2091,9 +2220,37 @@ function matchStatsTable(list,opts){
     <span style="color:#9db8e8;font:600 11.5px Inter;letter-spacing:.03em;text-transform:uppercase;flex:1 1 45%;min-width:120px">${k}</span>
     <span style="font:700 13.5px Inter;color:#eef4ff;text-align:right;flex:1 1 45%;min-width:110px;word-break:break-word">${v}</span></div>`;
   const scanned=(window._chkFinal||Math.max(240,list.length*18+180));
+  /* A headline block first: three numbers a person can absorb at a glance, then the
+     detailed rows beneath. Statistics only from real scored data, never estimated. */
+  const scores=list.map(pv).filter(p=>p>=0).sort((a,b)=>b-a);
+  const avg=scores.length?Math.round(scores.reduce((s,v)=>s+v,0)/scores.length):null;
+  const strong=scores.filter(p=>p>=80).length;
+  const soon=list.filter(o=>{if(!o.deadline)return false;const d=(new Date(o.deadline)-Date.now())/864e5;return d>0&&d<=30}).length;
+  const topCountries=(function(){
+    const m={};list.forEach(o=>{const c=(o.country_code||'').toUpperCase();if(c)m[c]=(m[c]||0)+1});
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  })();
+  const stat=(v,l,col)=>`<div style="flex:1;min-width:88px;text-align:center;padding:10px 6px">
+    <div style="font:800 24px Georgia,serif;color:${col};line-height:1.1">${v}</div>
+    <div class="sub" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-top:3px">${l}</div></div>`;
   let rows='';
-  rows+=row(CTX.scannedLbl,`<span style="font:800 16px Georgia,serif;color:#00D4FF">${scanned.toLocaleString()}+</span> <span class="sub">official listings</span>`);
-  rows+=row(CTX.selectedLbl,`<span style="font:800 16px Georgia,serif;color:#2dd4bf">${list.length}</span> <span class="sub">in ${ctys.length} countr${ctys.length===1?'y':'ies'}</span>`);
+  rows+=`<div class="row" style="gap:0;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid rgba(140,178,255,.14)">
+    ${stat(scanned.toLocaleString()+'+','sources read','#00D4FF')}
+    ${stat(list.length,'matched to you','#2dd4bf')}
+    ${best>=0?stat(best+'%','best match','#FFD070'):''}
+    ${avg!=null?stat(avg+'%','average match','#B4E4FF'):''}
+  </div>`;
+  if(topCountries.length)rows+=row('Where your matches are',
+    topCountries.map(([c,n])=>`<span class="chip" style="border-color:rgba(0,212,255,.45);color:#B4E4FF">${esc(countryName(c))} · ${n}</span>`).join(' '));
+  // How the shortlist breaks down by quality, so the user knows what they are looking at.
+  const bands={excellent:0,verygood:0,good:0,possible:0};
+  scores.forEach(p=>{const b=matchBand(p);if(b)bands[b.key]++});
+  const bandRow=[['excellent','Excellent (85%+)','#2dd4bf'],['verygood','Very good (70-84%)','#00D4FF'],
+                 ['good','Good (50-69%)','#F5B841']]
+    .filter(([k])=>bands[k]>0)
+    .map(([k,l,c])=>`<span class="chip" style="border-color:${c};color:${c}">${bands[k]} ${l}</span>`).join(' ');
+  if(bandRow)rows+=row('Quality of your matches',bandRow);
+  if(soon)rows+=row('Closing within 30 days',`<span style="color:#F5B841;font-weight:700">${soon}</span> <span class="sub">apply to these first</span>`);
   if(best>=0)rows+=row(CTX.matchLbl,`<span style="color:#2dd4bf;font-weight:800;font-size:15px">${best}%</span>`);
   if(hi)rows+=row(CTX.fitLbl,`<span style="color:#2dd4bf">${hi} ready for you</span>`);
   if(funded)rows+=row(isWork||isLicensing?'Salaried positions':'Fully funded / salaried',`<span style="color:#2dd4bf">${funded} of them</span>`);
@@ -2111,7 +2268,35 @@ function matchStatsTable(list,opts){
       const lvls=(opts.levels||[]);
       const has=x=>lvls.includes(x);
       let items;
-      if(isLicensing){
+      /* FIRST, read what the ACTUAL matched opportunities ask for. A generic list is a
+         guess; the requirements printed on the official pages are the truth. We only fall
+         back to the level/exam defaults when the adverts state nothing useful. */
+      const fromAds=(function(){
+        try{
+          const seen=new Map();
+          const add=(k,txt)=>{if(!seen.has(k))seen.set(k,txt)};
+          for(const o of (list||[]).slice(0,12)){
+            const blob=[o.req_docs,o.requirements,o.eligibility,o.req_language,o.req_license,o.req_field,o.req_degree_level]
+              .filter(Boolean).join(' ').toLowerCase();
+            if(!blob)continue;
+            if(/transcript/.test(blob))            add('tr','Academic transcripts for every degree you hold');
+            if(/degree certificate|diploma|attest/.test(blob)) add('dg','Degree certificates, attested where the country requires it');
+            if(/ielts|toefl|english|oet|language/.test(blob))  add('en','A valid English test score (IELTS, TOEFL or OET)');
+            if(/reference|referee|recommendation/.test(blob))  add('rf','Two or three referees who can speak to your work');
+            if(/research (statement|proposal|plan)|statement of purpose|motivation/.test(blob)) add('rs','A research statement or statement of purpose');
+            if(/publication|paper/.test(blob))      add('pb','Your publication list, with PDFs where you have them');
+            if(/licen[cs]e|registration|council|dataflow|prometric/.test(blob)) add('lc','Your professional licence or registration certificate');
+            if(/passport|identity|cnic/.test(blob)) add('pp','Passport, valid for the whole application period');
+            if(/cv|curriculum|resume/.test(blob))   add('cv','A full academic CV including publications');
+            if(/experience (letter|certificate)|employment/.test(blob)) add('ex','Experience or employment letters from each employer');
+            if(/police|clearance|good standing/.test(blob)) add('gs','A good-standing or police clearance certificate');
+          }
+          return [...seen.values()];
+        }catch(e){return []}
+      })();
+      if(fromAds.length>=2){
+        items=fromAds.slice(0,5);
+      } else if(isLicensing){
         // Per-exam essentials; kept tight. Country/authority-specific verification named.
         const L=(licName||'').toUpperCase();
         // Region + authority aware. Every major licensing exam is covered; each shows its
@@ -2325,6 +2510,8 @@ async function showMatches(kind,opts){
   if(opts.field)push('q',opts.field);
   const extraQ=qp.length?'&'+qp.join('&'):'';
   window._relaxNote=null;
+  // Track the remaining daily allowance so the user is never surprised by the limit.
+  // (remaining allowance is read from the run response below)
   for(const k of kinds){try{const d=await api('/api/opportunities?kind='+k+'&match=1&sort=recent'+extraQ);list=list.concat(d.opportunities||[]);if(d.relaxed)window._relaxNote=d.relaxed}catch(e){}}
   const seen=new Set();list=list.filter(o=>o.id&&!seen.has(o.id)&&seen.add(o.id));
   if(opts.remote)list=list.filter(o=>o.remote!==false);
@@ -2362,7 +2549,12 @@ async function showMatches(kind,opts){
   ${noneOpen?'':`<h3 style="margin:12px 0 8px;color:#fff">Your best-matched opportunities <span class="sub">· highest score first</span></h3>`}`
   // Before a package is chosen we show NO opportunity list at all: only the analysis and
   // the package choice. Opportunities appear on the next view, after activation.
-  +(noneOpen?'':shown.map(o=>oppCard(o)).join(''));
+  /* Free users previously saw statistics and no opportunities at all, so they were asked
+     to pay on faith. They now see the real cards with identity withheld: level, country,
+     funding, deadline and match score are visible; the institution name and official link
+     are not. Enough to believe the value is real, not enough to bypass paying for it. */
+  +(noneOpen?shown.slice(0,3).map(o=>oppCard(o)).join(''):shown.map(o=>oppCard(o)).join(''))
+  +(noneOpen&&shown.length>3?`<div class="sub" style="text-align:center;margin:10px 0 2px">and ${shown.length-3} more matched to you</div>`:'');
   const wrap=document.createElement('div');wrap.className='ffmatches';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:65;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
@@ -2539,7 +2731,18 @@ async function launchFinder(btn){
   document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
   runSearch(kindSafe,opts);
 }
+async function setOutcome(id,outcome,btn){
+  btn.disabled=true;
+  try{await api('/api/applications/'+id+'/outcome',{method:'POST',body:{outcome}});
+    toast('Thank you, that helps.');cacheClear();openApp(id);}
+  catch(e){toast(e.message);btn.disabled=false}
+}
 async function openApp(id){
+  // Know what the applicant already holds, so we never ask for a document twice.
+  if(window._myDocNames===undefined){
+    window._myDocNames=[];
+    try{const d=await api('/api/documents');window._myDocNames=(d.documents||[]).map(x=>((x.name||'')+' '+(x.kind||'')))}catch(e){}
+  }
   // Capture which document kinds the user already has, so we only ask for missing ones.
   try{const dd=await api('/api/documents');window._userDocKinds=[...new Set((dd.documents||[]).map(x=>x.kind))];}catch(e){window._userDocKinds=window._userDocKinds||[];}
   let d;try{d=await api('/api/applications/'+id)}catch(e){toast(e.message);return}
@@ -2564,6 +2767,55 @@ async function openApp(id){
     <b style="color:#2dd4bf;font-size:13px">Verified opportunity</b>
     <div class="sub" style="margin-top:2px">${opp.verified_at?`Checked ${(d2=>{const h=Math.max(1,Math.round((Date.now()-new Date(opp.verified_at).getTime())/36e5));return h<48?h+'h ago':Math.round(h/24)+' days ago'})()}`:'Verified'} on the official page${opp.deadline?` · deadline ${esc(opp.deadline)} confirmed`:''}${opp.url?` · <a href="${escAttr(opp.url)}" target="_blank" rel="noopener" style="color:#00D4FF">see it yourself ↗</a>`:''}</div>
   </div>
+  ${(function(){
+    // One quiet question, only after an application has been sent and had time to land.
+    try{
+      if(a.outcome)return `<div class="sub" style="margin-top:10px">Outcome recorded: <b style="color:#2dd4bf">${esc(String(a.outcome).replace(/_/g,' '))}</b>. Thank you, this helps us match better for everyone.</div>`;
+      const sent=['application_sent','submitted','submitted_email','submitted_portal'].includes(a.stage);
+      if(!sent)return '';
+      const days=(Date.now()-new Date(a.updated_at||a.created_at||Date.now()).getTime())/864e5;
+      if(days<14)return '';
+      return `<div class="card" style="margin-top:10px;border-color:rgba(0,212,255,.4)">
+        <b style="font-size:13.5px">Did you hear back?</b>
+        <div class="sub" style="margin:4px 0 8px">One tap. It stays private, and it teaches the system what genuinely works.</div>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          ${[['no_reply','No reply yet'],['rejected','Not selected'],['interview','Interview'],['offer','Offer'],['accepted','Accepted']]
+            .map(([k,l])=>`<button class="segbtn" onclick="setOutcome('${a.id}','${k}',this)">${l}</button>`).join('')}
+        </div></div>`;
+    }catch(e){return ''}
+  })()}
+  ${(function(){
+    /* Per-case document request. Read from THIS opportunity's own requirements and
+       compared against what the applicant has already uploaded, so we ask only for what
+       is genuinely missing, and never guess. */
+    try{
+      const o=a.opportunities||{};
+      const blob=[o.req_docs,o.requirements,o.eligibility,o.req_language,o.req_license]
+        .filter(Boolean).join(' ').toLowerCase();
+      if(!blob)return '';
+      const have=(window._myDocNames||[]).join(' ').toLowerCase();
+      const need=[];
+      const want=(re,haveRe,label,why)=>{
+        if(!re.test(blob))return;
+        if(haveRe.test(have))return;
+        need.push([label,why]);
+      };
+      want(/transcript/,/transcript/,'Academic transcripts','This opportunity asks for them by name.');
+      want(/degree certificate|diploma|attest/,/degree|certificate/,'Degree certificate','Attested if the country requires it.');
+      want(/ielts|toefl|oet|english test|language requirement/,/ielts|toefl|oet/,'English test score','A valid score is part of their stated requirements.');
+      want(/reference|referee|recommendation/,/reference|referee|recommend/,'Referee details','Names, roles and emails of two or three referees.');
+      want(/publication|paper/,/publication|paper|thesis/,'Publications or thesis','Lets us cite your own work accurately in the letter.');
+      want(/licen[cs]e|registration|council|dataflow|prometric/,/licen|registration/,'Licence or registration','Named in this advert as a requirement.');
+      want(/experience (letter|certificate)|employment/,/experience|employment/,'Experience letters','From each employer you list.');
+      if(!need.length)return '';
+      return `<div class="card" style="margin-top:10px;border:1px solid rgba(0,212,255,.5);background:rgba(0,212,255,.06)">
+        <b style="color:#7EE6FF;font-size:14px">Upload these to strengthen this application</b>
+        <div class="sub" style="margin:4px 0 8px">Taken from this opportunity's own stated requirements. Anything you add is saved to your profile and reused automatically next time.</div>
+        ${need.slice(0,5).map(([l,w])=>`<div class="sub" style="padding:3px 0"><span style="color:#00D4FF">•</span> <b style="color:#EAF2FF">${esc(l)}</b> — ${esc(w)}</div>`).join('')}
+        <button class="btn b-line" style="width:100%;margin-top:9px" onclick="window._uploadKind=null;document.getElementById('doc-files').click()">Upload documents</button>
+      </div>`;
+    }catch(e){return ''}
+  })()}
   ${a.stage==='portal_apply'||(a.opportunities||{}).apply_via==='portal'?`<div class="card" style="margin-top:10px;border:2px solid #F5B841;background:linear-gradient(160deg,rgba(245,184,65,.14),rgba(22,131,255,.05))">
     <b style="color:#FFD070;font-size:15px">This position applies through its official portal</b>
     <div class="sub" style="margin:6px 0 8px">Your details are already prepared. Follow these three steps and the assistant fills the portal for you.</div>
@@ -2651,7 +2903,7 @@ async function openApp(id){
   <div class="card"><h3>Case notes</h3>
   <textarea id="case-notes" style="min-height:70px" placeholder="Your private notes for this case…">${esc(a.notes||'')}</textarea>
   <div class="row" style="margin-top:8px"><button class="btn b-line" onclick="saveNotes('${a.id}',this)">Save notes</button>
-  <button class="btn b-line" onclick="downloadGuide('${a.id}',this)">Future Path Guide (PDF)</button>${((typeof d!=='undefined'&&d.documents)||[]).some(x=>x.themed_key)?`<button class="btn b-gold" onclick="downloadThemedCV('${a.id}',this)">Download your tailored CV, your original design kept</button>`:''}</div></div>
+  <button class="btn b-line" onclick="downloadGuide('${a.id}',this)">Future Path Guide (PDF)</button>${((typeof d!=='undefined'&&d.documents)||[]).some(x=>x.themed_key)?`<button class="btn b-gold" onclick="downloadThemedCV('${a.id}',this)">Download your CV, your original design kept</button>`:''}</div></div>
   ${msg?`<div class="card" style="border-color:var(--ink)"><h3>Application email</h3>
   <div class="sub" style="margin:6px 0">To: ${msg.to_emails&&msg.to_emails.length?esc(msg.to_emails.join(', ')):'<i>no official email published, portal application</i>'}</div>
   <div style="font-weight:600">${esc(msg.subject)}</div>
@@ -2676,7 +2928,7 @@ async function downloadThemedCV(appId,btn){
     const r=await fetch('/api/applications/'+appId+'/cv.docx',{headers:{authorization:'Bearer '+((SESSION&&SESSION.access_token)||'')}});
     if(!r.ok)throw new Error('Themed CV not ready yet');
     const blob=await r.blob();const u=URL.createObjectURL(blob);const link=document.createElement('a');link.href=u;link.download='ForiForeign_CV.docx';link.click();setTimeout(()=>URL.revokeObjectURL(u),4000);
-    toast('✓ Your tailored CV downloaded. Check your Downloads folder. It opens in Word with your original design.');
+    toast('✓ Your CV downloaded. Check your Downloads folder. It opens in Word with your original design.');
   }catch(e){toast(e.message)}finally{btn.textContent=old;btn.disabled=false}
 }
 async function downloadGuide(appId,btn){
@@ -2944,9 +3196,7 @@ async function vApps(){
   catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const apps=d.applications||[];
   const stageChip=s=>({matched:'c-gray',preparing:'c-gold',prepared:'c-green',awaiting_authorization:'c-gold',submitted_email:'c-blue',submitted_portal:'c-blue',replied:'c-green',interview:'c-green',offer:'c-green',closed:'c-gray',archived:'c-gray'}[s]||'c-gray');
-  const crLeft=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
   $('view').innerHTML=`<h2 style="margin-bottom:10px">My applications</h2>
-  <button class="btn b-gold" style="width:100%;font-size:16px;padding:14px;margin-bottom:12px;box-shadow:0 6px 22px rgba(245,184,65,.35)" onclick="go('buy')">✦ Buy Our Packages${crLeft<1?', unlock your matches':''}</button>
   ${apps.length?apps.map(a=>`<div class="card" style="cursor:pointer" onclick="openApp('${a.id}')">
   <div class="spread"><div style="min-width:0"><b>${esc((a.opportunities||{}).institution||'')}</b>
   <div class="sub">${esc((a.opportunities||{}).title||'')}</div>
@@ -3193,7 +3443,7 @@ function uploadAll(){
   document.body.appendChild(wrap);
 }
 function toggleDocList(){const el=$('docSections');if(el)el.style.display=el.style.display==='none'?'block':'none';}
-async function uploadDocs(){window._afterUpload=()=>{
+async function uploadDocs(){window._afterUpload=()=>{window._myDocNames=undefined;
   /* Reading a CV takes time and runs in several passes. We wait until the profile
      STOPS GROWING (two consecutive checks with no new detail) rather than stopping at
      an arbitrary count, so step 2 never opens on a half-read profile. */
@@ -3530,6 +3780,25 @@ async function adminSettings(){
       const on=(((window._cfg||{}).features||{})[f])!==false;
       return `<button class="segbtn ${on?'on':''}" onclick="(function(){const x=window._cfg.features=window._cfg.features||{};x['${f}']=!(x['${f}']!==false);adminSettings()})()">${on?'ON':'OFF'} ${f.replace(/_/g,' ')}</button>`;
     }).join('')}
+  </div>
+  <label style="font-size:11px;margin-top:10px;display:block">Fair use, monthly AI spend per account (USD)</label>
+  <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:4px">
+    <div style="flex:1;min-width:110px"><label style="font-size:10.5px">Soft warning</label>
+      <input type="number" step="0.5" value="${((window._cfg||{}).fair_use||{}).soft_usd||1.5}" oninput="window._cfg.fair_use=window._cfg.fair_use||{};window._cfg.fair_use.soft_usd=parseFloat(this.value)||1.5"></div>
+    <div style="flex:1;min-width:110px"><label style="font-size:10.5px">Hard pause</label>
+      <input type="number" step="0.5" value="${((window._cfg||{}).fair_use||{}).hard_usd||3}" oninput="window._cfg.fair_use.hard_usd=parseFloat(this.value)||3"></div>
+    <div style="flex:1;min-width:110px"><label style="font-size:10.5px">Paid multiplier</label>
+      <input type="number" step="1" value="${((window._cfg||{}).fair_use||{}).paid_multiplier||4}" oninput="window._cfg.fair_use.paid_multiplier=parseInt(this.value)||4"></div>
+  </div>
+  <div style="flex:1;min-width:110px;margin-top:8px"><label style="font-size:10.5px">Daily cap (USD)</label>
+    <input type="number" step="0.05" value="${((window._cfg||{}).fair_use||{}).daily_usd||0.25}" oninput="window._cfg.fair_use=window._cfg.fair_use||{};window._cfg.fair_use.daily_usd=parseFloat(this.value)||0.25"></div>
+  <div class="sub" style="margin-top:4px;font-size:11px">Limits are per calendar month, resetting on the 1st, with a separate daily cap. About $0.10 per search, so 0.60 is roughly 6 searches a month and 0.25 is 2 a day. Staff are exempt and prepared cases are never blocked.</div>
+  <label style="font-size:11px;margin-top:10px;display:block">AI models (leave blank for defaults)</label>
+  <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:4px">
+    <div style="flex:1;min-width:150px"><label style="font-size:10.5px">Gemini primary</label>
+      <input placeholder="gemini-3.7-flash" value="${escAttr(((window._cfg||{}).models||{}).gemini_primary||'')}" oninput="window._cfg.models=window._cfg.models||{};window._cfg.models.gemini_primary=this.value"></div>
+    <div style="flex:1;min-width:150px"><label style="font-size:10.5px">Gemini fallback</label>
+      <input placeholder="gemini-3.6-flash" value="${escAttr(((window._cfg||{}).models||{}).gemini_fallback||'')}" oninput="window._cfg.models.gemini_fallback=this.value"></div>
   </div>
   <button class="btn b-gold" style="width:100%;margin-top:12px" onclick="saveOps(this)">Save operations settings, deploy now</button></div>
   <div class="card"><h3>🔔 Notification wording</h3>
@@ -4390,7 +4659,7 @@ async function vBuy(){
       ${rv.map(r=>`<div style="margin-top:7px"><span style="color:#FFD070">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</span> <span class="sub" style="color:#EAF2FF">${esc(String(r.text).slice(0,90))}</span> <span class="sub">— ${esc(r.name||'Client')}</span></div>`).join('')}
     </div>`:'';})()}
   <div class="card"><h3 style="margin-top:0">How credits work</h3>
-  <div class="sub" style="line-height:1.7">Your credits never expire before your chosen opportunities do, use them anytime. Searching is always free and unlimited; a credit is spent only when YOU pick an opportunity and confirm. Every prepared case is fully editable and re-openable at no extra cost.</div></div>
+  <div class="sub" style="line-height:1.7">Your credits never expire before your chosen opportunities do, use them anytime. Everyone gets 3 searches a day, and activating a package resets your searches immediately so you start again from three. A credit is spent only when YOU pick an opportunity and confirm. Every prepared case is fully editable and re-openable at no extra cost.</div></div>
   <div class="card" style="margin-top:14px"><h3>How to pay</h3>
   <div class="sub" style="margin-top:6px;line-height:1.7">${esc((SITE&&SITE.payment&&SITE.payment.instructions)||'Transfer to the account below, then submit your reference.')}</div>
   ${SITE&&SITE.payment&&(SITE.payment.account_number||SITE.payment.iban||SITE.payment.jazzcash_number||SITE.payment.easypaisa_number)?`<div class="card" style="background:var(--soft);margin-top:8px">
