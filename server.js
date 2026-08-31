@@ -81,7 +81,7 @@ function pdfSafe(t) {
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R3440';
+const FF_BUILD = '2026-08-28-R3520';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -1812,6 +1812,14 @@ app.post('/api/documents', auth, up.array('files', 20), enforceUploadLimits, asy
     }
     const ok = results.some(r => !r.error);
     res.json({ ok, results, autofill: ok });
+    // A referred user uploading a document is the qualification event: check the
+    // referrer's milestones now so rewards issue automatically, never manually.
+    try {
+      const { data: prof } = await admin().from('profiles').select('referred_by').eq('id', req.userId).single();
+      if (prof && prof.referred_by && prof.referred_by !== req.userId) {
+        require('./lib/referral').syncRewards(prof.referred_by).catch(() => {});
+      }
+    } catch (e) {}
     if (ok) setTimeout(() => {
       // Extraction rides the same surge gate as search and prepare: even 50
       // simultaneous uploads queue fairly instead of storming the AI provider.
@@ -2098,6 +2106,73 @@ app.post('/api/opportunities/:id/reject', auth, async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 /* Referral claim: a new user attaches to the friend whose link brought them. */
+/* ---------- Referral rewards: qualified referrals earn free Solo credits ---------- */
+/* Has this account ever paid? Referral rewards are for paying customers only, so the
+   programme cannot be farmed by accounts that never buy anything. */
+async function hasEverPaid(userId) {
+  try {
+    const { data } = await admin().from('payments').select('id').eq('user_id', userId).eq('status', 'confirmed').limit(1);
+    if (data && data.length) return true;
+    // A granted or promo credit also counts as an activated customer.
+    const { data: led } = await admin().from('credit_ledger').select('id')
+      .eq('user_id', userId).in('reason', ['purchase', 'promo_grant', 'support_grant']).limit(1);
+    return !!(led && led.length);
+  } catch (e) { return false; }
+}
+app.get('/api/referral/status', auth, async (req, res) => {
+  try {
+    const R = require('./lib/referral');
+    const paid = await hasEverPaid(req.userId);
+    if (!paid) {
+      return res.json({ eligible: false,
+        reason: 'Referral rewards unlock once you activate any package. Choose a package to start inviting and earning.' });
+    }
+    const cfg = await R.settings();
+    const sync = await R.syncRewards(req.userId);
+    const w = await R.wallet(req.userId);
+    const { data: me } = await admin().from('profiles').select('referral_code').eq('id', req.userId).single();
+    let code = me && me.referral_code;
+    if (!code) {
+      code = 'FF' + req.userId.replace(/-/g, '').slice(0, 8).toUpperCase();
+      try { await admin().from('profiles').update({ referral_code: code }).eq('id', req.userId); } catch (e) {}
+    }
+    const perMilestone = cfg.per_milestone;
+    const toNext = perMilestone - (sync.qualified % perMilestone);
+    res.json({
+      eligible: true,
+      code,
+      link: 'https://foriforeign.com/?ref=' + code,
+      per_milestone: perMilestone,
+      credits_per_milestone: cfg.credits_per_milestone,
+      expiry_months: cfg.expiry_months,
+      qualified: sync.qualified,
+      pending: sync.pending,
+      total: sync.qualified + sync.pending,
+      progress: sync.qualified % perMilestone,
+      to_next: sync.qualified > 0 && toNext === perMilestone ? perMilestone : toNext,
+      available: w.active.length,
+      used: w.used,
+      expired: w.expired,
+      // Never expose who the referred people are; only dates and status.
+      credits: w.all.map(c => ({ milestone: c.milestone, earned_at: c.earned_at, expires_at: c.expires_at, status: c.status }))
+    });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Redeem one free Solo credit. Serialized per user so two taps cannot double-spend. */
+app.post('/api/referral/redeem', auth, (req, res) => withUserLock(req.userId, async () => {
+  try {
+    const R = require('./lib/referral');
+    const credit = await R.redeem(req.userId, 'solo_activation');
+    if (!credit) return res.status(400).json({ error: 'You have no active free credits right now.' });
+    // Grant exactly one Solo case credit through the normal ledger.
+    await admin().from('credit_ledger').insert({
+      user_id: req.userId, delta: 1, reason: 'referral_reward',
+      note: 'Free Solo credit from referral milestone ' + credit.milestone
+    });
+    try { await admin().from('audit_log').insert({ actor: req.userId, event: 'REFERRAL_REDEEM', detail: 'milestone ' + credit.milestone + ', credit ' + credit.id }); } catch (e) {}
+    res.json({ ok: true, expires_at: credit.expires_at, milestone: credit.milestone });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+}));
 app.post('/api/referral/claim', auth, async (req, res) => {
   const code = String(req.body && req.body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
   if (!code) return res.status(400).json({ error: 'Code required' });

@@ -788,6 +788,10 @@ async function savePackages(btn){
     toast('Packages saved (v'+d.version+'). Live for all users now.');await loadSiteConfig();vAdmin();
   }catch(e){toast(e.message);btn.disabled=false}
 }
+function priceToken(txt){
+  // Policy and help copy carry __PRICE__ so a price change in admin updates every page.
+  try{return String(txt||'').replace(/__PRICE__/g,'Rs '+lowestPkgPrice().toLocaleString())}catch(e){return String(txt||'')}
+}
 function lowestPkgPrice(){
   try{const t=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).filter(x=>x&&x.pkr>0);
     if(t.length)return Math.min(...t.map(x=>x.pkr));}catch(e){}
@@ -947,15 +951,15 @@ function onWorldSelect(sel){
 function landingInfo(which){
   const c=(SITE&&SITE.content)||{};
   if(which==='refund'){
-    const body=`<h2>Refunds &amp; fair use</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.refund||'Your CV analysis and match scores are completely free, so you see exactly what ForiForeign found for you before paying anything.\n\nOur requirements promise: every stated requirement of an opportunity is shown to you before your credit is used, and you confirm it. If the official page later shows a requirement we did not list at that moment, the credit for that case is returned.\n\nPaid packages are credits for searches and prepared applications. Unused credits are refundable within 14 days of purchase. Credits already spent on delivered work (a completed search or a prepared application) are not refundable, because the work has been done.\n\nWe never charge for admission outcomes and never guarantee admission, scholarship, or visa results, no honest service can. What we guarantee is the work: verified opportunities from official sources, and complete, tailored application preparation.\n\nTo request a refund, message Support from your account. Refunds are returned by your original payment method within 7 working days.')}</div>`;
+    const body=`<h2>Refunds &amp; fair use</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(priceToken(c.refund)||'Your CV analysis and match scores are completely free, so you see exactly what ForiForeign found for you before paying anything.\n\nOur requirements promise: every stated requirement of an opportunity is shown to you before your credit is used, and you confirm it. If the official page later shows a requirement we did not list at that moment, the credit for that case is returned.\n\nPaid packages are credits for searches and prepared applications. Unused credits are refundable within 14 days of purchase. Credits already spent on delivered work (a completed search or a prepared application) are not refundable, because the work has been done.\n\nWe never charge for admission outcomes and never guarantee admission, scholarship, or visa results, no honest service can. What we guarantee is the work: verified opportunities from official sources, and complete, tailored application preparation.\n\nTo request a refund, message Support from your account. Refunds are returned by your original payment method within 7 working days.')}</div>`;
     const wrap=document.createElement('div');
     wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
     wrap.innerHTML=`<div class="sheet" style="max-width:560px;margin:0 auto">${body}<div class="row" style="margin-top:12px"><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">Close</button></div></div>`;
     document.body.appendChild(wrap);return;
   }
   const body=which==='privacy'
-    ?`<h2>Your privacy</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.privacy||'Your documents are private and used only for your applications.')}</div>`
-    :`<h2>How it works</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(c.help||'Build your profile, find matches, apply with confidence.')}</div>`;
+    ?`<h2>Your privacy</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(priceToken(c.privacy)||'Your documents are private and used only for your applications.')}</div>`
+    :`<h2>How it works</h2><div class="sub" style="line-height:1.8;margin-top:8px;white-space:pre-wrap">${esc(priceToken(c.help)||'Build your profile, find matches, apply with confidence.')}</div>`;
   const wrap=document.createElement('div');
   wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:560px;margin:0 auto;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
@@ -1125,6 +1129,29 @@ async function toggleLicStage(k){
   window._licDone=[...cur];
   try{await api('/api/licence-journey',{method:'PUT',body:{done:window._licDone}});toast('Progress saved.');vHome()}catch(e){toast(e.message)}
 }
+async function loadReferral(){
+  try{window._ref=await api('/api/referral/status')}catch(e){window._ref=null}
+}
+async function applyRefCode(btn){
+  const el=document.getElementById('refCodeIn');
+  const code=(el&&el.value||'').trim().toUpperCase();
+  if(!code){toast('Enter the code your friend gave you.');return}
+  btn.disabled=true;
+  try{
+    await api('/api/referral/claim',{method:'POST',body:{code}});
+    window._refEntered=true;
+    toast('Thank you. Your friend will be credited once you upload your CV.');
+    try{ME=(await api('/api/me')).me}catch(e){}
+    vHome();
+  }catch(e){toast(e.message);btn.disabled=false}
+}
+async function useFreeCredit(btn){
+  btn.disabled=true;
+  try{const d=await api('/api/referral/redeem',{method:'POST'});
+    toast('Free Solo credit applied. One case is now yours, no payment needed.');
+    cacheClear();window._ref=null;await loadReferral();HM=null;vHome();
+  }catch(e){toast(e.message);btn.disabled=false}
+}
 function promoTicker(){
   if(window._promoIv){clearInterval(window._promoIv);window._promoIv=null;}
   if(!(HM&&HM.promo&&HM.promo.active&&HM.promo.ends_at))return;
@@ -1143,6 +1170,7 @@ function promoTicker(){
 }
 async function vHome(){
   setTimeout(promoTicker,300);
+  if(window._ref===undefined){window._ref=null;loadReferral().then(()=>{if(TAB==='home'&&window._ref)vHome()}).catch(()=>{});}
   if(window._licDone===undefined){try{await loadLicJourney()}catch(e){}}
   // SPEED: on a slow connection, paint instantly from the last dashboard while we refresh.
   let S={state:'new',hasCV:false,appCount:0},HM=null;
@@ -1172,6 +1200,56 @@ async function vHome(){
       <div class="sub" style="margin:4px 0 8px">Tick each step as you complete it, so you always know exactly where you stand.</div>
       ${Object.keys(LBL).map(k=>`<div class="sub" style="padding:3px 0;cursor:pointer" onclick="toggleLicStage('${k}')"><span style="color:${done.includes(k)?'#2dd4bf':'#7d93b8'}">${done.includes(k)?'☑':'☐'}</span> ${LBL[k]}</div>`).join('')}</div>`;
     }catch(e){return ''}})()}
+    ${(function(){
+      // A new user who heard about us by word of mouth needs a way to enter a friend's
+      // code. Shown only while they have no referrer recorded and have not applied one.
+      try{
+        const st=window._ref;
+        const noRef=!(ME&&ME.referred_by);
+        const fresh=!(HM&&HM.credits&&HM.credits.creditsRemaining>0);
+        if(noRef&&fresh&&!window._refEntered){
+          return `<div class="card" style="border-color:rgba(140,178,255,.35);margin-bottom:12px">
+            <b style="font-size:14px">Invited by a friend?</b>
+            <div class="sub" style="margin:4px 0 8px">Enter their referral code so they get credit for inviting you.</div>
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <input id="refCodeIn" placeholder="e.g. FF12AB34" style="flex:1;min-width:150px;text-transform:uppercase">
+              <button class="btn b-line" onclick="applyRefCode(this)">Apply code</button>
+            </div></div>`;
+        }
+      }catch(e){}
+      return '';
+    })()}
+    ${(function(){
+      const r=window._ref;
+      if(!r)return '';
+      // Not yet a paying customer: show the offer and how to unlock it, never a blank space.
+      if(r.eligible===false){
+        return `<div class="card" style="border-color:rgba(245,184,65,.35);background:rgba(245,184,65,.06);margin-bottom:12px">
+          <b style="color:#FFD070;font-size:15px">Refer &amp; Earn</b>
+          <div class="sub" style="margin:4px 0 8px">${esc(r.reason||'Activate any package to start inviting friends and earning free cases.')}</div>
+          <button class="btn b-line" onclick="go('buy')">See packages</button></div>`;
+      }
+      if(!r.code)return '';
+      const pct=Math.round(100*(r.progress||0)/(r.per_milestone||5));
+      return `<div class="card" style="border:1px solid rgba(245,184,65,.5);background:linear-gradient(135deg,rgba(245,184,65,.10),rgba(22,131,255,.05));margin-bottom:12px">
+        <div class="spread" style="align-items:center;flex-wrap:wrap;gap:8px">
+          <div><b style="color:#FFD070;font-size:15px">Refer &amp; Earn</b>
+          <div class="sub" style="margin-top:2px">Invite ${r.per_milestone} people who upload a CV, earn ${r.credits_per_milestone} free Solo credit.</div></div>
+          ${r.available>0?`<span class="chip c-green">${r.available} free credit${r.available===1?'':'s'} ready</span>`:''}
+        </div>
+        <div style="margin-top:10px">
+          <div class="sub" style="display:flex;justify-content:space-between"><span>Qualified referrals</span><b>${r.qualified||0} · ${r.progress||0}/${r.per_milestone}</b></div>
+          <div style="height:8px;background:rgba(140,178,255,.18);border-radius:99px;overflow:hidden;margin-top:4px">
+            <div style="height:8px;width:${Math.max(2,pct)}%;background:linear-gradient(90deg,#1683FF,#F5B841)"></div></div>
+          ${r.to_next?`<div class="sub" style="margin-top:4px">${r.to_next} more to your next free credit.</div>`:''}
+        </div>
+        ${(r.credits||[]).filter(c=>c.status==='active').slice(0,2).map(c=>`<div class="sub" style="margin-top:6px;color:#2dd4bf">1 credit expires ${esc(String(c.expires_at).slice(0,10))}</div>`).join('')}
+        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn b-line" onclick="copyTxt('${escAttr(r.link)}',this)">Copy invite link</button>
+          <button class="btn b-line" onclick="referralCard()">Share card</button>
+          ${r.available>0?`<button class="btn b-gold" onclick="useFreeCredit(this)">Use free credit</button>`:''}
+        </div></div>`;
+    })()}
     <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap"><div class="home-hero-badge">${ME&&ME.full_name?('Welcome, '+esc(ME.full_name.split(' ')[0])):H.badge}</div></div>
     <h1 class="home-hero-h" style="line-height:1.35">We Discover&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Personalize&nbsp;<span style="color:#00D4FF">|</span>&nbsp;We Prepare&nbsp;<span style="color:#00D4FF">|</span>&nbsp;You Approve</h1>
     <div style="font:700 15px Inter;color:#B4E4FF;margin-top:2px;letter-spacing:.02em">Everything Ready. <span style="background:linear-gradient(90deg,#1683FF,#00D4FF);-webkit-background-clip:text;background-clip:text;color:transparent">Fori 4 Foreign.</span></div>
@@ -3092,7 +3170,7 @@ async function adminSettings(){
       <button class="btn b-line" style="padding:3px 10px" onclick="window._cfg.packages.tiers.splice(${i},1);adminSettings()">Remove</button>
     </div></div>`).join('')}</div>
   <div class="row" style="margin-top:6px">
-    <button class="btn b-line" onclick="window._cfg.packages=window._cfg.packages||{tiers:[]};window._cfg.packages.tiers.push({key:'tier'+Date.now(),name:'New Package',credits:1,view:2,pkr:2000,feats:[]});adminSettings()">+ Add package</button>
+    <button class="btn b-line" onclick="window._cfg.packages=window._cfg.packages||{tiers:[]};window._cfg.packages.tiers.push({key:'tier'+Date.now(),name:'New Package',credits:1,view:2,pkr:lowestPkgPrice(),feats:[]});adminSettings()">+ Add package</button>
     <button class="btn b-gold" onclick="savePackages(this)">Save packages, deploy now</button>
   </div></div>
   <div class="card" style="border-color:rgba(0,212,255,.5)"><h3>⚙️ Operations &amp; limits</h3>
@@ -3120,7 +3198,7 @@ async function adminSettings(){
   </div>
   <label style="font-size:11px;margin-top:10px;display:block">Feature switches</label>
   <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">
-    ${['signup_enabled','payments','discovery_enabled','prepare_enabled','opportunity_search','free_first_case','reviews'].map(f=>{
+    ${['signup_enabled','payments','discovery_enabled','prepare_enabled','opportunity_search','reviews'].map(f=>{
       const on=(((window._cfg||{}).features||{})[f])!==false;
       return `<button class="segbtn ${on?'on':''}" onclick="(function(){const x=window._cfg.features=window._cfg.features||{};x['${f}']=!(x['${f}']!==false);adminSettings()})()">${on?'ON':'OFF'} ${f.replace(/_/g,' ')}</button>`;
     }).join('')}
@@ -3150,7 +3228,6 @@ async function adminSettings(){
   <div class="card"><h3>Social links</h3>
   ${F('social','facebook','Facebook')}${F('social','instagram','Instagram')}${F('social','linkedin','LinkedIn')}${F('social','youtube','YouTube')}${F('social','google_business','Google Business')}${F('social','website','Website')}</div>
   <div class="card"><h3>Features</h3>
-  ${T('features','free_first_case','Free first case for new users')}
   ${T('features','payments','Payments enabled')}
   ${T('features','opportunity_search','Opportunity search enabled')}
   </div>
@@ -3198,32 +3275,216 @@ function homeCvPick(){
   };
   inp.click();
 }
+/* Compact QR generator (byte mode, ECC level M). Dependency-free so the share card
+   works offline and adds no third-party script to the page. */
+const QR=(function(){
+  const EXP=new Array(512),LOG=new Array(256);
+  (function(){let x=1;for(let i=0;i<255;i++){EXP[i]=x;LOG[x]=i;x<<=1;if(x&0x100)x^=0x11d}for(let i=255;i<512;i++)EXP[i]=EXP[i-255]})();
+  const mul=(a,b)=>(a===0||b===0)?0:EXP[LOG[a]+LOG[b]];
+  function genPoly(n){let p=[1];for(let i=0;i<n;i++){const q=[1,EXP[i]],r=new Array(p.length+1).fill(0);
+    for(let j=0;j<p.length;j++)for(let k=0;k<2;k++)r[j+k]^=mul(p[j],q[k]);p=r}return p}
+  function ecc(data,n){const res=new Array(n).fill(0),g=genPoly(n);
+    for(const d of data){const f=d^res[0];res.shift();res.push(0);
+      for(let i=0;i<n;i++)res[i]^=mul(g[i+1],f)}return res}
+  // capacity/config per version for ECC-M, byte mode
+  const V=[null,
+   {size:21,cap:14,ec:10,blocks:[[1,26,16]]},
+   {size:25,cap:26,ec:16,blocks:[[1,44,28]]},
+   {size:29,cap:42,ec:26,blocks:[[1,70,44]]},
+   {size:33,cap:62,ec:18,blocks:[[2,50,32]]},
+   {size:37,cap:84,ec:24,blocks:[[2,64,43]]},
+   {size:41,cap:106,ec:16,blocks:[[4,43,27]]},
+   {size:45,cap:122,ec:18,blocks:[[4,49,31]]},
+   {size:49,cap:152,ec:22,blocks:[[2,60,38],[2,61,39]]}];
+  const ALIGN=[[],[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42]];
+  function make(text){
+    const bytes=new TextEncoder().encode(text);
+    let v=1;while(v<V.length&&bytes.length>V[v].cap)v++;
+    if(v>=V.length)throw new Error('QR: text too long');
+    const cfg=V[v],size=cfg.size;
+    // bit stream: mode(4) + length(8) + data + terminator
+    const bits=[];const put=(val,len)=>{for(let i=len-1;i>=0;i--)bits.push((val>>i)&1)};
+    put(4,4);put(bytes.length,8);for(const b of bytes)put(b,8);
+    const totalData=cfg.blocks.reduce((s,[c,t,d])=>s+c*d,0);
+    while(bits.length<totalData*8&&bits.length%8!==0)bits.push(0);
+    while(bits.length<totalData*8){put(0xEC,8);if(bits.length<totalData*8)put(0x11,8)}
+    const dataBytes=[];for(let i=0;i<bits.length;i+=8){let b=0;for(let j=0;j<8;j++)b=(b<<1)|bits[i+j];dataBytes.push(b)}
+    // split into blocks, compute ECC, interleave
+    const dBlocks=[],eBlocks=[];let pos=0;
+    for(const [count,total,dataLen] of cfg.blocks){for(let i=0;i<count;i++){
+      const blk=dataBytes.slice(pos,pos+dataLen);pos+=dataLen;dBlocks.push(blk);eBlocks.push(ecc(blk,total-dataLen))}}
+    const maxD=Math.max(...dBlocks.map(b=>b.length)),maxE=Math.max(...eBlocks.map(b=>b.length));
+    const final=[];
+    for(let i=0;i<maxD;i++)for(const b of dBlocks)if(i<b.length)final.push(b[i]);
+    for(let i=0;i<maxE;i++)for(const b of eBlocks)if(i<b.length)final.push(b[i]);
+    // matrix
+    const m=Array.from({length:size},()=>new Array(size).fill(null));
+    const fn=Array.from({length:size},()=>new Array(size).fill(false));
+    const finder=(r,c)=>{for(let i=-1;i<8;i++)for(let j=-1;j<8;j++){const y=r+i,x=c+j;
+      if(y<0||x<0||y>=size||x>=size)continue;fn[y][x]=true;
+      const on=(i>=0&&i<=6&&(j===0||j===6))||(j>=0&&j<=6&&(i===0||i===6))||(i>=2&&i<=4&&j>=2&&j<=4);
+      m[y][x]=on?1:0}};
+    finder(0,0);finder(0,size-7);finder(size-7,0);
+    for(const p of ALIGN[v])for(const q of ALIGN[v]){
+      if((p===6&&q===6)||(p===6&&q===size-7)||(p===size-7&&q===6))continue;
+      for(let i=-2;i<=2;i++)for(let j=-2;j<=2;j++){m[p+i][q+j]=(Math.max(Math.abs(i),Math.abs(j))!==1)?1:0;fn[p+i][q+j]=true}}
+    for(let i=8;i<size-8;i++){m[6][i]=i%2===0?1:0;fn[6][i]=true;m[i][6]=i%2===0?1:0;fn[i][6]=true}
+    m[size-8][8]=1;fn[size-8][8]=true;
+    for(let i=0;i<9;i++){if(m[8][i]===null){m[8][i]=0;fn[8][i]=true}if(m[i][8]===null){m[i][8]=0;fn[i][8]=true}}
+    for(let i=0;i<8;i++){fn[8][size-1-i]=true;fn[size-1-i][8]=true}
+    // place data with mask 0
+    let idx=0,bit=7,up=true;
+    for(let col=size-1;col>0;col-=2){if(col===6)col--;
+      for(let n=0;n<size;n++){const row=up?size-1-n:n;
+        for(let c=0;c<2;c++){const cc=col-c;
+          if(fn[row][cc])continue;
+          let val=0;if(idx<final.length){val=(final[idx]>>bit)&1;bit--;if(bit<0){bit=7;idx++}}
+          if((row+cc)%2===0)val^=1;                      // mask pattern 0
+          m[row][cc]=val}}
+      up=!up}
+    // format info for ECC-M + mask 0
+    const fmt=0x5412^0;const FORMAT=(function(){let d=0x5412;return d})();
+    const fbits=[1,0,1,0,1,0,0,0,0,0,1,0,0,1,0];
+    for(let i=0;i<=5;i++)m[8][i]=fbits[i];
+    m[8][7]=fbits[6];m[8][8]=fbits[7];m[7][8]=fbits[8];
+    for(let i=9;i<15;i++)m[14-i][8]=fbits[i];
+    for(let i=0;i<8;i++)m[size-1-i][8]=fbits[i];
+    for(let i=8;i<15;i++)m[8][size-15+i]=fbits[i];
+    m[8][size-8]=fbits[7];   // the cell adjoining the top-right finder, otherwise left unset
+    m[size-8][8]=1;
+    return m;
+  }
+  return {make};
+})();
 function waLink(num,text){const n=String(num||'').replace(/[^0-9]/g,'').replace(/^0/, '92');return 'https://wa.me/'+n+'?text='+encodeURIComponent(text)}
+/* REFERRAL SHARE CARD — a premium invitation, not a receipt. One focal globe motif,
+   three short lines, the reward, a scannable QR carrying the referral code, and the
+   plain website address. Deliberately few, strong elements. */
+async function referralCard(){
+  if(!window._ref)await loadReferral();
+  const r=window._ref||{};
+  if(r.eligible===false||!r.code){
+    toast('Your invite card unlocks once you activate a package. Choose one to start earning free cases.');
+    go('buy');return;
+  }
+  const link=r.link||'https://foriforeign.com';
+  const c=document.createElement('canvas');c.width=1080;c.height=1350;const x=c.getContext('2d');
+  const CX=540;
+  const g=x.createLinearGradient(0,0,540,1350);g.addColorStop(0,'#12295C');g.addColorStop(.55,'#0A1A3A');g.addColorStop(1,'#050D1F');x.fillStyle=g;x.fillRect(0,0,1080,1350);
+  const gl=x.createRadialGradient(CX,360,20,CX,360,560);gl.addColorStop(0,'rgba(0,212,255,.20)');gl.addColorStop(1,'rgba(0,212,255,0)');x.fillStyle=gl;x.fillRect(0,0,1080,900);
+  const bar=x.createLinearGradient(0,0,1080,0);bar.addColorStop(0,'#1683FF');bar.addColorStop(.5,'#00D4FF');bar.addColorStop(1,'#F5B841');x.fillStyle=bar;x.fillRect(0,0,1080,12);
+  function rr(a,b,w,h,rad){x.beginPath();x.moveTo(a+rad,b);x.arcTo(a+w,b,a+w,b+h,rad);x.arcTo(a+w,b+h,a,b+h,rad);x.arcTo(a,b+h,a,b,rad);x.arcTo(a,b,a+w,b,rad);x.closePath()}
+  function ctr(t,y,font,fill,maxW){x.font=font;x.fillStyle=fill;let s2=String(t||'');
+    while(s2.length>4&&x.measureText(s2).width>(maxW||900))s2=s2.slice(0,-2);
+    x.fillText(s2,CX-x.measureText(s2).width/2,y);}
+  // brand
+  x.font='700 54px Georgia';const bw=x.measureText('Fori').width+x.measureText('Foreign').width;
+  x.fillStyle='#fff';x.fillText('Fori',CX-bw/2,112);x.fillStyle='#00D4FF';x.fillText('Foreign',CX-bw/2+x.measureText('Fori').width,112);
+  // focal globe motif: meridians on a gradient sphere, the one pictorial element
+  const gy=310,gr=104;
+  const sg=x.createLinearGradient(CX-gr,gy-gr,CX+gr,gy+gr);sg.addColorStop(0,'#1683FF');sg.addColorStop(1,'#00D4FF');
+  x.beginPath();x.arc(CX,gy,gr,0,Math.PI*2);x.fillStyle=sg;x.fill();
+  x.strokeStyle='rgba(255,255,255,.55)';x.lineWidth=3;
+  x.beginPath();x.ellipse(CX,gy,gr,gr*0.42,0,0,Math.PI*2);x.stroke();
+  x.beginPath();x.ellipse(CX,gy,gr*0.45,gr,0,0,Math.PI*2);x.stroke();
+  x.beginPath();x.moveTo(CX-gr,gy);x.lineTo(CX+gr,gy);x.stroke();
+  x.beginPath();x.arc(CX,gy,gr+16,0,Math.PI*2);x.strokeStyle='rgba(0,212,255,.3)';x.lineWidth=2;x.stroke();
+  // proposition, three short lines
+  ctr('Study and work abroad,',500,'700 60px Georgia','#ffffff',940);
+  ctr('done for you.',568,'700 60px Georgia','#00D4FF',940);
+  ctr('Verified opportunities matched to your CV,',636,'400 34px Arial','#CBD5E1',940);
+  ctr('with every application prepared for you.',682,'400 34px Arial','#CBD5E1',940);
+  // reward strip
+  rr(120,730,840,110,22);x.fillStyle='rgba(245,184,65,.13)';x.fill();x.strokeStyle='rgba(245,184,65,.55)';x.lineWidth=2;x.stroke();
+  ctr('REFER & EARN',778,'700 30px Arial','#FFD070',780);
+  ctr('Invite '+(r.per_milestone||5)+' friends, get a free package',822,'400 32px Arial','#EAF2FF',780);
+  // QR with quiet zone, sized to scan reliably from a phone screen
+  try{
+    const mx=QR.make(link);const n=mx.length;const box=300;const cell=Math.floor(box/(n+8));
+    const qs=cell*(n+8),qx=CX-qs/2,qy=880;
+    x.fillStyle='#ffffff';rr(qx-10,qy-10,qs+20,qs+20,18);x.fill();
+    x.fillStyle='#04101F';
+    for(let i=0;i<n;i++)for(let j=0;j<n;j++)if(mx[i][j])x.fillRect(qx+(j+4)*cell,qy+(i+4)*cell,cell,cell);
+    ctr('Scan to join',qy+qs+52,'400 30px Arial','#8FA9CE',700);
+  }catch(e){ctr('foriforeign.com',960,'700 44px Arial','#ffffff',900);}
+  // website, always readable without the QR
+  ctr('foriforeign.com',1268,'700 46px Arial','#ffffff',900);
+  x.fillStyle='rgba(0,212,255,.09)';x.fillRect(0,1296,1080,54);
+  ctr('Built in Pakistan · For ambitious people everywhere',1332,'600 26px Arial','#7BE8FF',900);
+  const url=c.toDataURL('image/png');
+  const a2=document.createElement('a');a2.href=url;a2.download='ForiForeign-invite.png';a2.click();
+  toast('✓ Invite card downloaded. Share it on WhatsApp; the QR carries your referral code.');
+}
 async function shareCard(appId){
   let a=null;try{const d=await api('/api/applications/'+appId);a=d.application||d.app||d}catch(e){}
   const opp=(a&&(a.opportunities||a.opp))||{};
   const showDet=confirm('Include the university/position name on the card?\n\nOK = show it · Cancel = keep it private');
+  /* PREMIUM SHARE CARD. Redesigned as a centred, pictorial composition rather than a
+     dense left-aligned text block: one clear focal seal, a strong headline, generous
+     white space, and only the information that earns its place. Text is measured and
+     truncated so long names or titles can never overflow. */
   const c=document.createElement('canvas');c.width=1080;c.height=1350;const x=c.getContext('2d');
-  const g=x.createLinearGradient(0,0,0,1350);g.addColorStop(0,'#0E2450');g.addColorStop(.6,'#081631');g.addColorStop(1,'#040B1A');x.fillStyle=g;x.fillRect(0,0,1080,1350);
-  const gl=x.createRadialGradient(880,180,10,880,180,420);gl.addColorStop(0,'rgba(0,212,255,.22)');gl.addColorStop(1,'rgba(0,212,255,0)');x.fillStyle=gl;x.fillRect(0,0,1080,700);
-  const bar=x.createLinearGradient(0,0,1080,0);bar.addColorStop(0,'#1683FF');bar.addColorStop(1,'#00D4FF');x.fillStyle=bar;x.fillRect(0,0,1080,14);
+  const CX=540;
+  const g=x.createLinearGradient(0,0,540,1350);g.addColorStop(0,'#12295C');g.addColorStop(.55,'#0A1A3A');g.addColorStop(1,'#050D1F');x.fillStyle=g;x.fillRect(0,0,1080,1350);
+  // soft light sources give the card depth instead of a flat rectangle
+  const gl=x.createRadialGradient(CX,300,20,CX,300,620);gl.addColorStop(0,'rgba(0,212,255,.20)');gl.addColorStop(1,'rgba(0,212,255,0)');x.fillStyle=gl;x.fillRect(0,0,1080,900);
+  const gl2=x.createRadialGradient(120,1250,10,120,1250,480);gl2.addColorStop(0,'rgba(245,184,65,.14)');gl2.addColorStop(1,'rgba(245,184,65,0)');x.fillStyle=gl2;x.fillRect(0,900,1080,450);
+  const bar=x.createLinearGradient(0,0,1080,0);bar.addColorStop(0,'#1683FF');bar.addColorStop(.5,'#00D4FF');bar.addColorStop(1,'#F5B841');x.fillStyle=bar;x.fillRect(0,0,1080,12);
   function rr(a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath()}
-  x.font='700 64px Georgia';x.fillStyle='#fff';x.fillText('Fori',70,140);x.fillStyle='#00D4FF';x.fillText('Foreign',200,140);
-  x.font='600 34px Arial';x.fillStyle='#7BE8FF';x.fillText('foriforeign.com',70,190);
-  x.font='700 76px Georgia';x.fillStyle='#fff';x.fillText('Application',70,340);x.fillText('Submitted ✓',70,430);
-  x.font='400 40px Arial';x.fillStyle='#CBD5E1';
-  const name=(ME&&ME.full_name)||'';if(name)x.fillText(name,70,520);
-  if(showDet&&opp.title){x.font='600 36px Arial';x.fillStyle='#00D4FF';x.fillText(String(opp.title).slice(0,42),70,585);x.fillStyle='#CBD5E1';x.font='400 34px Arial';x.fillText(String(opp.institution||'').slice(0,46),70,635)}
-  else{x.font='400 34px Arial';x.fillText('An international opportunity, prepared and',70,585);x.fillText('applied through ForiForeign.',70,630)}
-  rr(70,690,940,160,22);x.fillStyle='rgba(22,131,255,.14)';x.fill();x.strokeStyle='#1683FF';x.lineWidth=2;x.stroke();
-  x.font='700 34px Arial';x.fillStyle='#fff';x.fillText('Reference: FF-'+String(appId).slice(0,8).toUpperCase(),100,760);
-  x.font='400 30px Arial';x.fillStyle='#9DB8E4';x.fillText('Quote this reference for any status query.',100,815);
-  x.font='700 40px Arial';x.fillStyle='#00E5C0';x.fillText('First case FREE · then just Rs 2,000',70,950);
-  x.font='400 32px Arial';x.fillStyle='#CBD5E1';x.fillText('Verified opportunities · You press Send yourself',70,1005);
-  x.font='700 34px Arial';x.fillStyle='#fff';x.fillText('Invite a friend, share this card',70,1110);
-  x.font='400 32px Arial';x.fillStyle='#9DB8E4';x.fillText('WhatsApp: '+(((SITE||{}).contact||{}).whatsapp||'0345 5216903'),70,1180);
-  x.fillText('Email: '+(((SITE||{}).contact||{}).email||'admin@foriforeign.com'),70,1230);
-  x.fillStyle='rgba(0,212,255,.1)';x.fillRect(0,1262,1080,88);x.font='600 28px Arial';x.fillStyle='#7BE8FF';x.fillText('🇵🇰 Built in Pakistan · For ambitious people everywhere',70,1316);
+  // Measured centring: never let a long name or title spill off the card.
+  function ctr(txt,y,font,fill,maxW){x.font=font;x.fillStyle=fill;let t=String(txt||'');
+    while(t.length>4&&x.measureText(t).width>(maxW||900))t=t.slice(0,-2);
+    if(t!==String(txt||''))t=t.replace(/[\s,·-]+$/,'')+'…';
+    x.fillText(t,CX-x.measureText(t).width/2,y);return t}
+
+  // Brand
+  x.font='700 52px Georgia';const bw=x.measureText('Fori').width+x.measureText('Foreign').width;
+  x.fillStyle='#fff';x.fillText('Fori',CX-bw/2,110);x.fillStyle='#00D4FF';x.fillText('Foreign',CX-bw/2+x.measureText('Fori').width,110);
+
+  // Focal seal: the single pictorial element that reads instantly at thumbnail size.
+  const sy=290;
+  x.beginPath();x.arc(CX,sy,112,0,Math.PI*2);
+  const sg=x.createLinearGradient(CX-112,sy-112,CX+112,sy+112);sg.addColorStop(0,'#1683FF');sg.addColorStop(1,'#00D4FF');
+  x.fillStyle=sg;x.fill();
+  x.beginPath();x.arc(CX,sy,128,0,Math.PI*2);x.strokeStyle='rgba(0,212,255,.35)';x.lineWidth=3;x.stroke();
+  x.beginPath();x.lineWidth=16;x.lineCap='round';x.lineJoin='round';x.strokeStyle='#fff';
+  x.moveTo(CX-48,sy+4);x.lineTo(CX-14,sy+40);x.lineTo(CX+52,sy-38);x.stroke();
+
+  // Headline
+  ctr('Application Submitted',480,'700 74px Georgia','#ffffff',960);
+  ctr((ME&&ME.full_name)||'',552,'400 40px Arial','#9DB8E4',860);
+
+  // What it was for, only if the user allowed it.
+  if(showDet&&opp.title){
+    ctr(String(opp.title),632,'600 38px Arial','#00D4FF',900);
+    ctr(String(opp.institution||''),686,'400 34px Arial','#CBD5E1',900);
+  } else {
+    ctr('An international opportunity, prepared and',636,'400 36px Arial','#CBD5E1',900);
+    ctr('applied through ForiForeign.',686,'400 36px Arial','#CBD5E1',900);
+  }
+
+  // Reference chip
+  rr(290,742,500,92,46);x.fillStyle='rgba(22,131,255,.16)';x.fill();x.strokeStyle='rgba(0,212,255,.55)';x.lineWidth=2;x.stroke();
+  ctr('FF-'+String(appId).slice(0,8).toUpperCase(),800,'700 40px Arial','#ffffff',440);
+
+  // Three proof points, evenly spaced, icon-led. Compact, scannable, no paragraphs.
+  const items=[['✓','Verified from official sources'],['✉','Sent from your own email'],['★','Prepared end to end for you']];
+  let iy=920;
+  for(const [ic,label] of items){
+    x.font='700 34px Arial';x.fillStyle='#00E5C0';x.fillText(ic,250,iy);
+    x.font='400 34px Arial';x.fillStyle='#DCE8FA';x.fillText(label,306,iy);
+    iy+=62;
+  }
+
+  // Value line, priced live from the admin configuration.
+  rr(150,1108,780,86,20);x.fillStyle='rgba(245,184,65,.12)';x.fill();x.strokeStyle='rgba(245,184,65,.5)';x.lineWidth=2;x.stroke();
+  ctr('Your applications, prepared from Rs '+lowestPkgPrice().toLocaleString(),1162,'700 38px Arial','#FFD070',720);
+
+  // Contact, single quiet line.
+  ctr('foriforeign.com  ·  '+((((SITE||{}).contact||{}).whatsapp)||'0345 5216903'),1248,'400 32px Arial','#8FA9CE',900);
+
+  x.fillStyle='rgba(0,212,255,.09)';x.fillRect(0,1282,1080,68);
+  ctr('Built in Pakistan · For ambitious people everywhere',1326,'600 28px Arial','#7BE8FF',900);
   c.toBlob(async b=>{const f=new File([b],'foriforeign-card.png',{type:'image/png'});
     if(navigator.share&&navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:'ForiForeign'});return}catch(e){}}
     const u=URL.createObjectURL(b);const l=document.createElement('a');l.href=u;l.download='foriforeign-card.png';l.click();toast('✓ Card downloaded, share it on WhatsApp');});
@@ -3314,7 +3575,7 @@ function renderPacks(){
   <label>Description</label><input value="${esc(p.description||'')}" onchange="window._packs[${i}].description=this.value">
   <div class="row" style="margin-top:8px"><label style="margin:0"><input type="checkbox" ${p.featured?'checked':''} style="width:auto" onchange="window._packs[${i}].featured=this.checked"> Featured</label>
   <label style="margin:0"><input type="checkbox" ${p.visible!==false?'checked':''} style="width:auto" onchange="window._packs[${i}].visible=this.checked"> Visible to users</label></div></div>`).join('')}
-  <div class="row"><button class="btn b-line" onclick="window._packs.push({credits:1,pkr:2000,name:'New package',visible:true});renderPacks()">+ Add package</button>
+  <div class="row"><button class="btn b-line" onclick="window._packs.push({credits:1,pkr:lowestPkgPrice(),name:'New package',visible:true});renderPacks()">+ Add package</button>
   <button class="btn b-gold" onclick="savePacks(this)">Save packages</button></div>`;
 }
 async function savePacks(btn){

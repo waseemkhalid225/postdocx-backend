@@ -302,6 +302,25 @@ const checks = [
       fe.includes('saveOps') && fe.includes('Operations &amp; limits') &&
       fe.includes('Paint immediately');
   })()],
+  ['no stale pricing or discontinued offers anywhere in user-facing text', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    // The discontinued marketing claim must be gone. The FAQ describing a discretionary
+    // one-off goodwill grant is legitimate (admin approves it), so it is not stale copy.
+    const noFreeFirst = !fe.includes('First case FREE') && !fe.includes('Free first case for new users') && !fe.includes('free_first_case');
+    const noHardPrice = !/Rs 2,000|Rs 2000|PKR 2,000/.test(fe) && !/Rs 2,000/.test(st);
+    const tokenised = st.includes('__PRICE__') && fe.includes('priceToken');
+    return noFreeFirst && noHardPrice && tokenised;
+  })()],
+  ['share card is a designed visual, priced from live config', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('PREMIUM SHARE CARD') && fe.includes('lowestPkgPrice()') &&
+      fe.includes('createRadialGradient') && fe.includes('function ctr(');
+  })()],
+  ['share card text can never overflow the canvas', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('x.measureText(t).width>(maxW');
+  })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
 let fail = 0;
