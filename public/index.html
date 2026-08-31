@@ -665,6 +665,41 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   a[onclick],.docrow button,.card button{min-height:44px}
   input[type=checkbox],input[type=radio]{width:22px;height:22px}
 }
+
+/* ============ UNIVERSAL TAP FEEDBACK ============
+   Every interactive element must acknowledge a press instantly, before any network
+   call returns. On a slow connection a tap with no visible response feels broken,
+   so the response is purely local: transform + ripple, no waiting. */
+.btn,.segbtn,button,.ctryrow,.ctry-head,.pack,.lane,.card[onclick],[onclick]{
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .08s ease,filter .12s ease,box-shadow .12s ease,background .12s ease;
+}
+.btn:active,.segbtn:active,button:active,.pack:active,.lane:active,.card[onclick]:active,[onclick]:active{
+  transform:scale(.965);
+  filter:brightness(1.12);
+}
+.ctryrow:active,.ctry-head:active{transform:scale(.99);background:rgba(22,131,255,.22)}
+/* Ripple: a brief expanding highlight from the tap point, so the press is unmistakable. */
+.ff-ripple{position:absolute;border-radius:50%;transform:scale(0);pointer-events:none;
+  background:rgba(255,255,255,.42);animation:ffRipple .5s ease-out forwards;z-index:2}
+@keyframes ffRipple{to{transform:scale(2.6);opacity:0}}
+/* Busy state: the element is doing work. Dimmed, non-interactive, with a spinner. */
+.ff-busy{position:relative;pointer-events:none;opacity:.72}
+.ff-busy::after{content:'';position:absolute;top:50%;left:50%;width:15px;height:15px;margin:-8px 0 0 -8px;
+  border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;
+  animation:ffSpin .6s linear infinite}
+@keyframes ffSpin{to{transform:rotate(360deg)}}
+.ff-busy>*{visibility:hidden}
+/* Page-level progress bar for navigation and long calls. */
+#ffTop{position:fixed;top:0;left:0;height:3px;width:0;z-index:9999;
+  background:linear-gradient(90deg,#1683FF,#00D4FF,#F5B841);
+  box-shadow:0 0 10px rgba(0,212,255,.6);transition:width .25s ease,opacity .3s ease}
+
+/* Active navigation state, so the user always knows where they are. */
+header a.on,header button.on,#nav button.on{color:#00D4FF!important;position:relative}
+header a.on::after,header button.on::after,#nav button.on::after{
+  content:'';position:absolute;left:8%;right:8%;bottom:-6px;height:2px;border-radius:2px;
+  background:linear-gradient(90deg,#1683FF,#00D4FF)}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -720,7 +755,72 @@ async function apiFast(p,maxAgeMs){
   if(hit)return {cached:hit,fresh:api(p).then(d=>{cacheSet(p,d);return d}).catch(()=>null)};
   const d=await api(p);cacheSet(p,d);return {cached:d,fresh:null};
 }
+/* ============ INSTANT FEEDBACK ENGINE ============
+   Applies to every button on every screen without touching each one individually.
+   1. Ripple + press animation fire on pointerdown, before any handler runs.
+   2. Any button whose handler returns a promise is put into a busy state until it
+      settles, so a slow network never looks like a dead tap.
+   3. A top progress bar reflects real in-flight requests. */
+(function(){
+  // 1. Ripple from the exact tap point.
+  document.addEventListener('pointerdown',e=>{
+    const el=e.target.closest('button,.btn,.segbtn,.pack,.lane,.ctryrow,.ctry-head');
+    if(!el||el.classList.contains('ff-busy'))return;
+    try{
+      const cs=getComputedStyle(el);
+      if(cs.position==='static')el.style.position='relative';
+      if(cs.overflow!=='hidden')el.style.overflow='hidden';
+      const r=el.getBoundingClientRect();
+      const size=Math.max(r.width,r.height);
+      const d=document.createElement('span');
+      d.className='ff-ripple';
+      d.style.width=d.style.height=size+'px';
+      d.style.left=(e.clientX-r.left-size/2)+'px';
+      d.style.top=(e.clientY-r.top-size/2)+'px';
+      el.appendChild(d);
+      setTimeout(()=>d.remove(),520);
+    }catch(err){}
+  },{passive:true});
+
+  // 2. Busy state for any click handler that does async work.
+  document.addEventListener('click',e=>{
+    const el=e.target.closest('button,.btn,.segbtn');
+    if(!el||el.disabled||el.classList.contains('ff-busy'))return;
+    if(el.dataset.noBusy==='1')return;
+    // Give the handler a tick to start; if it is still working, show the spinner.
+    setTimeout(()=>{
+      if(window._netBusy>0&&document.body.contains(el)&&!el.disabled){
+        el.classList.add('ff-busy');
+        const clear=()=>{el.classList.remove('ff-busy')};
+        const watch=setInterval(()=>{if(window._netBusy<=0){clearInterval(watch);clear()}},120);
+        setTimeout(()=>{clearInterval(watch);clear()},20000);  // never stick forever
+      }
+    },90);
+  },true);
+})();
+/* Top progress bar driven by genuine in-flight requests. */
+window._netBusy=0;
+function netStart(){
+  window._netBusy++;
+  let b=document.getElementById('ffTop');
+  if(!b){b=document.createElement('div');b.id='ffTop';document.body.appendChild(b)}
+  b.style.opacity='1';b.style.width='35%';
+  clearTimeout(window._ntCreep);
+  window._ntCreep=setTimeout(()=>{if(window._netBusy>0)b.style.width='72%'},400);
+}
+function netEnd(){
+  window._netBusy=Math.max(0,window._netBusy-1);
+  if(window._netBusy>0)return;
+  const b=document.getElementById('ffTop');if(!b)return;
+  clearTimeout(window._ntCreep);
+  b.style.width='100%';
+  setTimeout(()=>{b.style.opacity='0';setTimeout(()=>{b.style.width='0'},320)},180);
+}
 async function api(p,o={}){
+  netStart();
+  try{ return await _apiRaw(p,o); } finally { netEnd(); }
+}
+async function _apiRaw(p,o={}){
   if(o&&o.method&&o.method!=='GET')cacheClear();o.headers=Object.assign({'content-type':'application/json'},o.headers||{});
   if(SESSION)o.headers.authorization='Bearer '+SESSION.access_token;
   if(localStorage.getItem('ffSimUser')==='1'){o.headers['x-ff-simulate-user']='1';o.headers['x-ff-simulate-tier']=localStorage.getItem('ffSimTier')||'0'}
@@ -760,6 +860,23 @@ async function afterLogin(){
   go('home');
 }
 let SITE=null;
+async function adminReset(mode,btn){
+  const what = mode==='purge_users'
+    ? 'delete EVERY non-staff account and all their documents, cases and payments'
+    : 'delete YOUR own CVs, documents, prepared cases and extracted profile';
+  if(!confirm('This will permanently '+what+'.\n\nThis cannot be undone. Continue?'))return;
+  const typed=prompt('Type RESET in capitals to confirm.');
+  if(typed!=='RESET'){toast('Cancelled, nothing was changed.');return}
+  btn.disabled=true;const old=btn.textContent;btn.textContent='Working…';
+  try{
+    const d=await api('/api/admin/reset',{method:'POST',body:{mode,confirm:'RESET'}});
+    cacheClear();window._ref=undefined;window._conf=undefined;ME=null;HM=null;
+    toast(mode==='purge_users'
+      ? ('Done. '+(d.removed||0)+' account(s) removed, '+(d.kept_staff||0)+' staff kept.')
+      : 'Done. Your CVs and case history are cleared, you can test from step 1.');
+    vAdmin();
+  }catch(e){toast(e.message);btn.disabled=false;btn.textContent=old}
+}
 async function saveOps(btn){
   btn.disabled=true;
   try{
@@ -823,7 +940,17 @@ function showAnnouncement(){
   document.body.insertBefore(b,document.body.firstChild);
 }
 async function signOut(){window._ffBooted=false;await SB.auth.signOut();location.reload()}
-function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));render()}
+function go(t){
+  // Mark the destination tab active BEFORE rendering, so the tap registers visually
+  // even if the view takes a moment to paint.
+  TAB=t;
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  document.querySelectorAll('header a,header button').forEach(b=>{
+    try{b.classList.toggle('on',(b.getAttribute('onclick')||'').includes("go('"+t+"')"))}catch(e){}
+  });
+  try{window.scrollTo({top:0,behavior:'instant'})}catch(e){window.scrollTo(0,0)}
+  render();
+}
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b){if(b.dataset.t==='browse')window._lane='';go(b.dataset.t)}});
 function render(){try{if(ME&&isAdminRole(ME.role)&&$('adminTab'))$('adminTab').style.display='inline-block';}catch(e){}try{simBanner()}catch(e){}({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(TAB==='buy')setTimeout(loadRefBox,200);if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
 
@@ -970,10 +1097,18 @@ function landingInfo(which){
 async function doAuth(mode){
   const email=$('a-email').value.trim(),password=$('a-pass').value;
   if(!email||password.length<8){toast('Enter email and a password of at least 8 characters');return}
+  // Authentication can take several seconds on a slow connection: show it working
+  // immediately, on the button the user actually pressed.
+  const _authBtn=document.querySelector('.auth-card .b-gold');
+  const _authLabel=_authBtn?_authBtn.textContent:'';
+  const _authOn=(txt)=>{if(_authBtn){_authBtn.disabled=true;_authBtn.dataset.noBusy='1';_authBtn.textContent=txt}};
+  const _authOff=()=>{if(_authBtn){_authBtn.disabled=false;_authBtn.textContent=_authLabel}};
+  netStart();
   try{
     if(mode==='signup'){
       const name=($('a-name')&&$('a-name').value.trim())||'';
-      if(window._authBusy)return;window._authBusy=true;
+      if(window._authBusy){netEnd();return}window._authBusy=true;
+      _authOn('Creating your account…');
       const wa=(document.getElementById('su-wa')||{}).value||'';const {error}=await SB.auth.signUp({email,password,options:{data:{full_name:name,whatsapp:wa},emailRedirectTo:location.origin}});
       if(error)throw error;
       // Confirm instantly server-side, then sign straight in: no email link needed, ever.
@@ -982,7 +1117,8 @@ async function doAuth(mode){
       if(si.error){toast('Account created. Please sign in now.');renderAuth('signin')}
       else toast('Welcome to ForiForeign, '+(name.split(' ')[0]||'')+'! If asked, check your email inbox for a note from admin@foriforeign.com to verify.');
     }else{
-      if(window._authBusy)return;window._authBusy=true;
+      if(window._authBusy){netEnd();return}window._authBusy=true;
+      _authOn('Signing you in…');
       let {error}=await SB.auth.signInWithPassword({email,password});
       if(error&&/not confirmed|confirm/i.test(error.message||'')){
         // Heal the stuck-confirmation loop automatically, once, then retry.
@@ -994,7 +1130,7 @@ async function doAuth(mode){
   }catch(e){
     const m=String(e.message||'');
     toast(/security purposes|rate limit|seconds/i.test(m)?'One moment please, then try once more.':m);
-  }finally{window._authBusy=false}
+  }finally{window._authBusy=false;_authOff();netEnd()}
 }
 async function forgotPassword(){
   const email=($('a-email')&&$('a-email').value.trim())||prompt('Enter your account email:')||'';
@@ -1259,18 +1395,27 @@ async function vHome(){
   <div class="dash-sec"><h3 style="margin-bottom:10px">Your steps</h3>
   <input id="doc-files" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic" style="display:none" onchange="uploadDocs()">
   <div id="uploadProgress"></div>
-  ${(()=>{const steps=[
-    ['Upload CV',S.hasCV,'Upload',"window._uploadKind=null;document.getElementById('doc-files').click()"],
-    ['Find opportunities'+(MY.count70?' · '+MY.count70+' found':''),MY.count70>0,'Find',"openFinder()"],
-    ['We prepare your case'+(S.appCount?' · '+S.appCount+' case'+(S.appCount===1?'':'s'):''),S.appCount>0,S.appCount?'View':'',"go('apps')"],
-    ['Approve &amp; Apply',S.state==='application_sent','Approve',"go('apps')"]
+  ${(()=>{
+    /* Every step stays open, always. A completed step keeps a working button so the
+       user can upload a newer CV, search again, or reopen prepared cases at any time.
+       Nothing in this journey is ever one-way. */
+    const steps=[
+    ['Upload CV',S.hasCV,'Upload',"window._uploadKind=null;document.getElementById('doc-files').click()",'Update CV'],
+    ['Find opportunities'+(MY.count70?' · '+MY.count70+' found':''),MY.count70>0,'Find',"openFinder()",'View matches'],
+    ['We prepare your case'+(S.appCount?' · '+S.appCount+' case'+(S.appCount===1?'':'s'):''),S.appCount>0,S.appCount?'View':'',"go('apps')",'View cases'],
+    ['Approve &amp; Apply',S.state==='application_sent','Approve',"go('apps')",'Open cases']
   ];let active=steps.findIndex(x=>!x[1]);if(active<0)active=steps.length-1;
-  return steps.map((sp,i)=>`
-    <div class="vstep ${sp[1]?'done':i===active?'act':''}">
-      <div class="stepnum">${sp[1]?'✓':i+1}</div>
+  return steps.map((sp,i)=>{
+    const done=sp[1];
+    const label=done?(sp[4]||sp[2]):sp[2];
+    const cls=done?'btn b-line vstep-btn':'btn b-gold vstep-btn';
+    return `
+    <div class="vstep ${done?'done':i===active?'act':''}">
+      <div class="stepnum">${done?'✓':i+1}</div>
       <div class="vstep-t">${sp[0]}</div>
-      ${i===active?(sp[2]?`<button class="btn b-gold vstep-btn" onclick="${sp[3]}">${sp[2]}</button>`:`<span class="sub">automatic</span>`):''}
-    </div>`).join('')})()}
+      ${label?`<button class="${cls}" onclick="${sp[3]}">${label}</button>`:(i===active?`<span class="sub">automatic</span>`:'')}
+    </div>`}).join('')})()}
+  <div class="sub" style="margin:6px 2px 0;font-size:11.5px;opacity:.85">Every step stays open. Upload a newer CV, search again, or reopen a prepared case whenever you like.</div>
   ${HM&&HM.credits?(()=>{const c=HM.credits;const p=c.casesTotal?Math.min(100,Math.round(c.casesUsed/c.casesTotal*100)):0;return `
   <div class="card" style="margin-top:6px;padding:12px 14px">
     <div class="spread"><b style="font-size:13.5px">Package</b><span class="sub">${c.casesUsed} of ${c.casesTotal} cases · ${c.creditsRemaining} left${c.creditsRemaining<1?` · <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="go('buy')">View packages</a>`:''}</span></div>
@@ -3172,6 +3317,18 @@ async function adminSettings(){
   <div class="row" style="margin-top:6px">
     <button class="btn b-line" onclick="window._cfg.packages=window._cfg.packages||{tiers:[]};window._cfg.packages.tiers.push({key:'tier'+Date.now(),name:'New Package',credits:1,view:2,pkr:lowestPkgPrice(),feats:[]});adminSettings()">+ Add package</button>
     <button class="btn b-gold" onclick="savePackages(this)">Save packages, deploy now</button>
+  </div></div>
+  <div class="card" style="border:2px solid #fb7185;background:rgba(251,113,133,.07)"><h3 style="color:#fb7185">🧹 Reset &amp; testing tools</h3>
+  <div class="sub" style="margin-bottom:10px">Irreversible. Both actions delete data permanently and are recorded in the audit log.</div>
+  <div style="border-top:1px solid rgba(251,113,133,.3);padding-top:10px">
+    <b style="font-size:13.5px">Clear my own test data</b>
+    <div class="sub" style="margin:3px 0 8px">Removes YOUR uploaded CVs, documents, prepared cases and extracted profile so you can test the full journey from scratch. Your account and admin role stay intact.</div>
+    <button class="btn b-line" style="color:#fb7185;border-color:#fb7185" onclick="adminReset('reset_self',this)">Clear my CVs &amp; case history</button>
+  </div>
+  <div style="border-top:1px solid rgba(251,113,133,.3);padding-top:10px;margin-top:10px">
+    <b style="font-size:13.5px">Remove all non-staff users</b>
+    <div class="sub" style="margin:3px 0 8px">Deletes every account that is not admin, super admin or staff, together with all of their documents, cases, payments and credits. Staff accounts are never touched.</div>
+    <button class="btn b-line" style="color:#fb7185;border-color:#fb7185" onclick="adminReset('purge_users',this)">Delete all non-staff accounts</button>
   </div></div>
   <div class="card" style="border-color:rgba(0,212,255,.5)"><h3>⚙️ Operations &amp; limits</h3>
   <div class="sub" style="margin-bottom:8px">Live controls. Every change applies to all users the moment you save.</div>

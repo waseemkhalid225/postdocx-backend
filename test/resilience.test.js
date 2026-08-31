@@ -321,6 +321,30 @@ const checks = [
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     return fe.includes('x.measureText(t).width>(maxW');
   })()],
+  ['journey steps never block: every step stays clickable after completion', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes("'Update CV'") && fe.includes("'View matches'") &&
+      fe.includes("'View cases'") && fe.includes('Every step stays open') &&
+      !fe.includes("${i===active?(sp[2]?");
+  })()],
+  ['admin reset tools: typed confirmation, staff preserved, storage purged', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return sv.includes("confirm !== 'RESET'") && sv.includes('ADMIN_PURGE_USERS') &&
+      sv.includes('ADMIN_RESET_SELF') && sv.includes("['admin', 'super_admin', 'staff']") &&
+      sv.includes('storage.from(BUCKET).remove') && fe.includes('Type RESET in capitals');
+  })()],
+  ['every tap is acknowledged instantly (press, ripple, busy, progress bar)', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('.btn:active') && fe.includes('ff-ripple') &&
+      fe.includes("addEventListener('pointerdown'") && fe.includes('ff-busy') &&
+      fe.includes('window._netBusy') && fe.includes('finally { netEnd(); }') &&
+      fe.includes('Signing you in') && fe.includes('#nav button.on::after');
+  })()],
+  ['busy state always clears (no permanently stuck spinner)', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes("clearInterval(watch);clear()},20000") && fe.includes('_authOff()');
+  })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
 let fail = 0;

@@ -81,7 +81,7 @@ function pdfSafe(t) {
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R3520';
+const FF_BUILD = '2026-08-28-R3560';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -2185,6 +2185,55 @@ app.post('/api/referral/claim', auth, async (req, res) => {
   res.json({ ok: true });
 });
 /* ---------- Dormant hygiene: keep Supabase lean; admin removes unused accounts ---------- */
+/* ADMIN RESET TOOLS. Two deliberate, separately-confirmed actions:
+   - purge_users: delete every non-admin account and all of its data
+   - reset_self:  clear the caller's own CVs, cases and profile so they can retest clean
+   Both are irreversible, require an explicit typed confirmation, and are audit-logged. */
+app.post('/api/admin/reset', auth, perm('users.write'), async (req, res) => {
+  const mode = String((req.body && req.body.mode) || '');
+  const confirm = String((req.body && req.body.confirm) || '');
+  if (confirm !== 'RESET') return res.status(400).json({ error: 'Type RESET to confirm this action.' });
+
+  const wipeUserData = async (uid) => {
+    for (const tbl of ['application_documents', 'applications', 'documents', 'credit_ledger',
+                       'payments', 'support_tickets', 'profile_fields', 'referral_credits']) {
+      try { await admin().from(tbl).delete().eq('user_id', uid); } catch (e) {}
+    }
+    for (const k of ['profilex:', 'prefs:', 'licjourney:']) {
+      try { await admin().from('app_settings').delete().eq('key', k + uid); } catch (e) {}
+    }
+    try {
+      const { BUCKET } = require('./lib/docs');
+      for (const prefix of [uid, uid + '/tailored']) {
+        const { data: files } = await admin().storage.from(BUCKET).list(prefix, { limit: 200 });
+        if (files && files.length) await admin().storage.from(BUCKET).remove(files.map(f => prefix + '/' + f.name));
+      }
+    } catch (e) {}
+  };
+
+  try {
+    if (mode === 'reset_self') {
+      await wipeUserData(req.userId);
+      try { await admin().from('audit_log').insert({ actor: req.userId, event: 'ADMIN_RESET_SELF', detail: 'Own CVs, cases and profile cleared for retesting' }); } catch (e) {}
+      return res.json({ ok: true, mode, cleared: 1 });
+    }
+    if (mode === 'purge_users') {
+      const { data: profs } = await admin().from('profiles').select('id, role');
+      const staff = ['admin', 'super_admin', 'staff'];
+      const targets = (profs || []).filter(p => !staff.includes(p.role));
+      let removed = 0;
+      for (const p of targets) {
+        await wipeUserData(p.id);
+        try { await admin().from('profiles').delete().eq('id', p.id); } catch (e) {}
+        try { await admin().auth.admin.deleteUser(p.id); } catch (e) {}
+        removed++;
+      }
+      try { await admin().from('audit_log').insert({ actor: req.userId, event: 'ADMIN_PURGE_USERS', detail: 'Removed ' + removed + ' non-staff accounts and all their data' }); } catch (e) {}
+      return res.json({ ok: true, mode, removed, kept_staff: (profs || []).length - targets.length });
+    }
+    res.status(400).json({ error: 'Unknown reset mode.' });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.get('/api/admin/inventory', auth, perm('users.read'), async (req, res) => {
   try {
     const { count: total } = await admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified');
