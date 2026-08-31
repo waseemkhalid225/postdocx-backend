@@ -1117,12 +1117,20 @@ async function doAuth(mode){
         const m=String(error.message||'').toLowerCase();
         const mailOnly=/sending.*(email|mail|confirmation)|smtp|email.*not.*sent|error sending/.test(m);
         if(!mailOnly)throw error;
+        /* The mail server failed. Supabase may not have created the account at all, so
+           we create it directly on our server with the admin API, which sends no email.
+           A broken mailbox must never stop someone joining. */
+        _authOn('Finishing your account…');
+        const rr=await fetch('/api/auth/signup-direct',{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({email,password,full_name:name,whatsapp:(document.getElementById('su-wa')||{}).value||''})});
+        const rd=await rr.json().catch(()=>({}));
+        if(!rr.ok&&rr.status!==409)throw new Error(rd.error||'Could not create the account.');
       }
       // Confirm instantly server-side, then sign straight in: no email link needed, ever.
       try{await fetch('/api/auth/confirmed',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})})}catch(e){}
       const si=await SB.auth.signInWithPassword({email,password});
-      if(si.error){toast('Account created. Please sign in now.');renderAuth('signin')}
-      else toast('Welcome to ForiForeign, '+(name.split(' ')[0]||'')+'! If asked, check your email inbox for a note from admin@foriforeign.com to verify.');
+      if(si.error){toast('Your account is ready. Please sign in.');renderAuth('signin')}
+      else toast('Welcome to ForiForeign, '+(name.split(' ')[0]||'')+'!');
     }else{
       if(window._authBusy){netEnd();return}window._authBusy=true;
       _authOn('Signing you in…');

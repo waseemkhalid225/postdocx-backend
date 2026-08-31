@@ -81,13 +81,54 @@ function pdfSafe(t) {
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R3600';
+const FF_BUILD = '2026-08-28-R3620';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
    Confirming an address grants nothing without the password, so this is safe;
    lightly rate-limited per IP. */
 const _confHits = new Map();
+/* Server-side account creation that NEVER sends email.
+   When the project's mail server is misconfigured or down, Supabase's client signup
+   fails with "Error sending confirmation email" and may not create the account at all.
+   This admin-API path creates the user already confirmed, so a broken mailbox can never
+   stop someone from joining. Rate limited and it never reveals whether an email exists. */
+const _suHits = new Map();
+app.post('/api/auth/signup-direct', async (req, res) => {
+  try {
+    const ip = (req.headers['x-forwarded-for'] || req.ip || 'x').split(',')[0].trim();
+    const now = Date.now(); const h = (_suHits.get(ip) || []).filter(t => now - t < 3600000);
+    h.push(now); _suHits.set(ip, h);
+    if (_suHits.size > 5000) _suHits.clear();
+    if (h.length > 12) return res.status(429).json({ error: 'Too many sign-up attempts. Please try again later.' });
+
+    const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+    const password = String((req.body && req.body.password) || '');
+    const full_name = String((req.body && req.body.full_name) || '').slice(0, 80);
+    const whatsapp = String((req.body && req.body.whatsapp) || '').slice(0, 24);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+
+    const base = process.env.SUPABASE_URL.replace(/\/$/, '');
+    const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SECRET_KEY;
+    const hd = { apikey: key, authorization: 'Bearer ' + key, 'content-type': 'application/json' };
+
+    const r = await fetch(base + '/auth/v1/admin/users', {
+      method: 'POST', headers: hd,
+      body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { full_name, whatsapp } })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const msg = String(d.msg || d.message || d.error_description || '').toLowerCase();
+      // Already registered: say so plainly so the person signs in instead.
+      if (/already|registered|exists|duplicate/.test(msg)) {
+        return res.status(409).json({ error: 'An account with this email already exists. Please sign in instead.' });
+      }
+      return res.status(400).json({ error: 'Could not create the account. Please try again.' });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: 'Could not create the account. Please try again.' }); }
+});
 app.post('/api/auth/confirmed', async (req, res) => {
   try {
     const ip = req.headers['x-forwarded-for'] || req.ip || 'x';
