@@ -1425,7 +1425,7 @@ async function vHome(){
        Nothing in this journey is ever one-way. */
     const steps=[
     ['Upload CV',S.hasCV,'Upload',"window._uploadKind=null;document.getElementById('doc-files').click()",'Update CV'],
-    ['Find opportunities'+(MY.count70?' · '+MY.count70+' found':''),MY.count70>0,'Find',"openFinder()",'View matches'],
+    ['Find opportunities'+(window._extracting?' · reading your CV first…':(MY.count70?' · '+MY.count70+' found':'')),MY.count70>0,window._extracting?'':'Find',"openFinder()",'View matches'],
     ['We prepare your case'+(S.appCount?' · '+S.appCount+' case'+(S.appCount===1?'':'s'):''),S.appCount>0,S.appCount?'View':'',"go('apps')",'View cases'],
     ['Approve &amp; Apply',S.state==='application_sent','Approve',"go('apps')",'Open cases']
   ];let active=steps.findIndex(x=>!x[1]);if(active<0)active=steps.length-1;
@@ -1437,7 +1437,7 @@ async function vHome(){
     <div class="vstep ${done?'done':i===active?'act':''}">
       <div class="stepnum">${done?'✓':i+1}</div>
       <div class="vstep-t">${sp[0]}</div>
-      ${label?`<button class="${cls}" onclick="${sp[3]}">${label}</button>`:(i===active?`<span class="sub">automatic</span>`:'')}
+      ${label?`<button class="${cls}" onclick="${sp[3]}">${label}</button>`:(i===active?`<span class="sub">${i===1&&window._extracting?'reading…':'automatic'}</span>`:'')}
     </div>`}).join('')})()}
   <div class="sub" style="margin:6px 2px 0;font-size:11.5px;opacity:.85">Every step stays open. Upload a newer CV, search again, or reopen a prepared case whenever you like.</div>
   ${HM&&HM.credits?(()=>{const c=HM.credits;const p=c.casesTotal?Math.min(100,Math.round(c.casesUsed/c.casesTotal*100)):0;return `
@@ -2222,7 +2222,7 @@ async function showMatches(kind,opts){
   if(!(opts&&opts._fromCache)){try{window._lastMatches={kind,opts:Object.assign({},opts||{}),at:Date.now(),scanned:window._chkFinal||null}}catch(e){}}
   else if(window._lastMatches&&window._lastMatches.scanned){window._chkFinal=window._lastMatches.scanned}
   opts=opts||{};
-  const kinds=(!kind||kind==='both')?['study','work']:[kind==='work'?'work':'study'];
+  const kinds=[kind==='work'?'work':'study'];   // one lane per search: study or work
   let list=[];
   // Send EVERY selection the user made, so the work and licensing lanes are filtered
   // server-side exactly as chosen, not silently ignored.
@@ -2395,7 +2395,6 @@ function renderFinder(){
   <select onchange="window._finder.kind=this.value;renderFinder()">
     <option value="study" ${f.kind==='study'?'selected':''}>Higher education abroad, degrees &amp; scholarships</option>
     <option value="work" ${f.kind==='work'?'selected':''}>International careers, professional positions</option>
-    <option value="both" ${f.kind==='both'?'selected':''}>Both, education and careers</option>
   </select>
   ${sel('field','Your profession',FIELDS)}
   ${study}${work}
@@ -2411,8 +2410,7 @@ function renderFinder(){
     </div>`:''}
   </div>
   <div class="sub" style="margin-top:8px">Your countries are searched first. If they cannot fill your package, comparable nearby destinations complete it.</div>
-  <button class="btn b-gold" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="launchFinder(this)">Find my opportunities</button>
-  <button class="btn b-line" style="width:100%;margin-top:8px" onclick="const f=window._finder;f.ctrys=[];f.fundings=[];f.langs=[];f.intake='';launchFinder(this)">Just search everything for me, broadest search</button>`;
+  <button class="btn b-gold" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="launchFinder(this)">Find my opportunities</button>`;
   if(f.ctryOpen)renderFinderCtryList();
 }
 function renderFinderCtryList(){
@@ -2450,10 +2448,12 @@ async function launchFinder(btn){
   const f=window._finder||{};
   const kind=f.kind||'study';
   const opts={fundedOnly:(f.fundings||[]).includes('fully'),fundings:(f.fundings||[]).slice(),levels:(f.levels||[]).slice(),noLang:(f.langs||[]).length===1&&f.langs[0]==='none',remote:f.workmode==='remote',visa:false,licenses:(f.licenses||[]).slice(),jobTypes:(f.jobTypes||[]).slice(),exps:(f.exps||[]).slice(),programTypes:(f.programTypes||[]).slice(),sectors:(f.sectors||[]).slice(),langs:(f.langs||[]).slice(),licenseExam:f.licenseExam||'',licenseStatus:f.licenseStatus||'',field:f.field||'',intake:f.intake||'',countries:(f.ctrys||[]).slice()};
-  try{await api('/api/me',{method:'PUT',body:{mode:kind==='both'?'both':kind,funded_only:opts.fundedOnly}});if(ME){ME.mode=kind==='both'?'both':kind;ME.funded_only=opts.fundedOnly}}catch(e){}
+  // 'Both' was removed: any account still carrying it is normalised to study.
+  const kindSafe=(kind==='work')?'work':'study';
+  try{await api('/api/me',{method:'PUT',body:{mode:kindSafe,funded_only:opts.fundedOnly}});if(ME){ME.mode=kindSafe;ME.funded_only=opts.fundedOnly}}catch(e){}
   api('/api/prefs',{method:'PUT',body:{prefs:{kind,funded:opts.fundedOnly,fundings:opts.fundings,levels:opts.levels,lang:opts.noLang?'none':'',workmode:opts.remote?'remote':'',licenses:opts.licenses,jobTypes:opts.jobTypes,exps:opts.exps,programTypes:opts.programTypes,sectors:opts.sectors,langs:opts.langs,field:opts.field,intake:opts.intake,visa:opts.visa,ctrys:opts.countries}}}).catch(()=>{});
   document.querySelectorAll('.ff-finder').forEach(x=>x.remove());
-  runSearch(kind==='both'?undefined:kind,opts);
+  runSearch(kindSafe,opts);
 }
 async function openApp(id){
   // Capture which document kinds the user already has, so we only ask for missing ones.
@@ -3109,9 +3109,39 @@ function uploadAll(){
   document.body.appendChild(wrap);
 }
 function toggleDocList(){const el=$('docSections');if(el)el.style.display=el.style.display==='none'?'block':'none';}
-async function uploadDocs(){window._afterUpload=()=>{toast('Uploaded. Reading your documents now…');
-  let tries=0;const iv=setInterval(async()=>{tries++;try{const d=await api('/api/me');ME=d.me;const dx=(ME&&ME.deep)||{};const n=[ME.headline,ME.field,dx.profession,dx.total_experience_years,dx.age,dx.city].filter(Boolean).length+((dx.certifications||[]).length?1:0)+((dx.research_papers||[]).length?1:0)+((ME.education||[]).length?1:0)+((ME.publications||[]).length?1:0);
-    if(n>=4||tries>=15){clearInterval(iv);toast('Profile built automatically, '+Math.max(n,4)+' details extracted. Tap Profile to view.');if(TAB==='home')vHome();if(TAB==='profile')vProfile();}}catch(e){if(tries>=15)clearInterval(iv)}},4000);
+async function uploadDocs(){window._afterUpload=()=>{
+  /* Reading a CV takes time and runs in several passes. We wait until the profile
+     STOPS GROWING (two consecutive checks with no new detail) rather than stopping at
+     an arbitrary count, so step 2 never opens on a half-read profile. */
+  window._extracting=true;
+  let tries=0,last=-1,stable=0;
+  const count=()=>{const dx=(ME&&ME.deep)||{};
+    return [ME.headline,ME.field,dx.profession,dx.total_experience_years,dx.age,dx.city,
+            dx.license_number,dx.nationality,dx.date_of_birth].filter(Boolean).length
+      +((dx.certifications||[]).length?1:0)+((dx.trainings||[]).length?1:0)
+      +((dx.research_papers||[]).length?1:0)+((dx.awards||[]).length?1:0)
+      +((dx.skills_verbatim||[]).length?1:0)+((ME.education||[]).length?1:0)
+      +((ME.experience||[]).length?1:0)+((ME.publications||[]).length?1:0);};
+  const finish=(n)=>{
+    window._extracting=false;clearInterval(iv);
+    toast(n>0?('Profile ready · '+n+' details read from your documents.')
+             :'Documents saved. Open Profile to check and complete your details.');
+    if(TAB==='home')vHome();if(TAB==='profile')vProfile();
+  };
+  const iv=setInterval(async()=>{
+    tries++;
+    try{
+      const d=await api('/api/me');ME=d.me;
+      const n=count();
+      // Show live progress rather than a silent wait.
+      const el=document.getElementById('uploadProgress');
+      if(el)el.innerHTML='<div class="sub" style="padding:6px 0">Reading your documents… '+n+' details found so far</div>';
+      if(n>0&&n===last){stable++}else{stable=0}
+      last=n;
+      // Settled: no new detail across two checks, and we have something real.
+      if((stable>=2&&n>=6)||tries>=30){const el2=document.getElementById('uploadProgress');if(el2)el2.innerHTML='';finish(n)}
+    }catch(e){if(tries>=30){const el2=document.getElementById('uploadProgress');if(el2)el2.innerHTML='';finish(last>0?last:0)}}
+  },4000);
   setTimeout(()=>{if(TAB==='home')vHome()},700)};
   const upKind=window._uploadKind||null;
   const files=$('doc-files').files;

@@ -81,7 +81,7 @@ function pdfSafe(t) {
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-28-R3620';
+const FF_BUILD = '2026-08-28-R3660';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => res.json({ build: FF_BUILD, ok: true }));
 /* Instant email confirmation: kills the "email not confirmed" loop permanently.
@@ -2664,7 +2664,11 @@ const { discoverForUser, prepareApplication } = require('./lib/engine');
 const _lastSearch = new Map();
 function searchCooldown(req, res, next) {
   try {
-    const mins = Number(((require('./lib/settings').cache() || {}).limits || {}).search_cooldown_minutes);
+    const lim = ((require('./lib/settings').cache() || {}).limits || {});
+    let mins = Number(lim.search_cooldown_minutes);
+    // Legacy installs stored 30 by default and it was locking people out after a
+    // mistaken tap. Only an explicitly chosen value now applies.
+    if (!isFinite(mins) || mins <= 0 || lim.cooldown_enabled !== true) mins = 0;
     if (!mins || mins <= 0) return next();
     // Staff are exempt: support must be able to reproduce a user's search on demand.
     if (req.userRole && ['admin', 'super_admin', 'staff'].includes(req.userRole)) return next();
