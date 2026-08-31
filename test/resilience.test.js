@@ -345,6 +345,13 @@ const checks = [
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     return fe.includes("clearInterval(watch);clear()},20000") && fe.includes('_authOff()');
   })()],
+  ['AI diagnostics are visible on the admin overview, not buried', (() => {
+    const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return fe.includes('AI engine health') && fe.includes('innerHTML=aiHtml+') &&
+      fe.includes('onclick="aiSelfTest(this)"') && fe.includes('onclick="runDeepDiag(this)"') &&
+      fe.includes('async function openHealthFull') && fe.includes('function diagOut') &&
+      !fe.includes("alert('AI ENGINE SELF-TEST");
+  })()],
   ['harvest and healer require the REAL supa module', (() => { const h = fs.readFileSync(__dirname + '/../lib/harvest.js', 'utf8'); const hl = fs.readFileSync(__dirname + '/../lib/healer.js', 'utf8'); return h.includes("require('./supa')") && hl.includes("require('./supa')"); })()]
 ];
 let fail = 0;

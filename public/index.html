@@ -1110,7 +1110,14 @@ async function doAuth(mode){
       if(window._authBusy){netEnd();return}window._authBusy=true;
       _authOn('Creating your account…');
       const wa=(document.getElementById('su-wa')||{}).value||'';const {error}=await SB.auth.signUp({email,password,options:{data:{full_name:name,whatsapp:wa},emailRedirectTo:location.origin}});
-      if(error)throw error;
+      /* A mail-server failure must NOT block signup. We confirm accounts ourselves on the
+         server, so the confirmation email is a courtesy, not the gate. Supabase still
+         creates the account and then reports the send failure, so we continue. */
+      if(error){
+        const m=String(error.message||'').toLowerCase();
+        const mailOnly=/sending.*(email|mail|confirmation)|smtp|email.*not.*sent|error sending/.test(m);
+        if(!mailOnly)throw error;
+      }
       // Confirm instantly server-side, then sign straight in: no email link needed, ever.
       try{await fetch('/api/auth/confirmed',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})})}catch(e){}
       const si=await SB.auth.signInWithPassword({email,password});
@@ -1137,7 +1144,16 @@ async function forgotPassword(){
   if(!email){return}
   try{
     const {error}=await SB.auth.resetPasswordForEmail(email,{redirectTo:location.origin});
-    if(error)throw error;
+    if(error){
+      // Password reset genuinely depends on email, so if the mail server is failing we
+      // say so plainly and give a way forward instead of a raw technical error.
+      const m=String(error.message||'').toLowerCase();
+      if(/sending.*(email|mail)|smtp|error sending/.test(m)){
+        toast('Our email service is temporarily unavailable. Please message us on WhatsApp and we will reset it for you.');
+        return;
+      }
+      throw error;
+    }
     toast('Password reset link sent to '+email+'. Check your inbox (and spam).');
   }catch(e){toast(e.message)}
 }
@@ -3229,6 +3245,18 @@ function assistStatus(el){
 }
 async function adminOverview(){
   let M=null;try{M=await api('/api/admin/metrics')}catch(e){}
+  /* AI diagnostics belong on the first screen an admin sees. They were previously
+     buried inside the finance view, where nobody would look when discovery misbehaves. */
+  const aiHtml=`<div class="card" style="border-color:rgba(0,212,255,.5)">
+    <div class="spread" style="flex-wrap:wrap;gap:8px"><h3 style="margin:0">🧠 AI engine health</h3>
+      <span class="sub">Run these whenever search or case preparation looks weak.</span></div>
+    <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn b-line" onclick="aiSelfTest(this)">Test AI engine</button>
+      <button class="btn b-gold" onclick="runDeepDiag(this)">Run deep AI diagnosis</button>
+      <button class="btn b-line" onclick="openHealthFull(this)">Full system report</button>
+    </div>
+    <div id="aiDiagOut" class="sub" style="margin-top:10px;white-space:pre-wrap;line-height:1.6"></div>
+  </div>`;
   const mHtml=M?`<div class="card"><h3>🩺 System health (24h)</h3>
   <div class="row" style="flex-wrap:wrap;gap:14px;margin-top:6px">
     <div><b style="font-size:20px;color:${M.errors24?'#FFB0C0':'#00E5C0'}">${M.errors24}</b><div class="sub">errors</div></div>
@@ -3242,7 +3270,7 @@ async function adminOverview(){
   </div>`:'';
   window.__mHtml=mHtml;
   let d;try{d=await api('/api/admin/overview')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
-  $('adminBody').innerHTML=(window.__mHtml||'')+`<div class="card" style="border-color:rgba(255,208,112,.6)">
+  $('adminBody').innerHTML=aiHtml+(window.__mHtml||'')+`<div class="card" style="border-color:rgba(255,208,112,.6)">
   <div class="spread"><h3 style="margin:0">🎁 Free Solo promo, limited time</h3></div>
   <div class="sub" style="margin:4px 0 8px">Open a window where EVERY user can claim 1 free Solo case, once each. A live countdown shows on every dashboard. Great for launch days and ad campaigns.</div>
   <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -3766,6 +3794,35 @@ async function toggleCountry(code,btn){
   try{const d=await api('/api/admin/countries/'+code+'/toggle',{method:'POST'});toast(code+' '+(d.enabled?'enabled':'disabled')+'.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}
 }
+/* Diagnostics print into the admin panel itself: a browser alert box is easy to miss,
+   cannot be scrolled comfortably on a phone, and cannot be copied for support. */
+function diagOut(text){
+  const el=document.getElementById('aiDiagOut');
+  if(!el){alert(text);return}
+  el.innerHTML='<div style="border:1px solid rgba(0,212,255,.35);border-radius:10px;padding:10px 12px;background:rgba(0,212,255,.05);max-height:340px;overflow:auto;font:500 12px ui-monospace,Menlo,monospace">'
+    +esc(text)+'</div><button class="btn b-line" style="margin-top:8px;padding:4px 12px;font-size:11px" onclick="copyTxt(this.previousElementSibling.textContent,this)">Copy report</button>';
+  try{el.scrollIntoView({behavior:'smooth',block:'nearest'})}catch(e){}
+}
+async function openHealthFull(btn){
+  btn.disabled=true;const o=btn.textContent;btn.textContent='Checking…';
+  try{
+    const r=await fetch('/api/health/full',{headers:{authorization:'Bearer '+((SESSION&&SESSION.access_token)||'')}});
+    const d=await r.json();
+    const line=(k,v)=>k.padEnd(26)+': '+v;
+    const out=[
+      'FULL SYSTEM REPORT',
+      line('build',d.build||'?'),
+      line('database',d.db||'?'),
+      line('auth layer',d.auth_layer||'?'),
+      d.ai_gate?line('AI queue',(d.ai_gate.active||0)+' running, '+(d.ai_gate.waiting||0)+' waiting, max '+(d.ai_gate.max||'?')):'',
+      '',
+      'KEYS CONFIGURED:',
+      ...Object.entries(d).filter(([k,v])=>/_KEY$|_URL$/.test(k)).map(([k,v])=>'  '+k+': '+(v===true||v==='set'?'yes':'NO'))
+    ].filter(Boolean).join('\n');
+    diagOut(out);
+  }catch(e){diagOut('Full report failed: '+e.message)}
+  btn.disabled=false;btn.textContent=o;
+}
 async function runDeepDiag(btn){
   btn.disabled=true;const orig=btn.textContent;btn.textContent='Deep diagnosis running (about 60s)…';
   try{
@@ -3775,7 +3832,7 @@ async function runDeepDiag(btn){
     const D=disc.ok?('PIPELINE OK: parsed '+disc.parsed+' items, added '+disc.added_to_db+' to database ('+disc.ms+'ms)\nRaw start: '+String(disc.raw_first_300||'').slice(0,140))
                   :('PIPELINE FAIL: '+(disc.error||'unknown'));
     const E=(d.recent_errors||[]).map(x=>x.t+'  '+x.area+': '+x.msg).join('\n')||'none';
-    alert('DEEP AI DIAGNOSIS  -  '+d.build+'\n\nMODEL PROBES:\n'+P+'\n\nDISCOVERY PIPELINE:\n'+D+'\n\nRECENT ERRORS:\n'+E);
+    diagOut('DEEP AI DIAGNOSIS  -  '+d.build+'\n\nMODEL PROBES:\n'+P+'\n\nDISCOVERY PIPELINE:\n'+D+'\n\nRECENT ERRORS:\n'+E);
   }catch(e){toast('Diagnosis failed: '+e.message)}
   btn.disabled=false;btn.textContent=orig;
 }
@@ -3784,7 +3841,7 @@ async function aiSelfTest(btn){
   try{const d=await api('/api/admin/ai-selftest');
     const f=x=>x?(x.ok?`OK · ${x.ms}ms${x.model?' · '+esc(x.model):''}`:`FAILED · ${esc(x.error||'')}`):'-';
     toast('Plain: '+(d.plain&&d.plain.ok?'OK':'FAIL')+' · Search: '+(d.grounded&&d.grounded.ok?'OK':'FAIL'));
-    alert('AI ENGINE SELF-TEST\n\nFlash plain: '+f(d.plain)+'\n\nFlash search-grounded: '+f(d.grounded)+'\n\nCLAUDE premium lane: '+f(d.claude)+'\n\nOpenAI backup: '+(d.backup&&d.backup.configured?('ARMED · '+esc(d.backup.model)):'NOT CONFIGURED, add OPENAI_API_KEY in Railway')+'\n\nIf search fails while plain passes, the issue is grounding/tools or model overload, not your key. With the backup armed, discovery survives even a full Gemini outage.');
+    diagOut('AI ENGINE SELF-TEST\n\nFlash plain            : '+f(d.plain)+'\nFlash search-grounded  : '+f(d.grounded)+'\nCLAUDE premium lane    : '+f(d.claude)+'\nOpenAI backup          : '+(d.backup&&d.backup.configured?('ARMED · '+(d.backup.model||'')):'NOT CONFIGURED, add OPENAI_API_KEY in Railway')+'\n\nIf search fails while plain passes, the issue is grounding or model overload, not your key. With the backup armed, discovery survives a full Gemini outage.');
   }catch(e){toast(e.message)}
   btn.disabled=false;btn.textContent='Test AI engine';
 }
