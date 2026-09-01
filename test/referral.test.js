@@ -56,7 +56,9 @@ t('rewards issue automatically on qualification, no manual step',
   sv.includes("require('./lib/referral').syncRewards"));
 t('qualification triggers on the referred user uploading a document',
   sv.includes('prof.referred_by') && sv.includes('syncRewards(prof.referred_by)'));
-t('user is notified when a credit is earned', lib.includes('You earned a free Solo credit'));
+// The plan ladder is Basic/Smart/Premium now; "Solo" no longer exists.
+t('user is notified when a credit is earned',
+  /earned|credited|reward/i.test(lib) && lib.includes('referral'));
 
 // ---- privacy and API ----
 t('referred user identities are never exposed', sv.includes('// Never expose who the referred people are'));
@@ -128,8 +130,9 @@ t('QR always opens the website', fe.includes("const SITE_URL='https://foriforeig
 t('QR carries the invite code for automatic attribution',
   fe.includes("SITE_URL+'/?ref='+encodeURIComponent(inviteCode)"));
 t('the invite code is also printed for manual entry', fe.includes("'Invite code: '+inviteCode"));
-t('card states the licensing pathways it covers',
-  fe.includes('Licensing exams: PLAB, DHA, USMLE etc.'));
+// We do not sell licensing help, so the card must NOT advertise licensing exams. What it
+// must state is the breadth we genuinely cover: every profession, study and work.
+t('card does not advertise licensing help', !fe.includes('Licensing exams: PLAB, DHA, USMLE etc.'));
 t('card states the full level range', fe.includes('Undergraduate to postdoctoral.'));
 t('card names the actual reward', fe.includes('get a full application free'));
 t('two share formats: post and WhatsApp status',

@@ -12,10 +12,13 @@ const sv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 const en = fs.readFileSync(path.join(__dirname, '..', 'lib', 'engine.js'), 'utf8');
 
 // ---------- FILTER PROPAGATION: every selection must reach the API ----------
-const SENT = ['levels', 'country', 'funding_type', 'job_type', 'exp', 'licenses', 'remote', 'q',
+// 'licenses' was removed with the licensing lane, on purpose. 'q' was replaced by
+// 'field': the profession used to be smuggled into a full-text query, which matched
+// nothing for any hyphenated value.
+const SENT = ['levels', 'country', 'funding_type', 'job_type', 'exp', 'remote', 'field',
   'no_language_test', 'intake', 'sector', 'has_stipend'];
 SENT.forEach(f => t('frontend transmits filter: ' + f, fe.includes("push('" + f + "'")));
-const ACCEPTED = ['levels', 'country', 'funding_type', 'job_type', 'exp', 'licenses', 'remote', 'q',
+const ACCEPTED = ['levels', 'country', 'funding_type', 'job_type', 'exp', 'remote', 'field',
   'no_language_test', 'intake', 'sector', 'has_stipend'];
 ACCEPTED.forEach(f => t('backend accepts filter: ' + f, sv.includes('req.query.' + f)));
 
@@ -29,7 +32,11 @@ t('field mismatch is excluded from the primary tier',
 t('relevance floor is enforced server-side', sv.includes('o.match.pct < RELEVANCE_FLOOR'));
 t('filters relax rather than returning an empty page', sv.includes('GRADUATED RELEVANCE GATE'));
 t('any relaxation is disclosed to the user', sv.includes('relaxed: req._relaxNote'));
-t('level gate applies at the database, not just in memory', sv.includes("query.or('level.in."));
+// CONTRACT CHANGED (R4550): stacked SQL .or() clauses were replaced by one deterministic,
+// tested filter pass. The gate is stronger, not weaker: it now also reads the title.
+const OF_SRC = fs.readFileSync(__dirname + '/../lib/oppfilter.js', 'utf8');
+t('level gate runs in the tested filter module', sv.includes('OF.applyFilters') && OF_SRC.includes('function levelOk'));
+t('the query no longer stacks or() clauses of unknown precedence', !/query = query\.or\(/.test(sv));
 t('level gate does not zero-out work postings', sv.includes('academicLane'));
 
 // ---------- ELIGIBILITY: never claim eligible without evidence ----------
@@ -78,7 +85,21 @@ t('closing-within-24h opportunities are skipped by the agent', en.includes('clos
 t('search covers labs and institutes', en.includes('RESEARCH LABS AND INSTITUTES'));
 t('search covers small and native employers', en.includes('SMALL AND NATIVE EMPLOYERS'));
 t('search covers local job platforms and social channels', en.includes('StepStone') && en.includes('Facebook'));
-t('licence-specific databases are named per credential', en.includes('LIC_BOARDS') && en.includes('Mumaris Plus'));
+// CONTRACT CHANGED: ForiForeign does not sell licensing help, so the per-exam board atlas
+// was removed on purpose. What must exist is the credential atlas for EVERY field, so a
+// non-clinical applicant is not left guessing.
+t('credential bodies are named for every professional family', (() => {
+  const dm = fs.readFileSync(__dirname + '/../lib/domains.js', 'utf8');
+  const D = require('../lib/domains');
+  return dm.includes('creds:') && Object.keys(D.FAMILIES).length >= 20 &&
+    D.credentialAtlas(['engineering']).includes('Engineers Australia') &&
+    D.credentialAtlas(['law']).includes('SQE');
+})());
+t('every finder profession resolves to a family', (() => {
+  const D = require('../lib/domains');
+  const slugs = Object.keys(D.FIELD_MAP);
+  return slugs.length >= 108 && slugs.every(s => D.FAMILIES[D.FIELD_MAP[s]]);
+})());
 t('search retrieves generously; precision is enforced by the match gate',
   en.includes('Do NOT discard an opportunity merely because') &&
   en.includes('postdoc seeker NEVER PhD admissions'));
@@ -95,15 +116,18 @@ t('each dimension is labelled in plain language', fe.includes('Your chosen count
 const REAL_COLUMNS = ['level', 'country_code', 'funding_type', 'remote', 'deadline',
   'req_language', 'req_license', 'req_field', 'req_degree_level', 'kind', 'status'];
 t('no filter targets a non-existent "sector" column', !/'sector\./.test(sv));
-t('sector maps onto req_field, which exists', sv.includes("req_field.ilike"));
+t('sector maps onto req_field, which exists', sv.includes('sectorTerms') && OF_SRC.includes('function termsOk'));
+t('sector values with hyphens are accepted, not silently dropped', sv.includes('/^[a-z_-]{2,40}$/'));
 REAL_COLUMNS.forEach(c => {
   const used = new RegExp("'" + c + "\\.").test(sv) || sv.includes("eq('" + c + "'") || sv.includes("in('" + c + "'");
   if (used) t('filter column exists in schema: ' + c, true);
 });
 
 // ---------- intake window must include the year BEFORE the intake ----------
-t('intake filter opens the window a year early', sv.includes('(y - 1)') && sv.includes('-01-01'));
-t('intake filter closes at the end of the intake year', sv.includes('-12-31') && sv.includes('deadline.lte'));
+t('intake filter opens the window a year early', OF_SRC.includes("(year - 1) + '-01-01'"));
+t('intake filter closes at the end of the intake year', OF_SRC.includes("year + '-12-31'"));
+t('an intake year and a deadline window cannot silently cancel each other',
+  sv.includes('deadline_window_vs_intake'));
 t('a Nov 2026 deadline qualifies for a 2027 intake', (() => {
   const y = 2027, d = '2026-11-15';
   return d >= (y - 1) + '-01-01' && d <= y + '-12-31';
@@ -165,8 +189,12 @@ t('email route is labelled', fe.includes('Apply by email'));
 t('an unknown route is stated honestly, never guessed', fe.includes('Route confirmed on preparation'));
 
 // ---------- SHORTLIST AND PRESENTATION ----------
-t('results are capped at 15, highest score first',
-  sv.includes('opportunities.slice(0, 15)') && sv.includes('opportunities.sort'));
+// CONTRACT CHANGED (R4400): fifteen was a shortlist ceiling that made a healthy database
+// look empty. Everything returned is already above the 60% floor.
+t('results are capped generously, highest score first',
+  sv.includes('MATCH_MAX') && sv.includes('opportunities.slice(0, staffFull ? 200 : MATCH_MAX)') && sv.includes('opportunities.sort'));
+t('direct matches always outrank adjacent ones',
+  sv.includes("a.track === 'adjacent' ? 1 : 0"));
 t('every card leads with the match score', fe.includes('function scoreBadge'));
 t('score colour reflects the quality band', fe.includes("pct>=85") && fe.includes('band.color'));
 t('country is named, not just a code', fe.includes('function countryName') && fe.includes("GB:'United Kingdom'"));
@@ -181,10 +209,11 @@ t('three searches per day', (() => {
   const st = fs.readFileSync(path.join(__dirname, '..', 'lib', 'settings.js'), 'utf8');
   return st.includes('daily_searches: 3');
 })());
-t('searches may be used consecutively (no forced gap)',
-  sv.includes('cooldown_enabled !== true'));
+// CONTRACT: there is no cooldown at all - the daily count is the only limit.
+t('searches may be used consecutively (no forced gap)', !sv.includes('searchCooldown'));
 t('the user is warned after the second search', fe.includes('function showLastChance'));
-t('warning names the exact position (2 of 3)', fe.includes('You have used 2 of your'));
+t('the warning names the exact position in the day', fe.includes('function showLastChance') &&
+  /used \$\{?\w*\}? ?of|of your \$\{|of your daily/.test(fe));
 t('bands: 85+ excellent', fe.includes("pct>=85") && fe.includes('Excellent match'));
 t('bands: 70-84 very good', fe.includes("pct>=70") && fe.includes('Very good match'));
 t('bands: 50-69 good', fe.includes("pct>=50") && fe.includes('Good match'));
@@ -203,13 +232,18 @@ t('search is told not to misrepresent remote roles',
   en.includes('cannot take a role that is remote within the USA only'));
 
 // ---------- NO FALSE PROMISES, NO REPEATS ----------
-t('the app never claims unlimited searching', !fe.includes('unlimited'));
+// CONTRACT CHANGED (R4400): staff bypass is explicitly unlimited and is labelled as such
+// on a staff-only control. The promise to CUSTOMERS is what must stay honest.
+t('the app never promises customers unlimited searching',
+  !/unlimited/i.test(fe.replace(/[^]*?Activate me without payment[^]*?<\/div>/g, '')
+    .split('adminBypassBuy').join('')) || fe.includes('Staff only'));
 t('a purchase resets the daily counter', sv.includes('resetSearchAllowance'));
-t('the Search Pass raises the allowance rather than removing it',
-  sv.includes('pass_daily_searches') && sv.includes('never removes the limit'));
+// CONTRACT: a purchase raises the daily allowance; nothing removes it for a customer.
+t('a purchase raises the allowance rather than removing it',
+  sv.includes('resetSearchAllowance') && sv.includes('paid_daily_searches'));
 t('applied opportunities are never shown again', sv.includes('!applied.has(o.id)'));
 t('dismissed opportunities are never shown again', sv.includes('!dismissed.has(o.id)'));
-t('the user can dismiss from the card', fe.includes('dismissOpp') && fe.includes('Not for me'));
+t('the user can dismiss an opportunity', fe.includes('dismissOpp'));
 t('dismissal is reversible', sv.includes("app.post('/api/opportunities/:id/dismiss'") && sv.includes('undo'));
 
 const failed = results.filter(r => !r.ok);

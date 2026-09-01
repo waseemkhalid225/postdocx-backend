@@ -1076,7 +1076,10 @@ function renderAuth(mode){
       <div class="auth-brand">Fori<b>Foreign</b></div>
       <div class="auth-tag">${esc((SITE&&SITE.brand&&SITE.brand.tagline)||'Your path to studying and working abroad.')}</div>
       <div id="authMsg" style="display:none"></div>
-      ${mode==='signup'?`<label>Full name</label><input id="a-name" type="text" placeholder="Your name">`:''}
+      ${mode==='signup'?`<label>Full name</label><input id="a-name" type="text" placeholder="Your name">
+      <label>WhatsApp number <span style="opacity:.6;font-weight:400">(optional)</span></label>
+      <input id="su-wa" type="tel" inputmode="tel" placeholder="03xx xxxxxxx" autocomplete="tel">
+      <div class="sub" style="margin:-4px 0 8px;font-size:11.5px">Used only to tell you when your payment is confirmed and your case is ready.</div>`:''}
       <label>Email</label><input id="a-email" type="email" placeholder="you@gmail.com">
       <label>Password</label><input id="a-pass" type="password" placeholder="minimum 8 characters">
       <button class="btn b-gold auth-primary" onclick="doAuth('${mode}')">${mode==='signin'?'Sign in':'Create account'}</button>
@@ -1942,6 +1945,17 @@ function oppCard(o,ctaColor){
     <div class="spread"><div style="min-width:0"><b>${titleLine}</b><div class="sub">${subLine}</div></div>
     ${o.country_code?`<span class="chip c-blue">${esc(placeLabel(o))}</span>`:''}</div>
     ${moneyBlock(o)}
+    ${(()=>{const x=o.intelligence||o.extra||{};const bits=[];
+      /* The three pieces of evidence that decide whether an applicant acts: why this
+         group fits them, what the licence really costs in time and money, and which
+         scheme funds it. All were extracted and none were ever shown. */
+      if(x.group_fit)bits.push(['Why this group fits you',x.group_fit,'#2dd4bf']);
+      if(x.licence_reality)bits.push(['Licensing reality',x.licence_reality,'#F5B841']);
+      if(x.scheme_name)bits.push(['Funding scheme',x.scheme_name,'#7EE6FF']);
+      if(o.track==='adjacent')bits.push(['A step sideways','Your stated skills cover what this asks for, under a different job title.','#FFD070']);
+      return bits.length?`<div style="margin:8px 0 4px">${bits.map(([k,v,c])=>`<div style="padding:5px 0;border-top:1px solid rgba(140,178,255,.12)">
+        <span style="font:700 11px Inter;color:${c};text-transform:uppercase;letter-spacing:.04em">${esc(k)}</span>
+        <div class="sub" style="font-size:12px;margin-top:2px;line-height:1.5">${esc(String(v).slice(0,240))}</div></div>`).join('')}</div>`:''})()}
     ${oppFactsHtml(o)}
     <div class="chiprow">
     ${scoreBadge(o.match,o.country_code)}${routeChip(o)}${matchBadge(o.match)}${levelChip}${fundingChip}${newChip}${dlChip}
@@ -2048,8 +2062,29 @@ async function oppReport(id){
   ${revealed&&o.url?`<h3 style="margin-top:12px">Official source</h3><div class="sub"><a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.url)}</a></div>`:'<div class="sub" style="margin-top:12px">✓ Confirmed on the official page. The direct link opens with your case.</div>'}
   <div class="row" style="margin-top:14px">
   <button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();startApp('${o.id}','${escAttr(o.institution)}')">Start my case</button>
-  <button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">Close</button></div></div>`;
+  <button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()">Close</button>
+  <button class="btn b-line" style="opacity:.7" onclick="dismissOpp('${o.id}',this)">Hide this from my searches</button></div></div>`;
   document.body.appendChild(wrap);
+}
+/* THE DISMISS CONTROL. The endpoint, the storage and the filter that hides dismissed
+   opportunities have all existed for a long time, and the FAQ told users that "previously
+   chosen or dismissed opportunities are never repeated" - but there was no button
+   anywhere in the interface, so nothing could ever be dismissed. A promise in the FAQ
+   with no way to use it is a broken promise. Reversible, because a mis-tap on a real
+   opportunity must not be permanent. */
+async function dismissOpp(id,btn){
+  btn.disabled=true;
+  try{
+    await api('/api/opportunities/'+id+'/dismiss',{method:'POST',body:{}});
+    const panel=btn.closest('div[style*=fixed]'); if(panel)panel.remove();
+    const t=document.createElement('div');t.className='toast';
+    t.style.cssText='display:flex;gap:10px;align-items:center';
+    t.innerHTML='<span>Hidden from your searches.</span>';
+    const un=document.createElement('button');
+    un.className='btn b-line';un.style.cssText='padding:2px 10px;font-size:12px';un.textContent='Undo';
+    un.onclick=async()=>{try{await api('/api/opportunities/'+id+'/dismiss',{method:'POST',body:{undo:true}});t.remove();toast('Restored.')}catch(e){toast(e.message)}};
+    t.appendChild(un);document.body.appendChild(t);setTimeout(()=>t.remove(),8000);
+  }catch(e){toast(e.message);btn.disabled=false}
 }
 async function whyMatch(id){
   toast('Checking your eligibility…');
@@ -2276,49 +2311,62 @@ async function runSearch(kind,opts){
     toast(e.message);return}
   if(d&&d.ran===false){toast(d.message||'Your recent matches are still fresh.');showMatches(kind,opts);return}
   if(!d.ran){toast(d.message);return}
-  // Staged progress ring. Stages reflect the real backend pipeline; the timer paces
-  // to the ~2-3 min discovery window. It is honest pacing, not a fake 0-100 loop:
-  // it holds at 90% until results actually arrive, then completes.
-  const stages=['Understanding your profile','Checking eligibility','Searching official sources','Verifying sources','Checking deadlines','Calculating match scores','Selecting best matches'];
-  const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px';
-  wrap.innerHTML=`<div class="sheet" style="text-align:center;max-width:400px">
-    <div class="search-ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52"/></svg><div class="ring-pct" id="ringPct" style="color:#00D4FF">0%</div></div>
-    <h3 style="margin-top:14px;color:#fff">Give us a few minutes. ForiForeign is working for you.</h3>
-    <div class="sub" id="ringStage" style="margin-top:6px;color:#CBD5E1">${stages[0]}</div>
-    <div class="sub" id="ringFound" style="margin-top:4px;color:#7ef0d4"></div>
-    <div class="ffrotate sub" id="ringLine" style="margin-top:10px">${FF_LINES[0]}</div>
-    <details class="ffstory" style="text-align:left;margin-top:12px"><summary>Why ForiForeign?</summary>
-    <div class="sub" style="line-height:1.7;margin-top:8px;color:#CBD5E1">Built by a Pakistani PhD student to make finding opportunities abroad simpler and more affordable. ForiForeign does the hard, repetitive work, you review and press Send yourself.<br><br><b style="color:#fff">Find opportunities. Prepare properly. Apply yourself. Stay in control.</b><br><br><i>Built in Pakistan. For ambitious people everywhere.</i></div></details></div>`;
-  let _rl=0;const _rot=setInterval(()=>{_rl=(_rl+1)%FF_LINES.length;const el=$('ringLine');if(el){el.style.opacity=0;setTimeout(()=>{el.textContent=FF_LINES[_rl];el.style.opacity=.85},350)}else clearInterval(_rot)},7000);
-  document.body.appendChild(wrap);
-  const circ=2*Math.PI*52;const fg=$('ringFg');if(fg){fg.style.strokeDasharray=circ;fg.style.strokeDashoffset=circ}
-  let pct=0,si=0;const total=150000;const start=Date.now();
-  let finished=false;
-  const finish=()=>{
-    if(finished)return;finished=true;
-    clearInterval(tick);clearInterval(poll);clearInterval(_rot);
-    const p=$('ringPct'),f=$('ringFg'),st=$('ringStage');
-    if(p)p.textContent='100%';if(f)f.style.strokeDashoffset=0;if(st)st.textContent='Done, opening your matches';
-    setTimeout(()=>{wrap.remove();showMatches(kind,opts)},700);
+  /* STREAMING SEARCH. The old flow put a full-screen ring over the app for 150 seconds
+     with invented stage names and a counter that incremented by a random number every
+     eight seconds. The user was watching an animation of a search, not the search, and
+     could do nothing until it ended. Now: whatever is already verified is on screen
+     immediately, a slim live bar reports what the engine is genuinely doing, and each
+     newly verified position appears the moment it lands. Nothing is blocked. */
+  showMatches(kind,opts);
+  liveSearchBar(kind,opts,d);
+}
+/* The live bar. Real stage text from the server, a real count, and a merge of new
+   results as they are verified. It can be dismissed; the run continues regardless. */
+function liveSearchBar(kind,opts,runInfo){
+  document.querySelectorAll('.ff-live').forEach(x=>x.remove());
+  const bar=document.createElement('div');bar.className='ff-live';
+  bar.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:69;background:linear-gradient(180deg,rgba(8,18,40,.94),rgba(6,14,32,.99));border-top:1px solid rgba(45,212,191,.45);padding:11px 14px;backdrop-filter:blur(10px)';
+  bar.innerHTML=`<div style="display:flex;align-items:center;gap:10px;max-width:640px;margin:0 auto">
+    <div class="ff-pulse" style="width:9px;height:9px;border-radius:50%;background:#2dd4bf;flex:none"></div>
+    <div style="flex:1;min-width:0">
+      <div id="lvStage" style="font:600 12.5px Inter;color:#B9F5EA;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Starting your search…</div>
+      <div id="lvCount" class="sub" style="font-size:11px;margin-top:1px">${(runInfo&&runInfo.instant)?runInfo.instant+' already verified and showing':'Results appear here as each one is verified'}</div>
+    </div>
+    <button class="btn b-line" style="padding:3px 10px;font-size:11.5px;flex:none" onclick="this.closest('.ff-live').remove()">Hide</button>
+  </div>`;
+  document.body.appendChild(bar);
+  if(!document.getElementById('ffPulseCss')){const s=document.createElement('style');s.id='ffPulseCss';
+    s.textContent='@keyframes ffp{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}.ff-pulse{animation:ffp 1.3s ease-in-out infinite}';
+    document.head.appendChild(s)}
+  let lastFound=-1,ticks=0;
+  const stop=(msg)=>{const b=document.querySelector('.ff-live');if(!b)return;
+    const st=document.getElementById('lvStage'),ct=document.getElementById('lvCount'),p=b.querySelector('.ff-pulse');
+    if(p){p.style.animation='none';p.style.background='#4ade80'}
+    if(st)st.textContent=msg;if(ct)ct.textContent='Tap any position to open it.';
+    setTimeout(()=>{const x=document.querySelector('.ff-live');if(x)x.remove()},6000)};
+  const poll=async()=>{
+    if(!document.querySelector('.ff-live'))return;
+    ticks++;
+    let s=null;try{s=await api('/api/run/status')}catch(e){}
+    if(s){
+      const st=document.getElementById('lvStage'),ct=document.getElementById('lvCount');
+      if(st&&s.stage)st.textContent=s.stage;
+      const f=Number(s.found||0);
+      if(ct)ct.textContent=f?(f+' verified so far'):'Reading official pages…';
+      /* Only re-render when the number actually grew. Re-rendering on every poll would
+         throw the user back to the top of the list while they were reading it. */
+      if(f>lastFound&&lastFound>=0){try{await showMatches(kind,Object.assign({},opts));}catch(e){}}
+      lastFound=Math.max(lastFound,f);
+      if(s.status==='done'||s.status==='error'){
+        try{await showMatches(kind,Object.assign({},opts))}catch(e){}
+        stop(s.status==='error'?'Search finished with some sources unreachable.':(f?('Search complete, '+f+' new positions verified.'):'Search complete.'));
+        return;
+      }
+    }
+    if(ticks>60){stop('Search is taking longer than usual, it keeps running on our servers.');return}
+    setTimeout(poll,6000);
   };
-  const tick=setInterval(()=>{
-    const elapsed=Date.now()-start;
-    pct=Math.min(90,Math.round(90*elapsed/total));
-    si=Math.min(stages.length-1,Math.floor(elapsed/(total/stages.length)));
-    const p=$('ringPct'),st=$('ringStage'),f=$('ringFg');
-    if(p)p.textContent=pct+'%';if(st)st.textContent=stages[si];
-    if(f)f.style.strokeDashoffset=circ*(1-pct/100);
-  },500);
-  // Accurate early finish: the server reports real delivery progress (found / target).
-  const poll=setInterval(async()=>{
-    try{const st2=await api('/api/run/status');
-      const fEl=$('ringFound');
-      if(fEl){window._chk=(window._chk||12)+7+Math.floor(Math.random()*9);window._chkFinal=window._chk;fEl.textContent=window._chk.toLocaleString()+' opportunities checked so far';}
-      if(st2&&(st2.status==='done'||((st2.found||0)>=(st2.target||5)&&Date.now()-start>30000)))finish();
-    }catch(e){}
-  },8000);
-  setTimeout(finish,total);
+  setTimeout(poll,4000);
 }
 
 /* ===== Resume a server-side search: the run never depended on this screen ===== */
@@ -2344,7 +2392,10 @@ async function resumeSearch(kind){
       if(p)p.textContent=pct2+'%';
       if(f2)f2.style.strokeDashoffset=circ*(1-pct2/100);
       if(fd)fd.textContent=(st2.found||0)+' of '+(st2.target||5)+' verified opportunities found';
-      if(st2.status==='done'||st2.status==='error'){setTimeout(()=>{wrap.remove();showMatches(st2.kind||kind,(window._lastMatches&&window._lastMatches.opts)||opts||{})},600);return}
+      /* `opts` does not exist in this function - it was never a parameter - so this line
+         threw a ReferenceError at the exact moment a resumed search completed, and the
+         user's results never opened. The last search's own filters are the right source. */
+      if(st2.status==='done'||st2.status==='error'){setTimeout(()=>{wrap.remove();showMatches(st2.kind||kind,(window._lastMatches&&window._lastMatches.opts)||{})},600);return}
     }
     setTimeout(step,5000);
   };
@@ -2385,7 +2436,10 @@ function matchStatsTable(list,opts){
   const row=(k,v,last)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 14px;flex-wrap:wrap${last?'':';border-bottom:1px solid rgba(140,178,255,.14)'}">
     <span style="color:#9db8e8;font:600 11.5px Inter;letter-spacing:.03em;text-transform:uppercase;flex:1 1 45%;min-width:120px">${k}</span>
     <span style="font:700 13.5px Inter;color:#eef4ff;text-align:right;flex:1 1 45%;min-width:110px;word-break:break-word">${v}</span></div>`;
-  const scanned=(window._chkFinal||Math.max(240,list.length*18+180));
+  /* The "sources read" figure used to be invented: a random client-side counter, or
+     failing that list.length*18+180. It was shown to paying customers as a fact. There is
+     no honest way to produce that number on the client, so the claim is gone and the
+     block now reports only what we can actually count. */
   /* A headline block first: three numbers a person can absorb at a glance, then the
      detailed rows beneath. Statistics only from real scored data, never estimated. */
   const scores=list.map(pv).filter(p=>p>=0).sort((a,b)=>b-a);
@@ -2401,7 +2455,6 @@ function matchStatsTable(list,opts){
     <div class="sub" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-top:3px">${l}</div></div>`;
   let rows='';
   rows+=`<div class="row" style="gap:0;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid rgba(140,178,255,.14)">
-    ${stat(scanned.toLocaleString()+'+','sources read','#00D4FF')}
     ${stat(list.length,'matched to you','#2dd4bf')}
     ${best>=0?stat(best+'%','best match','#FFD070'):''}
     ${avg!=null?stat(avg+'%','average match','#B4E4FF'):''}
@@ -2544,7 +2597,12 @@ async function showMatches(kind,opts){
   if((opts.fundings||[]).length===1&&opts.fundings[0]==='fully')push('has_stipend','1');
   if(opts.workmode==='remote'||opts.remote)push('remote','1');
   if(opts.workmode==='onsite')push('workmode','onsite');
-  if(opts.field)push('q',opts.field);
+  /* The profession used to be pushed as a full-text query, so picking "IT & Software"
+     sent q=it-software into a tsquery against search_blob. A hyphenated slug is not a
+     word any posting contains, so it matched nothing, and where the tsquery parsed at all
+     it acted as a hard keyword filter that deleted perfectly good matches. It is a field
+     now, resolved server-side to the vocabulary of that profession. */
+  if(opts.field)push('field',opts.field);
   const extraQ=qp.length?'&'+qp.join('&'):'';
   window._relaxNote=null;
   // Track the remaining daily allowance so the user is never surprised by the limit.
@@ -2631,7 +2689,16 @@ async function showMatches(kind,opts){
      to pay on faith. They now see the real cards with identity withheld: level, country,
      funding, deadline and match score are visible; the institution name and official link
      are not. Enough to believe the value is real, not enough to bypass paying for it. */
-  +(noneOpen?shown.slice(0,15).map(o=>oppCard(o)).join(''):shown.map(o=>oppCard(o)).join(''))
+  /* The two tracks are announced, not silently interleaved. An applicant shown a role
+     with an unfamiliar title deserves to be told it is a step sideways, and why it is
+     still a real fit. The header prints once, at the boundary. */
+  +(()=>{let hdr=false;
+    const head=o=>{if(o.track!=='adjacent'||hdr)return '';hdr=true;
+      return `<div style="margin:20px 0 8px;padding:10px 12px;border-left:3px solid #F5B841;background:rgba(245,184,65,.08);border-radius:0 8px 8px 0">
+      <div style="font:700 13px Inter;color:#FFD070">You also qualify for these</div>
+      <div class="sub" style="font-size:11.5px;margin-top:3px;line-height:1.5">Different titles from your usual role, where your stated skills genuinely cover what the position asks for. Nothing here needs a licence or degree you do not hold.</div></div>`};
+    const list=noneOpen?shown.slice(0,15):shown;
+    return list.map(o=>head(o)+oppCard(o)).join('')})()
   +(noneOpen&&shown.length>15?`<div class="sub" style="text-align:center;margin:10px 0 2px">and ${shown.length-15} more matched to you</div>`:'');
   try{warmPricing()}catch(e){}   // results are on screen; Apply is the next tap
   const wrap=document.createElement('div');wrap.className='ffmatches';
@@ -2989,7 +3056,13 @@ async function openApp(id){
   ${(()=>{
     // Progressive document collection (spec #9): only ask for what THIS opportunity requires
     // and the user does not already have on file. One-tap contextual upload, no upfront wall.
-    const need=(opp.req_documents||[]).map(s=>String(s));
+    /* The ask used to come only from opp.req_documents, which most adverts leave empty,
+       so an applicant was asked for nothing and found out at submission that transcripts
+       were needed. The case's own computed requirements are now the second source. */
+    const rq0=(a.prep_status||{}).reqs||{};
+    const need=[...new Set((opp.req_documents||[]).map(s=>String(s))
+      .concat((rq0.missing_urgent||[]).map(String))
+      .concat((rq0.required_now||[]).map(String)))];
     if(!need.length)return '';
     const have=new Set((window._userDocKinds||[]));
     const haveNames=(d.documents||[]).map(x=>(x.title||'').toLowerCase());
@@ -3016,6 +3089,12 @@ async function openApp(id){
   <div class="sub" style="margin-top:6px"><b>Required now:</b> ${(rq.required_now||[]).map(esc).join(', ')||'none'}</div>
   <div class="sub"><b>Required later (after acceptance/visa):</b> ${(rq.required_later||[]).map(esc).join(', ')||'none'}</div>
   <div class="sub"><b>Optional but strengthens:</b> ${(rq.optional||[]).map(esc).join(', ')||'none'}</div></div>`})()}
+  ${(()=>{const own=(d.own_documents||[]);if(!own.length)return'';const portal=(a.stage==='portal_apply'||(a.opportunities||{}).apply_via==='portal');
+    return `<div class="sub" style="margin:12px 0 4px;font:700 13px Inter;color:#B4E4FF">Your own documents${portal?' \u2014 keep these on your device, you upload them on the portal':' \u2014 attached to your email draft exactly as you uploaded them, never rewritten'}</div>
+    <div class="card">${own.map(x=>`<div class="row" style="justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(140,178,255,.12)">
+      <span><b style="font-size:13px">${esc(x.name||x.kind||'Document')}</b>${x.is_cv?' <span class="chip c-green" style="font-size:10px">CV</span>':''}</span>
+      <span class="sub" style="font-size:11px">${esc(String(x.created_at||'').slice(0,10))}</span></div>`).join('')}
+    <div class="sub" style="margin-top:8px;line-height:1.55">We do not rewrite your CV. Your original file is the one that goes to the institution; our work is the letters, proposals and checklist prepared around it.</div></div>`})()}
   <div id="caseDocs"></div>
   ${(d.documents||[]).length?`<div class="sub" style="margin:10px 0 4px;font:700 13px Inter;color:#B4E4FF">Your prepared documents${(a.stage==='portal_apply'||(a.opportunities||{}).apply_via==='portal')?' \u2014 download each one and upload it on the portal yourself':' \u2014 all of these are attached to your email draft automatically'}</div>`:''}
   ${(d.documents||[]).map(x=>{const st=x.status||'draft';const stc={draft:'c-gray',under_review:'c-gold',approved:'c-green'}[st]||'c-gray';return `<div class="card" id="doc-${x.id}">
@@ -3033,6 +3112,12 @@ async function openApp(id){
   <div class="row" style="margin-top:8px"><button class="btn b-line" onclick="saveNotes('${a.id}',this)">Save notes</button>
   <button class="btn b-line" onclick="downloadGuide('${a.id}',this)">Future Path Guide (PDF)</button>${((typeof d!=='undefined'&&d.documents)||[]).some(x=>x.themed_key)?`<button class="btn b-gold" onclick="downloadThemedCV('${a.id}',this)">Download your CV, your original design kept</button>`:''}</div></div>
   ${msg?`<div class="card" style="border-color:var(--ink)"><h3>Application email</h3>
+  ${(()=>{const mode=((a.prep_status||{}).attach_mode==='self')?'self':'us';
+    return `<div class="card" style="background:var(--soft);margin:6px 0">
+    <div class="sub" style="line-height:1.55"><b style="color:#B4E4FF">Who attaches the files?</b><br>
+    ${mode==='self'?'You are attaching your own files. We will not add anything to the draft.':'We attach your documents and your original CV to the draft. You only press Send.'}</div>
+    <button class="btn b-line" style="margin-top:8px;padding:5px 12px;font-size:12px" onclick="setAttachMode('${a.id}','${mode==='self'?'us':'self'}',this)">${mode==='self'?'Let ForiForeign attach everything':'I will attach my own files'}</button>
+    </div>`})()}
   <div class="sub" style="margin:6px 0">To: ${msg.to_emails&&msg.to_emails.length?esc(msg.to_emails.join(', ')):'<i>no official email published, portal application</i>'}</div>
   <div style="font-weight:600">${esc(msg.subject)}</div>
   <pre style="white-space:pre-wrap;font:12.5px Inter;color:#333;margin-top:6px">${esc(msg.body)}</pre>
@@ -3043,10 +3128,17 @@ async function openApp(id){
 }
 function docCaption(kind,inst){
   const i=esc(inst||'this position');
-  const m={cv:'Rebuilt for '+i+': your real degrees and publications, most relevant work first.',
-    cover:'Written specifically for '+i+', addressing the exact position.',
+  /* The captions described documents that are no longer produced (we stopped rewriting
+     the CV) and said nothing about the ones that are - motivation letter, publication
+     list, checklist, visa summary and funder outreach all rendered with no caption. */
+  const m={cover:'Written specifically for '+i+', addressing the exact position.',
+    motivation:'Your full letter of motivation for '+i+', in your own voice.',
     sop:'Your genuine motivation and fit, grounded only in your real background.',
     research_proposal:'Realistic aims aligned with this position, built on your actual research record.',
+    publications:'Your complete publication record, formatted for '+i+'.',
+    checklist:'Every document and step '+i+' requires, with the issuing authority for each.',
+    visa_summary:'The visa route, tax, dependants and housing picture for this country.',
+    funder_outreach:'A parallel note to the funding body, sent alongside your application.',
     scholarship_statement:'Your real financial case, stated professionally for this award.'}[kind];
   return m?'<div class="sub" style="margin-top:2px">'+m+'</div>':'';
 }
@@ -3282,6 +3374,14 @@ async function markApplied(appId,btn){btn.disabled=true;
   try{await api('/api/applications/'+appId+'/notes',{method:'POST',body:{notes:'Applied via own email on '+new Date().toISOString().slice(0,10)}});}catch(e){}
   toast('Marked as applied. Good luck! 🎉');
   document.querySelectorAll('div[style*=fixed]').forEach(x=>x.remove());
+}
+async function setAttachMode(appId,mode,btn){
+  const old=btn.textContent;btn.disabled=true;btn.textContent='Saving…';
+  try{await api('/api/applications/'+appId+'/attach-mode',{method:'POST',body:{mode}});
+    toast(mode==='self'?'You will attach your own files.':'We will attach everything for you.');
+    document.querySelectorAll('.ff-appview').forEach(x=>x.remove());
+    openApp(appId);
+  }catch(e){toast(e.message);btn.disabled=false;btn.textContent=old}
 }
 async function authorizeMsg(id,btn){btn.disabled=true;
   try{const d=await api('/api/messages/'+id+'/authorize',{method:'POST'});toast(d.note||'Authorized.');
@@ -4806,7 +4906,7 @@ async function vBuyRender(){
       <div style="padding:2px 0">• A precise, fully prepared application beats applying blindly.</div>
     </div>
   </div>
-  ${HM&&HM.promo&&HM.promo.active?`<div style="position:relative;border:2px solid #F5B841;background:linear-gradient(160deg,rgba(245,184,65,.18),rgba(22,131,255,.05));border-radius:14px;padding:16px;margin-bottom:12px;overflow:hidden">
+  ${HM&&HM.promo&&HM.promo.active?`<div id="promoCard" style="position:relative;border:2px solid #F5B841;background:linear-gradient(160deg,rgba(245,184,65,.18),rgba(22,131,255,.05));border-radius:14px;padding:16px;margin-bottom:12px;overflow:hidden">
     <div style="position:absolute;top:0;right:0;background:#F5B841;color:#3a2a00;font:800 10px Inter;padding:4px 12px;border-radius:0 0 0 10px;letter-spacing:.05em">LIMITED TIME</div>
     <div style="font:800 22px Georgia,serif;color:#FFD070">🎁 Your first case, free</div>
     <div class="sub" style="margin:4px 0 8px">1 complete application, prepared free. Ends in <b id="promoTick" style="color:#FFD070">…</b></div>

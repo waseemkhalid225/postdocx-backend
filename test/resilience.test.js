@@ -16,7 +16,9 @@ const checks = [
   ['discovery passes are isolated (one failure never kills the run)', e.includes("errlog('discover:pass'")],
   ['never-blank rescue pass exists', e.includes('NEVER-BLANK rescue')],
   ['expired deadlines are rejected at ingest', e.includes('deadline already passed')],
-  ['profile-aware inventory skip (generic stock never blocks a user)', e.includes('relevant >= Math.min(3, target)')],
+  // CONTRACT CHANGED (R4410): a search may only be skipped when existing supply COVERS
+  // the target. Stopping at three relevant rows cancelled entire searches.
+  ['inventory skip only when supply covers the target', e.includes('relevant >= target')],
   ['self-seeding inventory on boot + daily cron', sv.includes('selfSeed') && sv.includes("schedule('0 3 * * *'")],
   ['search stall guard (12 min) exists', sv.includes('12 * 60000')],
   ['prepare stall guard (9 min) exists', sv.includes('9 * 60000')],
@@ -128,11 +130,14 @@ const checks = [
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     // Trimming a portal case to a CV was a false economy: portals ask for a motivation
     // letter or research statement as an upload just as often as an email does.
+    // CONTRACT CHANGED (R4410/R4480): the route is decided by the advert alone, a portal
+    // case writes no email and finishes at 100%, and no CV is ever generated.
     return e.includes('PORTAL CASES GET THE SAME DOCUMENTS') && e.includes('_portalOnly') &&
-      !e.includes("plan = plan.filter(k => k === 'cv' || k === 'checklist'") &&
-      e.includes('Download your prepared documents from this case') &&
-      fe.includes('upload it on the portal yourself') &&
-      fe.includes('attached to your email draft automatically');
+      e.includes("const portalOnly = (opp.apply_via === 'portal')") &&
+      e.includes('PREP_STEPS.map(x => x[0])') &&
+      e.includes("plan = plan.filter(k => k !== 'cv')") &&
+      e.includes('there is no email to send') &&
+      fe.includes('you upload them on the portal');
   })()],
   ['no setting can cap what a case prepares', (() => {
     const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
@@ -155,9 +160,14 @@ const checks = [
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     return !f.includes("'<span class=sub>Not stated on official page</span>'") && !f.includes("||'Not stated'");
   })()],
-  ['CV blueprint demands full multi-page professional depth', (() => {
+  // CONTRACT CHANGED (R4410/R4480): the applicant's own CV is attached, never rewritten.
+  // What must be substantial is the writing we actually produce.
+  ['no CV is generated, and the letters are full length', (() => {
     const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
-    return e.includes('MULTI-PAGE') && /cv: 2[6-9]\d\d/.test(e) && /research_proposal: [34]\d\d\d/.test(e);
+    return e.includes("plan = plan.filter(k => k !== 'cv')") &&
+      e.includes("let plan = ['cover']") &&
+      /cover: [4-9]\d\d\d/.test(e) && /motivation: [5-9]\d\d\d/.test(e) &&
+      /research_proposal: [5-9]\d\d\d/.test(e);
   })()],
   ['package-first reveal: 0 credits locks all, credits reveal 2/8/15, 60% floor', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
@@ -257,9 +267,13 @@ const checks = [
     return f.includes("push('job_type'") && f.includes("push('exp'") && !f.includes("push('licenses'") &&
       f.includes("push('country'") && f.includes("push('remote','1')");
   })()],
-  ['level gate is academic-only (work postings are never filtered to zero)', (() => {
+  // CONTRACT CHANGED (R4550): level gating moved out of stacked SQL .or() clauses into
+  // lib/oppfilter.js, where it is deterministic and covered by its own tests.
+  ['level gate is academic-only and applied in the tested filter module', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
-    return sv.includes('academicLane') && sv.includes('level.is.null') && sv.includes('req._inferLevels');
+    const of = fs.readFileSync(__dirname + '/../lib/oppfilter.js', 'utf8');
+    return sv.includes('academicLane') && sv.includes("levels: (lvls.length && academicLane)") &&
+      sv.includes('OF.applyFilters') && of.includes('function levelOk');
   })()],
   ['platform batch: admin insight, safety caps, no hardcoded localhost', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
@@ -368,8 +382,10 @@ const checks = [
   })()],
   ['search hunt: real columns, correct intake window, dedup, entity normalization', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
-    return !/'sector\\./.test(sv) && sv.includes('req_field.ilike') &&
-      sv.includes('(y - 1)') && sv.includes('ENTITY DEDUPLICATION') &&
+    // CONTRACT CHANGED (R4550): the intake window is computed in lib/oppfilter.js.
+    const of = fs.readFileSync(__dirname + '/../lib/oppfilter.js', 'utf8');
+    return !/'sector\\./.test(sv) && of.includes('termsOk') &&
+      of.includes("(year - 1) + '-01-01'") && sv.includes('ENTITY DEDUPLICATION') &&
       fs.existsSync(__dirname + '/../lib/entity.js') && sv.includes('canonicalKey(o.institution)');
   })()],
   ['admin controls are real: limits enforced, ops panel, all tabs non-blocking', (() => {
@@ -477,10 +493,13 @@ const checks = [
     const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
-    return en.includes('450 to 600 words') && en.includes('cover: 2900') &&
+    // CONTRACT CHANGED (R4470/R4480): letters are longer, and the guide reads
+    // contact_emails, which is the column that actually exists.
+    return /cover: [4-9]\d\d\d/.test(en) &&
       fe.includes('Upload these to strengthen this application') && fe.includes('_myDocNames') &&
       sv.includes('Where to go and who to contact') && sv.includes('Visa mission in Pakistan') &&
-      sv.includes('characterSpacing: 0.9');
+      sv.includes('This position at a glance') && sv.includes('opp.contact_emails') &&
+      !sv.includes('opp.contact_phone') && sv.includes('characterSpacing: 0.9');
   })()],
   ['no living-cost estimates shown; positive financial facts retained', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
@@ -771,8 +790,18 @@ const checks = [
       fe.includes("LV={bachelors:'BS / Bachelor'") &&
       fe.includes("jt={full_time:'Full-time role'") &&
       // No dead-end labels and no reject buttons on the card.
+      /* The card must carry no reject control - that contract stands. Dismissal exists,
+         but it lives in the detail view, where the applicant has read the position and is
+         making a considered decision rather than swatting a card away. The FAQ promises
+         dismissed opportunities are never repeated, so the control has to exist
+         somewhere: for a long time it existed nowhere at all. */
       !/'Criteria not published'\]/.test(fe) && !fe.includes('Not for me') &&
-      !fe.includes('Not interested') && !fe.includes('dismissOpp') &&
+      !fe.includes('Not interested') &&
+      // Checked precisely: no dismiss control inside the CARD renderer itself.
+      (() => { const i = fe.indexOf('function oppCard(o,ctaColor){');
+               const j = fe.indexOf('function warmPricing(', i);
+               return i > 0 && j > i && !fe.slice(i, j).includes('dismissOpp'); })() &&
+      fe.includes('Hide this from my searches') &&
       // Apply sits in the corner of every card.
       fe.includes('position:absolute;top:14px;right:14px');
   })()],
@@ -804,8 +833,11 @@ const checks = [
       // Each choice is remembered, sent, enforced and understood by the agent.
       fe.includes('instruction:isWorkLane?') && fe.includes('visaSel:isWorkLane?') &&
       fe.includes("push('no_app_fee','1')") && fe.includes("push('deadline_days'") &&
+      // CONTRACT CHANGED (R4540/R4550): the profession travels as its own parameter and
+      // is expanded server-side; it used to be smuggled in as a full-text query.
+      fe.includes("push('field',opts.field)") && !fe.includes("push('q',opts.field)") &&
       sv.includes("String(req.query.no_app_fee) === '1'") &&
-      sv.includes('const dwin = parseInt(req.query.deadline_days, 10)') &&
+      sv.includes('const dwinRaw = parseInt(req.query.deadline_days, 10)') &&
       sv.includes("lane: b.lane === 'work' ? 'work' : 'study'") &&
       en.includes('LANE PREFERENCES') && en.includes('${laneLine}');
   })()],

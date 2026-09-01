@@ -38,7 +38,9 @@ async function req(path, opts = {}) {
 
   // 2. Protected endpoints reject anonymous access
   for (const p of ['/api/home', '/api/me', '/api/applications', '/api/admin/users',
-                   '/api/admin/settings', '/api/licence-journey', '/api/salary-intel',
+                   // '/api/licence-journey' was removed with the licensing lane, on
+                   // purpose: ForiForeign does not advise on obtaining credentials.
+                   '/api/admin/settings', '/api/salary-intel',
                    '/api/admin/inventory', '/api/admin/demand', '/api/admin/audit']) {
     const r = await req(p);
     check('auth gate ' + p, r.status === 401, 'got ' + r.status);

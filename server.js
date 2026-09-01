@@ -87,8 +87,33 @@ const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimu
 const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-09-01-R4400';
+const FF_BUILD = '2026-09-01-R4560';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
+/* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
+   assistant.zip was a file committed by hand, and it had drifted: users were downloading
+   v1.4.0, which only drops a draft into Gmail, while extension/ in this repo was v1.6.0,
+   the version that opens the official portal and fills it. Every complaint that the
+   assistant "does not open the university page" was people running the old build. The zip
+   is now rebuilt from source on every boot, so the two can never diverge again. */
+try {
+  const AdmZipB = require('adm-zip');
+  const fsB = require('fs'), pathB = require('path');
+  const srcDir = pathB.join(__dirname, 'extension');
+  if (fsB.existsSync(srcDir)) {
+    const z = new AdmZipB();
+    const walk = (dir, base) => {
+      for (const f of fsB.readdirSync(dir)) {
+        const full = pathB.join(dir, f);
+        if (fsB.statSync(full).isDirectory()) walk(full, base ? base + '/' + f : f);
+        else if (f !== 'README.md') z.addLocalFile(full, base || '');
+      }
+    };
+    walk(srcDir, '');
+    z.writeZip(pathB.join(__dirname, 'public', 'foriforeign-apply-assistant.zip'));
+    const mf = JSON.parse(fsB.readFileSync(pathB.join(srcDir, 'manifest.json'), 'utf8'));
+    console.log('[boot] apply assistant zip rebuilt from source, v' + mf.version);
+  }
+} catch (e) { console.log('[boot] extension zip rebuild skipped: ' + e.message); }
 app.get('/api/version', (req, res) => {
   // The installed app polls this to decide whether to reload, so it must never be cached.
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -1540,7 +1565,7 @@ app.get('/api/run/status', auth, async (req, res) => {
     let status = v.status || 'idle';
     // Stale guard: a 'running' older than 12 minutes finished or died - report done with what exists.
     if (status === 'running' && Date.now() - new Date(v.startedAt || 0).getTime() > 12 * 60000) status = 'done';
-    res.json({ status, found, target: Number(v.target) || 5, kind: v.kind || null, startedAt: v.startedAt || null });
+    res.json({ status, found, target: Number(v.target) || 5, kind: v.kind || null, startedAt: v.startedAt || null, stage: v.stage || null });
   } catch (e) { res.json({ status: 'idle' }); }
 });
 app.put('/api/me', auth, async (req, res) => {
@@ -1857,79 +1882,89 @@ app.get('/api/countries', async (req, res) => {
   res.json({ countries: data || [] });
 });
 app.get('/api/opportunities', auth, async (req, res) => {
+  /* NOTHING IS HIDDEN FROM STAFF. Every commercial narrowing below - the score bar, the
+     result ceiling, the locked cards - exists to shape what a CUSTOMER sees. Applying it
+     to the owner meant he could not audit his own inventory: a search returned a handful
+     of cards while the database held far more, and there was no way to tell a filtering
+     bug from an empty database. Client preview is deliberately excluded, because that
+     mode exists precisely to see the customer's view. The user's OWN filters (level,
+     field, country) are still honoured for staff - those are instructions, not paywalls. */
+  let staffFull = false;
+  try {
+    const { data: _pf } = await admin().from('profiles').select('role').eq('id', req.userId).single();
+    staffFull = !!(_pf && require('./lib/rbac').isAdminRole(_pf.role) && _pf.role !== 'user' && !simUser(req));
+  } catch (e) {}
   const kind = String(req.query.kind || 'study');
   const q = String(req.query.q || '').trim();
   const studyKinds = ['study', 'scholarship', 'postdoc'];
   const multi = v => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
-  let query = admin().from('opportunities').select('*').eq('status', 'verified').limit(400);
-  query = (String(req.query.sort) === 'recent') ? query.order('verified_at', { ascending: false }) : query.order('deadline', { ascending: true });
+  /* The window used to be 400 rows ordered by earliest deadline, and relevance was scored
+     only afterwards - so once inventory grows, the window fills with whatever closes next
+     week and an excellent match six months out is invisible. Recency is the safer cut: a
+     recently verified row is a row we know is real, and the deadline is still enforced by
+     the filters. The window is also wider now that conditional filtering happens after
+     the fetch rather than inside the query. */
+  let query = admin().from('opportunities').select('*').eq('status', 'verified').limit(1000);
+  query = (String(req.query.sort) === 'deadline') ? query.order('deadline', { ascending: true }) : query.order('verified_at', { ascending: false });
   if (kind === 'study') query = query.in('kind', studyKinds);
   else if (kind === 'scholarship') query = query.eq('kind', 'scholarship');
   else query = query.eq('kind', kind);
-  // Multi-select filters (spec 16), each backed by a real column:
+  /* FILTERING, REBUILT. Twelve separate .or() calls used to be stacked onto this one
+     query, producing twelve query parameters all named "or". Whether PostgREST combines
+     repeated top-level logical parameters with AND, or honours only one of them, is not
+     something this code could safely assume - and a filter that MIGHT be dropped is worse
+     than no filter, because the applicant is shown exactly what they excluded and has no
+     way to know. The query below now carries only equality and IN conditions, which are
+     unambiguous, and every conditional rule is applied in lib/oppfilter.js over the
+     fetched rows, where it is pure, deterministic and covered by tests that run offline.
+     The fetch window is wider to compensate for filtering later. */
   const cc = multi(req.query.country).map(s => s.toUpperCase());
   if (cc.length) query = query.in('country_code', cc);
-  // Accept both ?level= and ?levels= (the finder sends the plural form). This is the
-  // database-level gate: a postdoc seeker never even loads PhD or Master's rows.
   const ALL_LEVELS = ['bachelors', 'masters', 'phd', 'postdoc', 'diploma', 'short_course', 'fellowship', 'observership'];
   const lvls = multi(req.query.level).concat(multi(req.query.levels)).filter(l => ALL_LEVELS.includes(l));
-  // The level gate applies to ACADEMIC lanes only. Work postings carry no
-  // academic level, so filtering them by level would wrongly return nothing.
   const academicLane = !(kind === 'work' || kind === 'job');
-  if (lvls.length && academicLane) {
-    const wanted = Array.from(new Set(lvls));
-    // Keep rows whose level matches, and rows with no level set (unclassified but valid).
-    query = query.or('level.in.(' + wanted.join(',') + '),level.is.null');
-    // Null-level rows are allowed through the SQL gate (many adverts are unclassified),
-    // but we then infer their level from the title so a postdoc search cannot leak PhD ads.
-    req._inferLevels = wanted;
-  }
   const fts = multi(req.query.funding_type).filter(f => ['fully', 'partial', 'self'].includes(f));
-  if (fts.length) query = query.in('funding_type', fts);
-  if (String(req.query.no_language_test) === '1') query = query.or('req_language.is.null,req_language.eq.none');
-  // Intake year: applications for a September Y intake typically close in late Y-1, so
-  // the valid window opens the year BEFORE the intake and closes at the end of it.
-  const intakeY = String(req.query.intake || '').match(/^(20\d{2})$/);
-  if (intakeY) {
-    const y = parseInt(intakeY[1], 10);
-    query = query.or('and(deadline.gte.' + (y - 1) + '-01-01,deadline.lte.' + y + '-12-31),deadline.is.null');
+  const sectorQ = multi(req.query.sector).filter(x => /^[a-z_-]{2,40}$/.test(x));
+  const jts = multi(req.query.job_type).filter(j => ['full_time', 'part_time', 'contract', 'internship'].includes(j));
+  const exps = multi(req.query.exp).filter(x => ['entry', 'mid', 'senior'].includes(x));
+  const langPicks = multi(req.query.langs).filter(x => ['none', 'cert_before', 'course_after', 'local_lang'].includes(x));
+  const fieldSlug = String(req.query.field || '').trim().toLowerCase();
+  let fieldTerms = [];
+  if (fieldSlug && /^[a-z-]{2,40}$/.test(fieldSlug)) {
+    try { fieldTerms = require('./lib/domains').termsForSlug(fieldSlug).slice(0, 12); } catch (e) {}
   }
-  // Sector is not a stored column: opportunities carry req_field instead. We match the
-  // sector against that, keeping rows with no stated field so nothing valid is lost.
-  const sectorQ = multi(req.query.sector).filter(x => /^[a-z_]{2,20}$/.test(x));
-  if (sectorQ.length) {
-    const terms = sectorQ.map(x => x.replace(/_/g, ' '));
-    query = query.or(terms.map(x => 'req_field.ilike.%' + x + '%').concat(['req_field.is.null']).join(','));
-  }
-  if (String(req.query.has_stipend) === '1') query = query.neq('stipend', '');
-  /* Study lane: no application fee. Rows that never state a fee stay, because most
-     scholarship pages simply do not mention one. */
-  if (String(req.query.no_app_fee) === '1') {
-    query = query.or('application_fee.is.null,application_fee.eq.,application_fee.ilike.%free%,application_fee.ilike.%no fee%,application_fee.ilike.%waive%');
-  }
-  // Deadline window, in days from today. Rolling rows (no deadline) always stay.
-  const dwin = parseInt(req.query.deadline_days, 10);
-  if (isFinite(dwin) && dwin > 0 && dwin <= 400) {
-    const until = new Date(Date.now() + dwin * 86400000).toISOString().slice(0, 10);
-    query = query.or('and(deadline.gte.' + new Date().toISOString().slice(0, 10) + ',deadline.lte.' + until + '),deadline.is.null');
-  }
-  if (String(req.query.rolling) === '1') query = query.is('deadline', null);
-  // Study lane: "tuition-free or fully waived". Rows with no tuition stated stay, since
-  // most fully funded places simply do not print a tuition figure at all.
-  if (String(req.query.tuition_free) === '1') {
-    query = query.or('funding_type.eq.fully,tuition.is.null,tuition.eq.,tuition.ilike.%free%,tuition.ilike.%waive%,tuition.ilike.%no tuition%');
-  }
-  if (String(req.query.has_deadline) === '1') query = query.not('deadline', 'is', null);
-  // Remote is decided after fetch, from evidence, because the boolean column is null on
-  // most rows (the page never stated it) and eq(true) therefore returned an empty set,
-  // after which the query degraded to unfiltered and on-site posts reached the user.
+  const intakeM = String(req.query.intake || '').match(/^(20\d{2})$/);
+  const dwinRaw = parseInt(req.query.deadline_days, 10);
   const wantRemote = String(req.query.remote) === '1';
   const wantOnsite = String(req.query.workmode || '') === 'onsite';
-  if (String(req.query.visa) === '1') query = query.eq('visa_sponsorship', true);
-  const jts = multi(req.query.job_type).filter(j => ['full_time','part_time','contract','internship'].includes(j));
-  if (jts.length) query = query.in('job_type', jts);
-  const exps = multi(req.query.exp).filter(x => ['entry','mid','senior'].includes(x));
-  if (exps.length) query = query.in('experience_level', exps);
+  const wantVisa = String(req.query.visa) === '1';
+  /* A deadline window and an intake year can contradict each other outright: "closing in
+     30 days" and "2027 intakes" have almost no overlap, and the applicant was shown an
+     empty screen with no explanation. The intake wins, because it is the more considered
+     choice, and the contradiction is reported back. */
+  let dropped = null;
+  let intakeYear = intakeM ? parseInt(intakeM[1], 10) : 0;
+  let dwin = isFinite(dwinRaw) && dwinRaw > 0 && dwinRaw <= 400 ? dwinRaw : 0;
+  if (intakeYear && dwin) { dwin = 0; dropped = 'deadline_window_vs_intake'; }
+  const FILTERS = {
+    today: new Date().toISOString().slice(0, 10),
+    levels: (lvls.length && academicLane) ? Array.from(new Set(lvls)) : [],
+    fundingTypes: fts,
+    noLanguageTest: String(req.query.no_language_test) === '1',
+    langs: langPicks,
+    fieldTerms,
+    sectorTerms: sectorQ.map(x => x.replace(/_/g, ' ')),
+    hasStipend: String(req.query.has_stipend) === '1',
+    tuitionFree: String(req.query.tuition_free) === '1',
+    noAppFee: String(req.query.no_app_fee) === '1',
+    rollingOnly: String(req.query.rolling) === '1',
+    hasDeadline: String(req.query.has_deadline) === '1',
+    deadlineDays: dwin,
+    intakeYear,
+    jobTypes: jts,
+    expLevels: exps
+  };
+  if (fts.length) query = query.in('funding_type', fts);
   if (q) query = query.textSearch('search_blob', q.split(/\s+/).join(' & '));
   let { data, error } = await query;
   // ANY query failure degrades to an unfiltered fetch rather than an empty result set.
@@ -1939,11 +1974,40 @@ app.get('/api/opportunities', auth, async (req, res) => {
     try { require('./lib/oblog').errlog('opportunities:query', new Error(error.message || 'query failed'), { userId: req.userId }); } catch (e) {}
   }
   if (error) {
-    let q2 = admin().from('opportunities').select('*').eq('status', 'verified').order('deadline', { ascending: true }).limit(400);
+    /* BLUNDER: this fallback dropped EVERY filter. One malformed condition anywhere above
+       - a sparse column, a bad character in a sector name - and the applicant silently
+       received unfiltered inventory: countries they never picked, levels they had ruled
+       out, a PhD advert in a postdoc search. It looked exactly like a broken matcher and
+       it was actually a swallowed query error. The hard filters the applicant actually
+       chose are now preserved; only the exotic conditions are dropped. */
+    /* The fallback keeps every unambiguous condition. It cannot drop a filter now even
+       in principle, because the conditional rules are applied after the fetch either
+       way. */
+    let q2 = admin().from('opportunities').select('*').eq('status', 'verified').order('verified_at', { ascending: false }).limit(1000);
     if (kind === 'study') q2 = q2.in('kind', studyKinds); else q2 = q2.eq('kind', kind);
+    if (cc.length) q2 = q2.in('country_code', cc);
+    if (fts.length) q2 = q2.in('funding_type', fts);
     ({ data } = await q2);
   }
   let rows = data || [];
+  /* Every conditional filter, applied here where it is deterministic and tested. */
+  let _filterReport = {};
+  try {
+    const OF = require('./lib/oppfilter');
+    const inferLevel = t => {
+      const x = String(t || '').toLowerCase();
+      if (/post[\s-]?doc|postdoctoral/.test(x)) return 'postdoc';
+      if (/\bphd\b|ph\.d|doctoral (position|student|programme|program)|doctorate/.test(x)) return 'phd';
+      if (/\bmaster|\bmsc\b|\bm\.sc|mphil/.test(x)) return 'masters';
+      if (/bachelor|\bbsc\b|undergraduate/.test(x)) return 'bachelors';
+      if (/fellowship/.test(x)) return 'fellowship';
+      return null;
+    };
+    const res = OF.applyFilters(rows, FILTERS, { inferLevel });
+    rows = res.rows; _filterReport = res.report || {};
+  } catch (e) {
+    try { require('./lib/oblog').errlog('opportunities:filter', e, { userId: req.userId }); } catch (e2) {}
+  }
   // Evidence-based remote decision, applied to every row the user is about to see.
   const remoteEvidence = o => {
     if (o.remote === false) return false;
@@ -1953,6 +2017,15 @@ app.get('/api/opportunities', auth, async (req, res) => {
   };
   if (wantRemote) rows = rows.filter(remoteEvidence);
   if (wantOnsite) rows = rows.filter(o => !remoteEvidence(o));
+  /* Sponsorship asked for: confirmed sponsors lead, then adverts that never said. A
+     position that states sponsorship in its text counts as confirmed even when the
+     boolean column was never populated by the extractor. */
+  if (wantVisa) {
+    const visaEvidence = o => o.visa_sponsorship === true
+      || /visa sponsor|sponsorship (is )?(available|provided|offered)|we sponsor|work permit (provided|arranged|sponsored)|relocation (support|package)/i
+        .test([o.title, o.description, o.salary_note, o.funding, o.fee_structure].join(' '));
+    rows.sort((a, b) => (visaEvidence(b) ? 1 : 0) - (visaEvidence(a) ? 1 : 0));
+  }
   // USER PROTECTION (spec 18/41): never re-show an opportunity this user already applied to.
   try {
     const { data: apps } = await admin().from('applications').select('opportunity_id').eq('user_id', req.userId);
@@ -2025,22 +2098,12 @@ app.get('/api/opportunities', auth, async (req, res) => {
     }
     rows = [...best.values()];
   }
-  // Null-level rows: infer the level from the title so an unclassified PhD advert can
-  // never leak into a postdoc search (and vice versa).
-  if (req._inferLevels && req._inferLevels.length) {
-    const want = new Set(req._inferLevels);
-    const infer = t => { const x = String(t || '').toLowerCase();
-      if (/post[- ]?doc/.test(x)) return 'postdoc';
-      if (/\bphd\b|doctoral|doctorate/.test(x)) return 'phd';
-      if (/master|msc|mphil|m\.s\b/.test(x)) return 'masters';
-      if (/bachelor|bsc|undergraduate/.test(x)) return 'bachelors';
-      return null; };
-    const kept = rows.filter(o => { if (o.level) return true; const g = infer(o.title); return !g || want.has(g); });
-    // Only apply the inference if it leaves something. It is a refinement, not a reason
-    // to show an empty page.
-    if (kept.length) rows = kept;
-  }
-  rows = rows.slice(0, 240);
+  /* The level inference that used to live here has moved into lib/oppfilter.js, where it
+     is applied once, in one place, and covered by tests. Running it twice - once in SQL,
+     once here - was how "unstated level" and "wrong level" came to be treated as the same
+     thing, which could empty an entire result set. */
+
+  rows = rows.slice(0, staffFull ? 400 : 240);
   let opportunities = rows;
   // Phase 4: annotate with match status when requested (?match=1)
   if (String(req.query.match || '') === '1' && opportunities.length) {
@@ -2056,7 +2119,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
       const wantedCountries = multi(req.query.country).map(x => String(x).toUpperCase());
       const m = await matchMany(req.userId, opportunities, wantedLevels, wantedCountries);
       const byId = {}; m.forEach(x => { byId[x.id] = x; });
-      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct, dims: byId[o.id].dims, overqualified: byId[o.id].overqualified, fieldMismatch: byId[o.id].fieldMismatch, wrongTarget: byId[o.id].wrongTarget } : null }));
+      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct, dims: byId[o.id].dims, overqualified: byId[o.id].overqualified, fieldMismatch: byId[o.id].fieldMismatch, wrongTarget: byId[o.id].wrongTarget, levelUnknown: byId[o.id].levelUnknown } : null }));
       // HARD RELEVANCE GATE (never show the user anything that is not a real fit):
       //  - below the applicant's own level (PhD holder must never see MPhil/Masters/Bachelors)
       //  - a clear field/profession mismatch (pharmacist must not see biochemistry-only roles)
@@ -2075,6 +2138,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
       const belowLevel  = o => o.match && (o.match.overqualified || o.match.status === 'below_your_level');
       const wrongField  = o => o.match && (o.match.fieldMismatch || o.match.status === 'field_mismatch');
       const belowFloor  = o => o.match && o.match.pct != null && o.match.pct < RELEVANCE_FLOOR;
+      const unknownLvl  = o => o.match && o.match.levelUnknown;
 
       /* WHAT THE USER CHOSE IS ABSOLUTE. Level, lane and eligibility are never relaxed:
          a postdoc applicant must never be shown a PhD place, and a pharmacist must never
@@ -2086,22 +2150,56 @@ app.get('/api/opportunities', auth, async (req, res) => {
         { note: null, keep: o => !notEligible(o) && !wrongLevel(o) && !belowLevel(o) && !wrongField(o) && !belowFloor(o) },
         // 2. Same level, same field, same eligibility: only OUR score bar is eased.
         { note: 'These match your level and field. Their scores are a little under our usual bar, so check the details carefully.',
+          keep: o => !notEligible(o) && !wrongLevel(o) && !belowLevel(o) && !wrongField(o) && !unknownLvl(o) },
+        /* 3. Last resort: positions whose advert never stated a level. These are not
+           wrong-level - we simply could not read one - and hiding them entirely can empty
+           a screen that has genuine matches on it. Shown last, and labelled honestly. */
+        { note: 'The adverts below do not state a study level, so we could not confirm it matches what you asked for. Check each one before applying.',
           keep: o => !notEligible(o) && !wrongLevel(o) && !belowLevel(o) && !wrongField(o) }
       ];
       let picked = [], relaxNote = null;
-      for (const t of tiers) {
-        picked = all.filter(t.keep);
-        if (picked.length) { relaxNote = t.note; break; }
+      if (staffFull) {
+        /* Staff see the raw result set, scored and sorted but never trimmed, so a thin
+           screen can be read as thin inventory rather than a filter quietly at work. */
+        picked = all;
+        relaxNote = 'Staff view: every scored result is shown, including any below the customer quality bar.';
+      } else {
+        for (const t of tiers) {
+          picked = all.filter(t.keep);
+          if (picked.length) { relaxNote = t.note; break; }
+        }
       }
       opportunities = picked;
       if (relaxNote) res.set('X-FF-Relaxed', '1');
       req._relaxNote = relaxNote;
       // Highest match first, always.
-      opportunities.sort((a, b) => ((b.match && b.match.pct) || 0) - ((a.match && a.match.pct) || 0));
+      /* TWO-TRACK. A single ranked list forced one impossible choice: either the gates
+         are tight, and every adjacent role the applicant is genuinely qualified for is
+         thrown away, or they are loose and a pharmacist is shown physician posts. Two
+         labelled tracks resolve it. DIRECT is the applicant's own field and level.
+         ADJACENT is a role their skills cover under a different title - never a role
+         requiring a licence or degree they lack, because those are still rejected
+         outright upstream. Adjacent results always sit BELOW every direct one. */
+      opportunities = opportunities.map(o => {
+        const adjacent = !!(o.match && o.match.fieldMismatch)
+          || String((((o.intelligence || o.extra) || {}).track || '')).toLowerCase() === 'adjacent';
+        return Object.assign({}, o, { track: adjacent ? 'adjacent' : 'direct' });
+      });
+      /* Equal-quality tiebreak: prefer the destination a Pakistani applicant can actually
+         reach. It never overrides match quality and never demotes a country the applicant
+         asked for - it only decides which of two equally good matches is listed first. */
+      const _acc = require('./lib/access');
+      opportunities.sort((a, b) => {
+        const t = (a.track === 'adjacent' ? 1 : 0) - (b.track === 'adjacent' ? 1 : 0);
+        if (t !== 0) return t;
+        const d = ((b.match && b.match.pct) || 0) - ((a.match && a.match.pct) || 0);
+        if (d !== 0) return d;
+        return _acc.accessScore(b.country_code) - _acc.accessScore(a.country_code);
+      });
       /* Everything that survives the gate above is a real 60%+ fit at the level, field
          and countries the user chose, so we hand back the full set. The package tier
          controls how many are UNLOCKED; it must not also silently shrink the search. */
-      opportunities = opportunities.slice(0, MATCH_MAX);
+      opportunities = opportunities.slice(0, staffFull ? 200 : MATCH_MAX);
     } catch (e) { /* matching is best-effort; never blocks the list */ }
   }
   // Mark opportunities this user has already started - one case, one cost, ever.
@@ -2114,7 +2212,9 @@ app.get('/api/opportunities', auth, async (req, res) => {
   // still shows match strength / funding / deadline, but identity is locked until purchase.
   try {
     const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
-    const isStaff = prof && ['admin', 'staff'].includes(prof.role);
+    /* The old list missed super_admin and every delegated admin role, so those accounts
+       were served locked cards like a customer with no credits. */
+    const isStaff = staffFull || !!(prof && require('./lib/rbac').isAdminRole(prof.role) && prof.role !== 'user');
     if (!isStaff && (await balance(req.userId)) < 1) {
       const bal = await balance(req.userId);
       if (bal < 1) {
@@ -2303,7 +2403,21 @@ app.delete('/api/documents/:id', auth, async (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/profile/autofill', auth, async (req, res) => {
-  try { const out = await extractProfile(req.userId); res.json({ ok: true, ...out }); }
+  /* The role families are derived from the CV, so a new CV must rebuild them. Done after
+     the response is sent: the applicant should never wait on it. */
+  try {
+    const out = await extractProfile(req.userId);
+    res.json({ ok: true, ...out });
+    (async () => {
+      try {
+        const TGT = require('./lib/targeting');
+        const { data: p } = await admin().from('profiles').select('*').eq('id', req.userId).single();
+        const { data: pxr } = await admin().from('app_settings').select('value').eq('key', 'profilex:' + req.userId).single();
+        await TGT.buildTargeting(req.userId, pxr && pxr.value && pxr.value.x, p, true);
+      } catch (e) {}
+    })();
+    return;
+  }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 // Item 13: preview extraction without committing, so the user can review first.
@@ -2436,7 +2550,9 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
      it, so it is not in application_documents: we attach the uploaded original directly.
      Without this, an application would go out with no CV at all. */
   let ownDocs = [];
+  const attachMode = ((a.prep_status || {}).attach_mode === 'self') ? 'self' : 'us';
   try {
+    if (attachMode === 'self') throw new Error('applicant attaches their own files');
     const { data: mine } = await admin().from('documents')
       .select('id,name,kind,storage_key,mime,created_at')
       .eq('user_id', req.userId).eq('generated', false)
@@ -2459,7 +2575,11 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
     applicationId: a.id, opportunityId: o.id || '',
     recipient: recipientEmail, recipientName: o.contact_name || '',
     organization: o.institution || '', subject: msg.subject || '', body: msg.body || '',
-    attachments: ownDocs.concat((docs || []).map(d => ({ id: d.id, filename: applyLib.niceName(d), url: '/api/apply/doc/' + d.id + '?' + applyLib.docQuery(d.id, req.userId) })))
+    /* "I will attach my own files" has to mean exactly that. Dropping only the uploaded
+       originals while still attaching our letters would produce a draft the applicant did
+       not ask for and might not notice. Self mode attaches nothing at all. */
+    attachments: attachMode === 'self' ? []
+      : ownDocs.concat((docs || []).map(d => ({ id: d.id, filename: applyLib.niceName(d), url: '/api/apply/doc/' + d.id + '?' + applyLib.docQuery(d.id, req.userId) })))
   });
   await admin().from('audit_log').insert({ actor: req.userId, event: 'APPLY_PACKAGE', detail: a.id });
   // Safe profile subset for the extension form-filler (Phase 2) - never documents, never credentials.
@@ -2679,7 +2799,7 @@ app.post('/api/admin/reset', auth, perm('users.write'), async (req, res) => {
                        'payments', 'support_tickets', 'profile_fields', 'referral_credits']) {
       try { await admin().from(tbl).delete().eq('user_id', uid); } catch (e) {}
     }
-    for (const k of ['profilex:', 'prefs:', 'licjourney:']) {
+    for (const k of ['profilex:', 'prefs:', 'licjourney:', 'targeting:']) {
       try { await admin().from('app_settings').delete().eq('key', k + uid); } catch (e) {}
     }
     try {
@@ -3058,6 +3178,121 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   pdf.moveDown(0.5);
   P('Congratulations on reaching this stage. The distance between you and ' + clean(g ? g.name : 'your destination') + ' is now a checklist, not a dream' + (opp.funding_type === 'fully' ? ' - and this position is fully funded, so the numbers are already on your side' : '') + (opp.stipend ? '. Your stated stipend: ' + clean(String(opp.stipend).slice(0, 40)) + '.' : '.'));
   P('This guide covers what happens after you are accepted, step by step, until you land and secure your position. ForiForeign does not provide visa or document-processing services, and you do not need any agent: every step below is designed for you to do yourself, easily and officially. Thousands of Pakistani students and professionals complete these exact steps every year. So will you.');
+  /* THE GUIDE MUST BE ABOUT THIS POSITION, NOT THIS COUNTRY. Everything below used to be
+     assembled from country templates: the same Germany guide for a Max Planck postdoc and
+     a Munich nursing job. The applicant paid for a case, so the case leads - what this
+     position pays, what it costs, what it demands, how long is left, and what is already
+     prepared for it. Country mechanics follow afterwards. */
+  H('This position at a glance');
+  KV('Position:', opp.title || '');
+  KV('Institution:', [opp.institution, opp.city, countryLabel(opp.country_code)].filter(Boolean).join(', '));
+  KV('Level:', opp.level ? String(opp.level).replace(/_/g, ' ') : (opp.kind === 'work' ? 'Employment' : 'As stated on the official page'));
+  KV('Funding:', opp.funding_type === 'fully' ? 'Fully funded' : opp.funding_type === 'partial' ? 'Partially funded' : (opp.funding || 'Stated on the official page'));
+  KV('Deadline:', opp.deadline ? String(opp.deadline).slice(0, 10) : 'Rolling or not stated');
+  KV('How to apply:', /portal/i.test(String(opp.apply_via || '')) ? 'Through the official online portal' : ((opp.contact_emails || [])[0] ? 'By email to ' + (opp.contact_emails || [])[0] : 'Confirm on the official page'));
+  LINK('Official page:', opp.url || '');
+
+  /* THE MONEY, IN ONE PLACE. Stipend, tuition, fee and living cost were scattered across
+     three different screens and absent from the guide entirely, which is the single thing
+     every applicant asks first. Only figures the official page actually stated appear. */
+  H('The money');
+  {
+    const x = opp.extra || {};
+    let anyMoney = false;
+    const M = (k, v) => { if (v && String(v).trim()) { KV(k, String(v).slice(0, 180)); anyMoney = true; } };
+    M('Stipend or salary:', opp.stipend || opp.salary_note);
+    M('Tuition:', opp.tuition);
+    M('Application fee:', opp.application_fee);
+    M('Fee structure:', opp.fee_structure);
+    M('Living cost, per year:', x.annual_living_cost);
+    M('Housing support:', x.housing_support);
+    M('Proof of funds needed:', opp.bank_statement_note);
+    M('Other scholarships you may stack:', x.scholarship_stack);
+    M('Work rights while studying:', x.work_rights);
+    if (opp.funding_type === 'fully') P('This position is fully funded. Confirm on the official page exactly what the funding covers - tuition, stipend, insurance, travel - because "fully funded" is worded differently by every institution.');
+    if (!anyMoney) P('The official advert did not print its financial terms. Ask for them in writing before you accept anything: the stipend or salary figure, whether tuition is charged, and what the institution covers. A position that will not state its terms in writing is a position to be careful with.');
+  }
+
+  /* WORKING BACKWARDS FROM THE REAL DEADLINE. A generic timeline is useless to someone
+     with 19 days left, and dangerous to someone with eight months who thinks they can
+     wait. The dates below are computed from this position's own deadline. */
+  if (opp.deadline) {
+    const dl = new Date(String(opp.deadline).slice(0, 10) + 'T00:00:00Z');
+    const days = Math.round((dl - Date.now()) / 86400000);
+    if (isFinite(days)) {
+      H('Your countdown, ' + (days >= 0 ? days + ' days left' : 'deadline passed'));
+      const back = n => new Date(dl.getTime() - n * 86400000).toISOString().slice(0, 10);
+      if (days < 0) P('This deadline has passed. Do not spend money on attestation for it. Open a new search and pick a position that is still open.');
+      else if (days <= 21) {
+        P('This is a short runway, so the order matters more than usual. Attestation cannot be rushed, but an application can be submitted while attestation is still in progress at almost every institution.');
+        B('Today: submit the application itself. Do not wait for attested documents unless the advert explicitly demands them at submission.');
+        B('Today: email your referees. A reference letter is the most common reason a complete application misses a deadline.');
+        B('This week: start HEC attestation online. It runs in the background.');
+        B('By ' + back(2) + ': everything uploaded, and a confirmation email saved as PDF.');
+      } else {
+        B('By ' + back(Math.min(days - 2, 60)) + ': referees briefed and reference letters requested.');
+        B('By ' + back(Math.min(days - 2, 45)) + ': HEC attestation started at eservices.hec.gov.pk.');
+        B('By ' + back(Math.min(days - 2, 30)) + ': MOFA attestation, and language test booked if one is required.');
+        B('By ' + back(Math.min(days - 2, 14)) + ': application fully drafted and reviewed once, away from the screen.');
+        B('By ' + back(2) + ': submitted, with the confirmation saved as PDF. Never submit on the closing day itself - portals fail under load.');
+      }
+    }
+  }
+
+  /* WHAT IS ALREADY DONE FOR THIS CASE, AND WHAT IS STILL ON THE APPLICANT. The guide
+     never mentioned the documents we prepared, so the applicant had no single page
+     telling them where they stand. */
+  try {
+    const { data: adocs } = await admin().from('application_documents').select('title,kind').eq('application_id', a.id);
+    const reqs = (a.prep_status || {}).reqs || {};
+    if ((adocs || []).length || (reqs.required_now || []).length) {
+      H('Your file for this application');
+      if ((adocs || []).length) {
+        pdf.font(FT.B).fontSize(10.5).fillColor('#333').text('Prepared for you, ready in your case:');
+        pdf.fillColor('#000');
+        (adocs || []).forEach(d => B(String(d.title || d.kind)));
+      }
+      if ((reqs.required_now || []).length) {
+        pdf.moveDown(0.3);
+        pdf.font(FT.B).fontSize(10.5).fillColor('#333').text('You must supply these yourself, originals only:');
+        pdf.fillColor('#000');
+        (reqs.required_now || []).slice(0, 16).forEach(r => B(String(r)));
+      }
+      if ((reqs.missing_urgent || []).length) {
+        pdf.moveDown(0.3);
+        pdf.font(FT.B).fontSize(10.5).fillColor('#B00020').text('Not yet uploaded, needed to submit: ' + (reqs.missing_urgent || []).join(', '));
+        pdf.fillColor('#000');
+      }
+      P('We write the letters, statements and proposals. We never produce a document an institution issues - degrees, transcripts, experience certificates, licences and good-standing letters come from the issuing body and are yours to obtain.');
+    }
+  } catch (e) {}
+
+  /* An interview section written for THIS position and this applicant. Cached on the
+     application, so re-downloading the guide costs nothing. */
+  try {
+    const cacheKey = 'guideprep:' + a.id;
+    let prep = null;
+    try { const { data: c0 } = await admin().from('app_settings').select('value').eq('key', cacheKey).single(); prep = c0 && c0.value && c0.value.t; } catch (e) {}
+    if (!prep) {
+      const { callAI } = require('./lib/router');
+      const { data: pf2 } = await admin().from('profiles').select('headline,field,methods,education,publications').eq('id', req.userId).single();
+      prep = await callAI('case_writing',
+        'Write two sections of a preparation guide for one specific applicant and one specific position. Plain prose and short lines, no markdown symbols, no headings other than the two labels given.\n' +
+        'POSITION: ' + (opp.title || '') + ' at ' + (opp.institution || '') + ', ' + (countryLabel(opp.country_code) || '') + '. ' + String(opp.description || '').slice(0, 700) + '\n' +
+        'APPLICANT: ' + ((pf2 && pf2.headline) || '') + '; field ' + ((pf2 && pf2.field) || '') + '; methods ' + String((pf2 && pf2.methods) || '').slice(0, 200) + '; publications ' + JSON.stringify((pf2 && pf2.publications) || []).slice(0, 400) + '\n\n' +
+        'SECTION ONE, labelled exactly "LIKELY QUESTIONS": eight questions this specific selection panel is likely to ask this specific applicant, each followed by one sentence on what a strong answer contains. Technical where the position is technical.\n' +
+        'SECTION TWO, labelled exactly "WHAT TO STRENGTHEN": four honest gaps between this applicant and this position, each with one concrete action. Never flatter, never invent a qualification.',
+        { maxTokens: 1400, userId: req.userId });
+      if (prep) { try { await admin().from('app_settings').upsert({ key: cacheKey, value: { t: prep } }); } catch (e) {} }
+    }
+    if (prep) {
+      const parts = String(prep).split(/WHAT TO STRENGTHEN/i);
+      H('Likely questions, and what a strong answer contains');
+      P(String(parts[0] || '').replace(/LIKELY QUESTIONS/i, '').trim().slice(0, 4000));
+      if (parts[1]) { H('What to strengthen before you apply'); P(String(parts[1]).trim().slice(0, 2500)); }
+    }
+  } catch (e) { /* the guide is complete without it */ }
+
   H('Your complete road, application to visa success');
   {
     const wk = (opp && opp.kind) === 'work';
@@ -3098,8 +3333,10 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   KV('Location:', [opp.city, countryLabel(opp.country_code)].filter(Boolean).join(', '));
   KV('Official page:', opp.url || '');
   KV('Application route:', /portal/i.test(String(opp.apply_via || '')) ? 'Online portal on the official page'
-    : (opp.contact_email ? 'By email to ' + opp.contact_email : 'Confirm on the official page'));
-  KV('Contact:', [opp.contact_name, opp.contact_email, opp.contact_phone].filter(Boolean).join('  ·  '));
+    : ((opp.contact_emails || [])[0] ? 'By email to ' + (opp.contact_emails || [])[0] : 'Confirm on the official page'));
+  /* There is no contact_email or contact_phone column on opportunities - the addresses
+     live in the contact_emails array - so this line silently printed nothing at all. */
+  KV('Contact:', [opp.contact_name].concat(opp.contact_emails || []).filter(Boolean).join('  ·  '));
   KV('Deadline:', opp.deadline ? String(opp.deadline).slice(0, 10) : 'Rolling or not stated');
   pdf.moveDown(0.35);
   P('Always confirm these details on the official page before you travel, post documents or pay any fee. Institutions move offices and change contacts, and the official page is the only source that is always current.');
@@ -3418,7 +3655,18 @@ app.post('/api/run', auth, fairUse, (req,res,next)=>{const f=(require('./lib/set
   prefs.progressKey = progressKey;
   prefs.startedAt = new Date().toISOString();
   try { await admin().from('app_settings').upsert({ key: progressKey, value: { status: 'running', startedAt: prefs.startedAt, kind: b.kind || null, target: prefs.target, found: 0, prefsHash: prefs.prefsHash } }); } catch (e) {}
-  res.json({ ok: true, ran: true, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.',
+  /* READ-FIRST. How much is already verified and still open for this lane? The client
+     shows those immediately instead of holding the user in front of a progress ring while
+     inventory it could already display sits in the table. */
+  let instant = 0;
+  try {
+    let iq = admin().from('opportunities').select('id', { count: 'exact', head: true })
+      .eq('status', 'verified').or('deadline.gte.' + new Date().toISOString().slice(0, 10) + ',deadline.is.null');
+    if (b.kind) iq = (b.kind === 'work') ? iq.eq('kind', 'work') : iq.in('kind', ['study', 'scholarship', 'postdoc']);
+    if (prefs.countries.length) iq = iq.in('country_code', prefs.countries);
+    const { count } = await iq; instant = count || 0;
+  } catch (e) {}
+  res.json({ ok: true, ran: true, instant, message: 'Searching official sources now. Verified opportunities appear within 2 to 3 minutes.',
     searches_left: (req._searchLeft || {}).day, search_limit: (req._searchLeft || {}).limit,
     searches_used: (req._searchLeft || {}).used, paid: !!(req._searchLeft || {}).paid });
   require('./lib/jobs').runJob('discover', 'discover:' + req.userId + ':' + Math.floor(Date.now()/1800e3), req.userId, () =>
@@ -3496,7 +3744,17 @@ app.get('/api/applications/:id', auth, async (req, res) => {
   if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
   let { data: docs } = await admin().from('application_documents').select('id,kind,title,content,status,themed_key').eq('application_id', a.id).then(r => r, async () => await admin().from('application_documents').select('id,kind,title,content').eq('application_id', a.id));
   const { data: msgs } = await admin().from('messages').select('*').eq('application_id', a.id).order('created_at', { ascending: false });
-  res.json({ application: a, documents: docs || [], messages: msgs || [] });
+  /* The applicant's own uploaded files travel with the application, so the case screen
+     must show them. Without this the case listed only what we wrote, and an applicant
+     reasonably concluded their real CV had been ignored in favour of a summary of it. */
+  let own = [];
+  try {
+    const { data: mine } = await admin().from('documents').select('id,name,kind,mime,created_at')
+      .eq('user_id', req.userId).eq('generated', false).order('created_at', { ascending: false }).limit(12);
+    own = (mine || []).map(d => ({ id: d.id, name: d.name, kind: d.kind, mime: d.mime, created_at: d.created_at,
+      is_cv: /cv|resume|curriculum/i.test(String(d.name || '') + ' ' + String(d.kind || '')) }));
+  } catch (e) {}
+  res.json({ application: a, documents: docs || [], messages: msgs || [], own_documents: own });
 });
 /* ---------- Spec 27: case editor - edit/rename/approve documents, case notes ---------- */
 app.post('/api/applications/:id/documents/:docId', auth, async (req, res) => {
@@ -3510,6 +3768,20 @@ app.post('/api/applications/:id/documents/:docId', auth, async (req, res) => {
   const { error } = await admin().from('application_documents').update(patch).eq('id', req.params.docId).eq('application_id', a.id);
   if (error) return res.status(400).json({ error: /status.*column/.test(error.message || '') ? 'Run migration 0016 first' : error.message });
   res.json({ ok: true });
+});
+/* WHO ATTACHES THE FILES IS THE APPLICANT'S CHOICE. We attach everything by default and
+   they press Send. Some people would rather attach their own originals - a particular
+   scan, a specific version of a certificate - and being forced to accept our selection is
+   not respectful of that. The email draft and the package builder both honour it. */
+app.post('/api/applications/:id/attach-mode', auth, async (req, res) => {
+  const mode = ((req.body || {}).mode === 'self') ? 'self' : 'us';
+  const { data: a } = await admin().from('applications').select('id,user_id,prep_status').eq('id', req.params.id).single();
+  if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Not found' });
+  const ps = a.prep_status || {};
+  ps.attach_mode = mode;
+  const { error } = await admin().from('applications').update({ prep_status: ps }).eq('id', a.id);
+  if (error) return res.status(400).json({ error: error.message });
+  res.json({ ok: true, mode });
 });
 app.post('/api/applications/:id/notes', auth, async (req, res) => {
   const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).single();
