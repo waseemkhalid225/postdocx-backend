@@ -219,10 +219,13 @@ const checks = [
   })()],
   ['locked preview shows 15 cards with identity withheld', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    // Three cards read as a teaser and looked like a broken search. Fifteen is the same
-    // ceiling the server applies, so the applicant sees the whole shortlist; institution
-    // name and official link still stay hidden until purchase.
-    return f.includes('noneOpen?shown.slice(0,15)') && f.includes('revealed?esc(o.institution)');
+    // CONTRACT CHANGED (R4580): discovery is a Top-15 TABLE, not fifteen cards. Fifteen
+    // full cards meant fifteen screens of scrolling to answer one question. The ceiling
+    // is unchanged and identity is still withheld - the server never sends it.
+    const sv2 = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return f.includes('window._top15=shown.slice(0,15)') && f.includes('function topTable(') &&
+      f.includes('TOP ${list.length} MATCHES') && sv2.includes('function lockTease(o)') &&
+      f.includes('revealed?esc(o.institution)');
   })()],
   ['every Apply button closes the matches overlay before routing', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
@@ -530,8 +533,11 @@ const checks = [
   })()],
   ['free users see real preview cards with identity withheld', (() => {
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    return fe.includes('noneOpen?shown.slice(0,15)') && fe.includes('revealed?esc(o.institution)') &&
-      fe.includes('more matched to you');
+    // The preview is now a table with a one-tap intelligence panel and a selection list.
+    // Identity is withheld by the SERVER, which is the only place it can be enforced.
+    return fe.includes('function oppPeek(') && fe.includes('function selReview(') &&
+      fe.includes('revealed?esc(o.institution)') &&
+      fe.includes('revealed when this case is unlocked');
   })()],
   ['one enforcement rule for every filter, with an honest receipt', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');

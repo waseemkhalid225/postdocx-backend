@@ -87,7 +87,7 @@ const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimu
 const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-09-01-R4560';
+const FF_BUILD = '2026-09-01-R4610';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 /* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
    assistant.zip was a file committed by hand, and it had drifted: users were downloading
@@ -726,6 +726,9 @@ app.get('/api/opportunities/saved/list', auth, async (req, res) => {
     } catch (e) {}
   }
   const entOk = await entitled(req.userId, simUser(req));
+  /* Both modes carry the same discovery fields, so one renderer serves both and an
+     unlocked row never loses its relevance line. */
+  list = list.map(o => Object.assign({}, o, { hint: hintLabel(o), relevance_line: relevanceLine(o), complexity: complexity(o) }));
   if (!entOk) list = list.map(o => lockTease(o));
   else if (String(req.query.match) === '1') {
     // Package choice model: each plan opens its own 'view' count of matched positions and
@@ -1642,16 +1645,87 @@ function remoteScope(o) {
   if (/must (be|reside|live)[^.]{0,30}(us|usa|uk|eu|eea|canada|australia)\b/.test(blob)) return 'Remote, with a residence requirement';
   return 'Remote, confirm eligibility on the official page';
 }
+/* DISCOVERY MODE LABELS. "Education opportunity" told the applicant nothing and made the
+   list look like filler. The hint names the level and the subject - "Doctoral research -
+   Molecular Biology" - which is genuinely useful and still not searchable, because the
+   institution, the exact programme title and the URL never leave the server. */
+function hintLabel(o) {
+  const LV = { bachelors: 'Undergraduate study', masters: "Master's-level opportunity", phd: 'Doctoral research',
+    postdoc: 'Postdoctoral research', fellowship: 'Fellowship', diploma: 'Diploma programme',
+    short_course: 'Short course', observership: 'Clinical observership' };
+  const t = String(o.title || '').toLowerCase();
+  let lead = LV[o.level] || (o.kind === 'work' ? 'Professional role'
+    : /post[\s-]?doc/.test(t) ? 'Postdoctoral research' : /\bphd\b|doctoral/.test(t) ? 'Doctoral research'
+    : /master|msc|mphil/.test(t) ? "Master's-level opportunity" : 'Graduate opportunity');
+  /* The subject comes from the stated field, or from the title with the identifying words
+     removed - never the institution, never the programme's own name. */
+  let subj = String(o.req_field || o.field || '').trim();
+  if (!subj) {
+    subj = String(o.title || '')
+      .replace(/\b(phd|ph\.d|postdoc(toral)?|doctoral|master'?s?|msc|mphil|bachelor'?s?|bsc|fellowship|position|vacancy|programme|program|scholarship|studentship|opportunity|in|of|the|at|for|a|an)\b/gi, ' ')
+      .replace(/\([^)]*\)/g, ' ').replace(/[^A-Za-z &-]/g, ' ').replace(/\s+/g, ' ').trim();
+    subj = subj.split(' ').slice(0, 3).join(' ');
+  }
+  subj = subj.replace(/\b\w/g, c => c.toUpperCase()).slice(0, 42);
+  return subj ? lead + ' \u00b7 ' + subj : lead;
+}
+/* One line, built from the dimensions the matcher actually scored, so it differs between
+   opportunities instead of repeating one stock sentence. No AI call, no cost. */
+function relevanceLine(o) {
+  const m = o.match || {};
+  const ok = (m.reasons || []).filter(r => r.ok === 'yes').map(r => String(r.text || ''));
+  const dims = m.dims || {};
+  const strong = Object.keys(dims).filter(k => Number(dims[k]) >= 80);
+  const pct = Number(m.pct || 0);
+  if (strong.includes('field') && strong.includes('level')) return 'Strong alignment with your field and your level of study.';
+  if (strong.includes('field') && pct >= 85) return 'Excellent subject match with your academic background.';
+  if (strong.includes('experience')) return 'Your professional experience closely matches the core profile.';
+  if (strong.includes('level')) return 'The level fits exactly where you are in your career.';
+  if (strong.includes('language')) return 'No language barrier: your certificates already meet what is asked.';
+  if (ok.length) return ok[0].charAt(0).toUpperCase() + ok[0].slice(1);
+  if (pct >= 75) return 'Strong fit based on your qualifications and field.';
+  return 'A reasonable fit worth reviewing against your own priorities.';
+}
+/* How much work this application is, judged from what the advert demands. */
+function complexity(o) {
+  let n = 0;
+  const docs = (o.req_documents || []).length;
+  if (docs >= 6) n += 2; else if (docs >= 3) n += 1;
+  if (o.req_language && o.req_language !== 'none') n += 1;
+  if (o.req_license) n += 1;
+  if (/research proposal|portfolio|thesis/i.test(String(o.req_documents || '').toString())) n += 1;
+  return n >= 3 ? 'High' : n >= 1 ? 'Moderate' : 'Low';
+}
 function lockTease(o) {
   return {
     id: o.id, kind: o.kind, country_code: o.country_code, deadline: o.deadline,
     // City and country are given: an applicant must know where in the world this is.
     city: o.city || null,
     general_title: generalTitle(o),
+    hint: hintLabel(o), relevance_line: relevanceLine(o), complexity: complexity(o),
     remote_scope: remoteScope(o), remote: (o.remote === true || o.remote === false) ? o.remote : null,
     field: o.req_field || o.field || null,
     funding: o.funding || null, funding_type: o.funding_type || null, level: o.level || null,
+    /* MONEY IS THE FIRST QUESTION EVERY APPLICANT ASKS, and the locked payload was
+       answering only part of it. None of this identifies the position: a stipend figure,
+       a tuition line, a fee, work rights or a residence route are true of thousands of
+       adverts. Withholding them made the preview feel evasive for no security gain. */
     stipend: o.stipend || null, tuition: o.tuition || null, salary_note: o.salary_note || null,
+    application_fee: o.application_fee || null, fee_structure: o.fee_structure || null,
+    duration: o.duration || null,
+    money: (() => {
+      const x = o.intelligence || o.extra || {};
+      return {
+        /* Deliberately absent: a living-cost figure. The rule predates this build and it
+           is a good one - a cost estimate is a guess about the applicant's future
+           spending and it discourages strong candidates for no benefit. */
+        housing: x.housing_support || null,
+        work_rights: x.work_rights || null,
+        pr_pathway: x.pr_pathway_note || null,
+        scholarship_stack: x.scholarship_stack || null,
+        scheme: x.scheme_name || null
+      };
+    })(),
     req_language: o.req_language || null, req_language_min: o.req_language_min || null,
     created_at: o.created_at || null, verified_at: o.verified_at || null,
     match: o.match || null, locked: true
@@ -2222,7 +2296,15 @@ app.get('/api/opportunities', auth, async (req, res) => {
       }
     }
   } catch (e) { /* on any error, fall through unlocked rather than break browsing */ }
-  res.json({ opportunities });
+  /* TOP-UP SIGNAL. The table is only ever as good as what has already been discovered, so
+     a thin database produced a thin screen and the applicant had no idea a live hunt could
+     have filled it. We now say plainly how many strong matches exist and how many short of
+     fifteen we are; the client asks for a live top-up, which runs in the background and
+     streams in. It does not spend a daily search - the user already spent one to get here. */
+  const strong = (opportunities || []).filter(o => o.match && o.match.pct != null && o.match.pct >= RELEVANCE_FLOOR).length;
+  res.json({ opportunities, strong_count: strong,
+    topup_needed: String(req.query.match) === '1' && strong < 15,
+    short_by: Math.max(0, 15 - strong) });
 });
 
 /* Per-user serialization for credit-spending actions. Two requests from the same user
@@ -2249,7 +2331,11 @@ app.post('/api/applications', auth, (req, res) => withUserLock(req.userId, () =>
 async function createApplication(req, res) {
   const { opportunityId } = req.body || {};
   const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
-  const isAdmin = prof && ['admin', 'staff'].includes(prof.role) && !simUser(req);
+  /* The literal two-role list missed super_admin and every delegated admin role, so the
+     owner was sent to the plans page to buy a package before his own case would start.
+     Staff never pay and never spend a credit; the role helper is the single source of
+     truth for who counts as staff. */
+  const isAdmin = !!(prof && require('./lib/rbac').isAdminRole(prof.role) && prof.role !== 'user' && !simUser(req));
   // CV is the one required document before any application can be prepared.
   const { data: cvDocs } = await admin().from('documents').select('id').eq('user_id', req.userId).eq('kind', 'cv').eq('generated', false).limit(1);
   if (!isAdmin && (!cvDocs || !cvDocs.length)) {
@@ -2704,6 +2790,45 @@ app.post('/api/opportunities/:id/dismiss', auth, async (req, res) => {
     else if (!ids.includes(id)) ids.push(id);
     await admin().from('app_settings').upsert({ key: 'dismissed:' + req.userId, value: { ids: ids.slice(-500), at: new Date().toISOString() } });
     res.json({ ok: true, dismissed: !undo, count: ids.length });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* LIVE TOP-UP. Fifteen strong matches is the target, not a hope. When the database cannot
+   supply them, this hunts the live web for the shortfall and writes what it verifies, so
+   the table fills while the applicant is still looking at it. Deliberately NOT a second
+   daily search: it is the completion of the one they already ran. Rate limited per user so
+   a page refresh cannot start a queue of expensive runs. */
+app.post('/api/run/topup', auth, async (req, res) => {
+  try {
+    const key = 'topup:' + req.userId;
+    const now = Date.now();
+    let last = 0;
+    try { const { data } = await admin().from('app_settings').select('value').eq('key', key).single(); last = Number(data && data.value && data.value.at) || 0; } catch (e) {}
+    if (now - last < 8 * 60000) return res.json({ ok: true, ran: false, reason: 'A top-up for this profile ran in the last few minutes.' });
+    await admin().from('app_settings').upsert({ key, value: { at: now } });
+
+    const { data: pf } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + req.userId).single();
+    const prefs = Object.assign({}, (pf && pf.value) || {});
+    const short = Math.min(15, Math.max(1, parseInt((req.body || {}).short_by, 10) || 15));
+    prefs.target = Math.max(15, short * 2);
+    prefs.countries = Array.isArray(prefs.ctrys) ? prefs.ctrys : (prefs.countries || []);
+    prefs.progressKey = 'discover:' + req.userId;
+    prefs.startedAt = new Date().toISOString();
+    const kind = String((req.body || {}).kind || prefs.kind || '') || undefined;
+
+    res.json({ ok: true, ran: true, target: prefs.target });
+    /* After the response: the applicant is already reading their results. */
+    (async () => {
+      try {
+        const { discoverForUser } = require('./lib/engine');
+        const added = await discoverForUser(req.userId, kind, prefs);
+        await admin().from('app_settings').upsert({ key: prefs.progressKey, value: {
+          status: 'done', found: added, kind, target: prefs.target, finishedAt: new Date().toISOString() } });
+        await admin().from('audit_log').insert({ actor: req.userId, event: 'TOPUP', detail: kind + ': +' + added });
+      } catch (e) {
+        try { require('./lib/oblog').errlog('run:topup', e, { userId: req.userId }); } catch (e2) {}
+        try { await admin().from('app_settings').upsert({ key: 'discover:' + req.userId, value: { status: 'done', found: 0 } }); } catch (e2) {}
+      }
+    })();
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.get('/api/searches', auth, async (req, res) => {

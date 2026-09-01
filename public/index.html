@@ -608,6 +608,19 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
 .ctry-head{padding:11px 12px;font-size:14px}
 /* Mobile speed: kill blur jank, native momentum, contained overscroll */
 .ffmatches>div,.ff-appview>div,.ff-finder,.ff-ack>div{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+/* PANELS SCROLL THEMSELVES. A centred overlay was a fixed, non-scrolling box: when its
+   content ran past the viewport the ends were simply unreachable, and the only scrollbar
+   on screen belonged to the page behind, pinned to the far edge and moving the wrong
+   thing. Every centred panel now carries its own scrollbar, against its own right edge,
+   and the backdrop scrolls only as a fallback. */
+.ff-ack{overflow:auto}
+.ff-ack>div{max-height:calc(100vh - 40px);overflow-y:auto;overscroll-behavior:contain}
+.ff-ack>div::-webkit-scrollbar,.ff-appview>div::-webkit-scrollbar,.ffmatches>div::-webkit-scrollbar{width:8px}
+.ff-ack>div::-webkit-scrollbar-thumb,.ff-appview>div::-webkit-scrollbar-thumb,.ffmatches>div::-webkit-scrollbar-thumb{background:rgba(140,178,255,.38);border-radius:8px}
+.ff-ack>div::-webkit-scrollbar-track,.ff-appview>div::-webkit-scrollbar-track,.ffmatches>div::-webkit-scrollbar-track{background:transparent}
+/* A modal must always be dismissible. */
+.ff-x{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:9px;border:1px solid rgba(140,178,255,.4);background:rgba(8,18,40,.9);color:#cfe0ff;font:700 17px/1 Inter;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:2}
+.ff-x:hover{border-color:#00D4FF;color:#00D4FF}
 @media(max-width:640px){
   .ffmatches>div,.ff-appview>div,.card,.mkt-card,.ff-ack>div{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
   body{-webkit-overflow-scrolling:touch}
@@ -855,7 +868,7 @@ async function _apiRaw(p,o={}){
   await loadSiteConfig();
   SB=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey);
   SB.auth.onAuthStateChange((ev)=>{if(ev==='PASSWORD_RECOVERY'){
-    const w=document.createElement('div');w.style.cssText='position:fixed;inset:0;background:rgba(3,9,22,.8);z-index:90;display:flex;align-items:center;justify-content:center;padding:20px';
+    const w=document.createElement('div');w.style.cssText='position:fixed;inset:0;background:rgba(3,9,22,.8);z-index:90;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px';
     w.innerHTML=`<div class="sheet"><h3 style="color:#fff">Set a new password</h3>
     <input id="npw" type="password" placeholder="New password (min 6 characters)" style="margin:10px 0">
     <button class="btn b-gold" style="width:100%" onclick="(async b=>{b.disabled=true;const p=document.getElementById('npw').value;if(p.length<6){toast('Minimum 6 characters');b.disabled=false;return}const {error}=await SB.auth.updateUser({password:p});if(error){toast(error.message);b.disabled=false}else{toast('✓ Password updated. You are signed in.');b.closest('div[style*=fixed]').remove()}})(this)">Save new password</button></div>`;
@@ -1041,7 +1054,17 @@ function showAnnouncement(){
   b.textContent=SITE.announcement.text;
   document.body.insertBefore(b,document.body.firstChild);
 }
-async function signOut(){window._ffBooted=false;await SB.auth.signOut();location.reload()}
+/* SIGN OUT MUST BE INSTANT. It used to await a network call to Supabase and only then
+   reload, so the button sat there doing nothing for as long as the round trip took. The
+   session is cleared locally first - which is what actually signs the person out of this
+   device - and the server is told afterwards, on the way out. */
+function signOut(){
+  window._ffBooted=false;
+  try{Object.keys(localStorage).forEach(k=>{if(/^sb-|supabase/i.test(k))localStorage.removeItem(k)})}catch(e){}
+  try{SESSION=null;ME=null}catch(e){}
+  try{SB&&SB.auth&&SB.auth.signOut()}catch(e){}   // fire and forget
+  location.replace(location.pathname);
+}
 function go(t){
   /* The matches sheet is a fixed overlay above #view. Navigating without removing it
      re-rendered the destination underneath, so every button inside the sheet looked dead. */
@@ -1054,10 +1077,26 @@ function go(t){
     try{b.classList.toggle('on',(b.getAttribute('onclick')||'').includes("go('"+t+"')"))}catch(e){}
   });
   try{window.scrollTo({top:0,behavior:'instant'})}catch(e){window.scrollTo(0,0)}
-  render();
+  /* The active-tab styling above is applied synchronously so the tap is acknowledged in
+     the same frame; the view itself renders on the next one, which is what makes the
+     button feel immediate even when the destination is expensive to build. */
+  requestAnimationFrame(()=>render());
 }
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b){if(b.dataset.t==='browse')window._lane='';go(b.dataset.t)}});
-function render(){try{if(ME&&isAdminRole(ME.role)&&$('adminTab'))$('adminTab').style.display='inline-block';}catch(e){}try{simBanner()}catch(e){}({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();if(TAB==='buy')setTimeout(loadRefBox,200);if(SESSION){ensureWorld().then(()=>worldInteractive(TAB==='home'))}}
+/* PAINT FIRST, DECORATE AFTER. Every navigation used to kick off the 3D world layer and
+   its video in the same frame as the view render, so the tap competed with texture and
+   video work for the main thread and the button felt dead for a moment. The view paints
+   on its own frame now; the world is set up afterwards, when the browser is idle. */
+function render(){
+  try{if(ME&&isAdminRole(ME.role)&&$('adminTab'))$('adminTab').style.display='inline-block';}catch(e){}
+  try{simBanner()}catch(e){}
+  ({home:vHome,apps:vApps,browse:vBrowse,profile:vProfile,buy:vBuy,adminx:vAdmin}[TAB]||vHome)();
+  if(TAB==='buy')setTimeout(loadRefBox,200);
+  if(SESSION){
+    const later=()=>{try{ensureWorld().then(()=>worldInteractive(TAB==='home')).catch(()=>{})}catch(e){}};
+    if(window.requestIdleCallback)requestIdleCallback(later,{timeout:600});else setTimeout(later,120);
+  }
+}
 
 /* ---------- auth view ---------- */
 function renderAuth(mode){
@@ -1312,7 +1351,7 @@ async function forgotPassword(){
 // When the user arrives from the reset email, Supabase fires PASSWORD_RECOVERY.
 function promptNewPassword(){
   const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.6);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.6);z-index:80;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px';
   wrap.innerHTML=`<div style="max-width:400px;width:100%;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:22px">
   <h2>Set a new password</h2>
   <label>New password</label><input id="np-1" type="password" placeholder="minimum 8 characters">
@@ -1398,7 +1437,7 @@ async function openSupport(){
 }
 function openReviewForm(){
   const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:16px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
   wrap.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.95);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
   <div class="spread"><h3 style="margin:0">Share your review</h3><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   <label>Your rating</label>
@@ -1884,6 +1923,140 @@ function oppFactsHtml(o){
   return `<div class="sub" style="margin-top:8px;line-height:1.7;display:grid;grid-template-columns:auto 1fr;gap:2px 10px">
     ${rows.map(([k,v])=>`<span style="color:#8FA9CE">${esc(k)}</span><span style="color:#D6E9FF">${esc(String(v).slice(0,90))}</span>`).join('')}</div>`;
 }
+/* The selection lives in memory for the session: a list of ids the applicant is building
+   before they choose a package. Nothing is charged and nothing is prepared until they
+   act on it deliberately. */
+window._sel=window._sel||[];
+function selHas(id){return window._sel.indexOf(id)>=0}
+function selToggle(id,btn){
+  const i=window._sel.indexOf(id);
+  if(i>=0)window._sel.splice(i,1);else window._sel.push(id);
+  if(btn){btn.textContent=selHas(id)?'\u2713 Selected':'+ Add';btn.className='btn '+(selHas(id)?'b-green':'b-line')}
+  document.querySelectorAll('[data-selrow="'+id+'"]').forEach(el=>{
+    el.textContent=selHas(id)?'\u2713':'+';
+    el.style.color=selHas(id)?'#4ade80':'#8FA9CE';
+    el.style.borderColor=selHas(id)?'rgba(74,222,128,.6)':'rgba(140,178,255,.3)';
+  });
+  selBar();
+}
+function selBar(){
+  document.querySelectorAll('.ff-selbar').forEach(x=>x.remove());
+  if(!window._sel.length)return;
+  const b=document.createElement('div');b.className='ff-selbar';
+  b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:64;background:linear-gradient(180deg,rgba(8,18,40,.94),rgba(6,14,32,.99));border-top:1px solid rgba(0,212,255,.45);padding:10px 14px;backdrop-filter:blur(10px)';
+  b.innerHTML=`<div style="display:flex;align-items:center;gap:10px;max-width:660px;margin:0 auto">
+    <div style="flex:1;min-width:0"><div style="font:700 13px Inter;color:#EAF2FF">MY SELECTION \u00b7 ${window._sel.length}</div>
+    <div class="sub" style="font-size:11px">Nothing is charged until you choose a package.</div></div>
+    <button class="btn b-line" style="padding:5px 12px;font-size:12px" onclick="selReview()">Review</button>
+    <button class="btn b-gold" style="padding:5px 14px;font-size:12.5px" onclick="selReview()">Continue</button></div>`;
+  document.body.appendChild(b);
+}
+/* THE TOP 15. One row each: number, what it is, country, funding, deadline, match. */
+function topTable(list){
+  if(!list.length)return '';
+  /* THE DATE ITSELF. "Closing soon" is a feeling; "15 Oct 2026" is a fact the applicant
+     can plan around, and the colour still carries the urgency. */
+  const fmtD=s=>{try{const d=new Date(String(s).slice(0,10)+'T00:00:00Z');
+    return d.getUTCDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]+' '+d.getUTCFullYear();
+  }catch(e){return String(s).slice(0,10)}};
+  const dl=o=>{const d=daysLeft(o.deadline);
+    if(d==null)return '<span style="color:#9db8e8">Rolling, no fixed date</span>';
+    const c=d<=14?'#ff8a8a':d<=45?'#FFD070':'#9db8e8';
+    return '<span style="color:'+c+'">'+fmtD(o.deadline)+(d<=45?' \u00b7 '+d+'d left':'')+'</span>'};
+  /* The money, in the applicant's own terms: what they are paid, or what they must pay. */
+  const money=o=>{
+    const pay=String(o.stipend||o.salary_note||'').trim();
+    if(pay)return '<span style="color:#4ade80">'+esc(pay.slice(0,42))+'</span>';
+    const tu=String(o.tuition||'').trim();
+    if(o.funding_type==='fully')return '<span style="color:#4ade80">Fully funded</span>';
+    if(tu)return '<span style="color:#FFD070">Tuition '+esc(tu.slice(0,30))+'</span>';
+    if(o.funding_type==='partial')return '<span style="color:#FFD070">Partial funding</span>';
+    if(o.funding_type==='self')return '<span style="color:#9db8e8">Self-financed</span>';
+    return '<span style="color:#9db8e8">Terms on the official page</span>'};
+  const fund=o=>o.funding_type==='fully'?'<span style="color:#4ade80">Fully funded</span>'
+    :o.funding_type==='partial'?'<span style="color:#FFD070">Partial</span>'
+    :o.funding_type==='self'?'<span style="color:#9db8e8">Self-financed</span>'
+    :(o.stipend?'<span style="color:#4ade80">Stipend</span>':'<span style="color:#9db8e8">Stated on page</span>');
+  const pct=o=>{const p=o.match&&o.match.pct;if(p==null)return '';
+    const c=p>=85?'#4ade80':p>=70?'#7EE6FF':'#FFD070';
+    return `<b style="color:${c};font:800 13.5px Inter">${p}%</b>`};
+  const rows=list.map((o,i)=>`<div onclick="oppPeek('${escAttr(o.id)}')" style="display:grid;grid-template-columns:26px 1fr auto 34px;gap:8px;align-items:center;padding:11px 10px;border-bottom:1px solid rgba(140,178,255,.13);cursor:pointer">
+    <div class="sub" style="font:700 11.5px Inter;opacity:.65">${String(i+1).padStart(2,'0')}</div>
+    <div style="min-width:0">
+      <div style="font:600 13.5px Inter;color:#EAF2FF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.hint||oppHeadline(o))}</div>
+      <div class="sub" style="font-size:11.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(countryName(o.country_code))} \u00b7 ${money(o)}</div>
+      <div class="sub" style="font-size:11px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fund(o)} \u00b7 ${dl(o)}</div>
+    </div>
+    <div style="text-align:right">${pct(o)}</div>
+    <button data-selrow="${escAttr(o.id)}" onclick="event.stopPropagation();selToggle('${escAttr(o.id)}')"
+      style="width:30px;height:30px;border-radius:8px;border:1px solid ${selHas(o.id)?'rgba(74,222,128,.6)':'rgba(140,178,255,.3)'};background:transparent;color:${selHas(o.id)?'#4ade80':'#8FA9CE'};font:700 16px/1 Inter;cursor:pointer">${selHas(o.id)?'\u2713':'+'}</button>
+  </div>`).join('');
+  return `<div style="margin-top:10px;border:1px solid rgba(140,178,255,.22);border-radius:14px;overflow:hidden;background:rgba(8,18,40,.5)">
+    <div style="padding:10px 12px;border-bottom:1px solid rgba(140,178,255,.2);font:700 12px Inter;letter-spacing:.06em;color:#9db8e8">TOP ${list.length} MATCHES</div>
+    ${rows}</div>
+    <div class="sub" style="margin:8px 2px 0;font-size:11.5px">Tap any row for the details. Add the ones you want, then choose a package.</div>`;
+}
+/* A short intelligence preview. Everything that helps the decision, nothing that lets the
+   position be found on Google before it is unlocked. */
+async function oppPeek(id){
+  const o=(window._top15||[]).find(x=>x.id===id);if(!o)return;
+  const m=o.match||{};
+  const w=document.createElement('div');w.className='ff-ack';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:67;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
+  const R=(k,v)=>v?`<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid rgba(140,178,255,.12)">
+    <span class="sub" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.04em">${esc(k)}</span>
+    <span style="font:600 13px Inter;color:#EAF2FF;text-align:right">${v}</span></div>`:'';
+  const d=daysLeft(o.deadline);
+  w.innerHTML=`<div style="position:relative;max-width:430px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);border-radius:16px;padding:18px;color:#eef4ff">
+    <button class="ff-x" onclick="this.closest('.ff-ack').remove()">\u00d7</button>
+    <div style="font:700 12px Inter;letter-spacing:.06em;color:#9db8e8;padding-right:34px">OPPORTUNITY INTELLIGENCE</div>
+    <div style="font:700 16px Inter;color:#fff;margin:6px 0 10px">${esc(o.hint||oppHeadline(o))}</div>
+    ${R('Country',esc(countryName(o.country_code))+(o.city?' <span class="sub">'+esc(o.city)+'</span>':''))}
+    ${R('Opportunity type',esc(({bachelors:"Bachelor's",masters:"Master's",phd:'PhD',postdoc:'Postdoctoral',fellowship:'Fellowship'})[o.level]||(o.kind==='work'?'Employment':'Programme')))}
+    ${R('Field',esc(o.field||o.req_field||''))}
+    ${R('Funding',esc(o.funding_type==='fully'?'Fully funded':o.funding_type==='partial'?'Partially funded':o.funding_type==='self'?'Self-financed':(o.stipend?'Stipend stated':'')))}
+    ${o.kind==='work'?R('Salary',esc(String(o.salary_note||o.stipend||'').slice(0,80))):R('Stipend',esc(String(o.stipend||o.salary_note||'').slice(0,80)))}
+    ${R('Tuition',esc(String(o.tuition||'').slice(0,60)))}
+    ${R('Application fee',esc(String(o.application_fee||'').slice(0,40)))}
+    ${R('Duration',esc(String(o.duration||'').slice(0,40)))}
+    ${R('Housing',esc(String((o.money||{}).housing||'').slice(0,60)))}
+    ${R('Other scholarships',esc(String((o.money||{}).scholarship_stack||'').slice(0,60)))}
+    ${R('Funding scheme',esc(String((o.money||{}).scheme||'').slice(0,60)))}
+    ${R('Work rights',esc(String((o.money||{}).work_rights||'').slice(0,60)))}
+    ${R('Residence route',esc(String((o.money||{}).pr_pathway||'').slice(0,60)))}
+    ${R('Match',m.pct!=null?m.pct+'%':'')}
+    ${R('Deadline',o.deadline?(esc(String(o.deadline).slice(0,10))+(d!=null&&d>0?' <span class="sub">('+d+' days left)</span>':d!=null&&d<=0?' <span style="color:#ff8a8a">(closed)</span>':'')):'Rolling or open')}
+    ${R('Application effort',esc(o.complexity||''))}
+    ${o.relevance_line?`<div style="margin-top:10px;padding:9px 11px;border-radius:9px;background:rgba(45,212,191,.08);border:1px solid rgba(45,212,191,.3)">
+      <div style="font:700 11px Inter;color:#2dd4bf;text-transform:uppercase;letter-spacing:.04em">Why it matches</div>
+      <div class="sub" style="font-size:12.5px;margin-top:3px;line-height:1.5">${esc(o.relevance_line)}</div></div>`:''}
+    ${o.locked?`<div class="sub" style="margin-top:9px;font-size:11.5px;line-height:1.5">The institution, the exact title and the official link are revealed when this case is unlocked.</div>`:''}
+    <button class="btn ${selHas(o.id)?'b-green':'b-gold'}" style="width:100%;margin-top:12px" onclick="selToggle('${escAttr(o.id)}',this);this.closest('.ff-ack').remove()">${selHas(o.id)?'\u2713 Selected':'+ Add to my selection'}</button>
+  </div>`;
+  w.onclick=e=>{if(e.target===w)w.remove()};
+  document.body.appendChild(w);
+}
+/* The review: what they picked, before they pay for anything. */
+function selReview(){
+  const list=(window._top15||[]).filter(o=>selHas(o.id));
+  const w=document.createElement('div');w.className='ff-ack';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:68;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.innerHTML=`<div style="position:relative;max-width:460px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);border-radius:16px;padding:18px;color:#eef4ff">
+    <button class="ff-x" onclick="this.closest('.ff-ack').remove()">\u00d7</button>
+    <div style="font:700 12px Inter;letter-spacing:.06em;color:#9db8e8;padding-right:34px">MY SELECTED OPPORTUNITIES</div>
+    <div class="sub" style="margin:4px 0 10px">${list.length} selected</div>
+    ${list.map((o,i)=>`<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid rgba(140,178,255,.12)">
+      <span class="sub" style="font:700 11.5px Inter;opacity:.6">${String(i+1).padStart(2,'0')}</span>
+      <div style="flex:1;min-width:0"><div style="font:600 13px Inter;color:#EAF2FF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.hint||'')}</div>
+      <div class="sub" style="font-size:11.5px">${esc(countryName(o.country_code))}${o.match&&o.match.pct!=null?' \u00b7 '+o.match.pct+'% match':''}</div></div>
+      <button class="btn b-line" style="padding:2px 9px;font-size:11.5px" onclick="selToggle('${escAttr(o.id)}');this.closest('.ff-ack').remove();selReview()">Remove</button></div>`).join('')
+      ||'<div class="sub">Nothing selected yet.</div>'}
+    <div class="sub" style="margin:12px 0 0;line-height:1.55">Unlock complete intelligence and application preparation for the opportunities you selected. Each package covers a set number of cases.</div>
+    <button class="btn b-gold" style="width:100%;margin-top:10px" onclick="this.closest('.ff-ack').remove();go('buy')">Choose a package</button>
+  </div>`;
+  w.onclick=e=>{if(e.target===w)w.remove()};
+  document.body.appendChild(w);
+}
 function oppCard(o,ctaColor){
   const dl=daysLeft(o.deadline);
   const dlChip=dl!=null?(dl<=14?`<span class="chip c-red">Closes in ${dl}d</span>`:`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`):'';
@@ -2253,7 +2426,7 @@ function showLastChance(d){
   document.querySelectorAll('.ff-lastchance').forEach(n=>n.remove());
   const w=document.createElement('div');
   w.className='ff-lastchance';
-  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.86);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.86);z-index:9998;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
   w.onclick=e=>{if(e.target===w)w.remove()};
   const total=(d&&(d.search_limit||d.limit))||3;
   const used=(d&&d.searches_used)||(total-1);
@@ -2271,7 +2444,7 @@ function showSearchLocked(d){
   document.querySelectorAll('.ff-locked-modal').forEach(n=>n.remove());
   const w=document.createElement('div');
   w.className='ff-locked-modal';
-  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.88);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.88);z-index:9998;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
   w.onclick=e=>{if(e.target===w)w.remove()};
   const when=d.resets_at?new Date(d.resets_at):null;
   const clock=when?when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'midnight';
@@ -2374,7 +2547,7 @@ async function resumeSearch(kind){
   kind=kind||undefined;
   document.querySelectorAll('.ffresume').forEach(x=>x.remove());
   const wrap=document.createElement('div');wrap.className='ffresume';
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px';
   wrap.innerHTML=`<div class="sheet" style="text-align:center;max-width:400px">
     <div class="search-ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="rsFg" cx="60" cy="60" r="52"/></svg><div class="ring-pct" id="rsPct" style="color:#00D4FF">…</div></div>
     <h3 style="margin-top:14px;color:#fff">Your search is still running.</h3>
@@ -2565,6 +2738,21 @@ function matchStatsTable(list,opts){
 `;
 }
 /* ===== Tiered match results: opens automatically when the finder completes ===== */
+/* FIFTEEN IS THE TARGET, NOT A HOPE. When the database cannot supply fifteen strong
+   matches, we do not simply show a short list and leave it there - the API says how many
+   short it is and a live hunt runs in the background for exactly that shortfall. The
+   applicant keeps reading their results while the table fills underneath them. */
+async function topUpIfThin(kind,opts){
+  if(!(window._topupShort>0))return;
+  if(window._topupRunning)return;
+  window._topupRunning=true;
+  try{
+    const r=await api('/api/run/topup',{method:'POST',body:{short_by:window._topupShort,kind}});
+    if(r&&r.ran){liveSearchBar(kind,opts||{},{instant:(window._top15||[]).length});}
+    else{const n=document.getElementById('topupNote');if(n)n.remove()}
+  }catch(e){const n=document.getElementById('topupNote');if(n)n.remove()}
+  finally{setTimeout(()=>{window._topupRunning=false},60000)}
+}
 async function showMatches(kind,opts){
   if(!(opts&&opts._fromCache)){try{window._lastMatches={kind,opts:Object.assign({},opts||{}),at:Date.now(),scanned:window._chkFinal||null}}catch(e){}}
   else if(window._lastMatches&&window._lastMatches.scanned){window._chkFinal=window._lastMatches.scanned}
@@ -2607,7 +2795,13 @@ async function showMatches(kind,opts){
   window._relaxNote=null;
   // Track the remaining daily allowance so the user is never surprised by the limit.
   // (remaining allowance is read from the run response below)
-  for(const k of kinds){try{const d=await api('/api/opportunities?kind='+k+'&match=1&sort=recent'+extraQ);list=list.concat(d.opportunities||[]);if(d.relaxed)window._relaxNote=d.relaxed}catch(e){}}
+  window._topupShort=0;
+  for(const k of kinds){try{const d=await api('/api/opportunities?kind='+k+'&match=1&sort=recent'+extraQ);list=list.concat(d.opportunities||[]);
+    if(d.relaxed)window._relaxNote=d.relaxed;
+    /* The server counts the strong matches it actually has; the largest shortfall across
+       the lanes we queried is what the live top-up goes after. */
+    if(d.topup_needed&&Number(d.short_by)>window._topupShort)window._topupShort=Number(d.short_by);
+  }catch(e){}}
   const seen=new Set();list=list.filter(o=>o.id&&!seen.has(o.id)&&seen.add(o.id));
   /* ONE RULE FOR EVERY FILTER. A selected filter is a promise, not a hint: it is
      enforced, and the user is told in plain words what it removed. The old code
@@ -2692,15 +2886,16 @@ async function showMatches(kind,opts){
   /* The two tracks are announced, not silently interleaved. An applicant shown a role
      with an unfamiliar title deserves to be told it is a step sideways, and why it is
      still a real fit. The header prints once, at the boundary. */
-  +(()=>{let hdr=false;
-    const head=o=>{if(o.track!=='adjacent'||hdr)return '';hdr=true;
-      return `<div style="margin:20px 0 8px;padding:10px 12px;border-left:3px solid #F5B841;background:rgba(245,184,65,.08);border-radius:0 8px 8px 0">
-      <div style="font:700 13px Inter;color:#FFD070">You also qualify for these</div>
-      <div class="sub" style="font-size:11.5px;margin-top:3px;line-height:1.5">Different titles from your usual role, where your stated skills genuinely cover what the position asks for. Nothing here needs a licence or degree you do not hold.</div></div>`};
-    const list=noneOpen?shown.slice(0,15):shown;
-    return list.map(o=>head(o)+oppCard(o)).join('')})()
-  +(noneOpen&&shown.length>15?`<div class="sub" style="text-align:center;margin:10px 0 2px">and ${shown.length-15} more matched to you</div>`:'');
+  /* DISCOVERY MODE. Fifteen full cards meant fifteen screens of scrolling to answer one
+     question: which of these is worth my attention. The table answers it in a glance -
+     level and subject, country, funding, deadline, match - and the detail lives one tap
+     away. Never padded: if only nine positions are genuinely strong, nine are shown. */
+  +(()=>{window._top15=shown.slice(0,15);
+    return topTable(window._top15)
+      +(window._topupShort>0?`<div class="sub" id="topupNote" style="margin:10px 2px 0;padding:9px 11px;border-radius:9px;border:1px solid rgba(0,212,255,.35);background:rgba(0,212,255,.06);color:#B4E4FF;line-height:1.5">
+        Searching official sources live for ${window._topupShort} more strong ${window._topupShort===1?'match':'matches'}. New positions appear here as they are verified.</div>`:'')})();
   try{warmPricing()}catch(e){}   // results are on screen; Apply is the next tap
+  try{topUpIfThin(kind,opts)}catch(e){}
   const wrap=document.createElement('div');wrap.className='ffmatches';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:65;overflow:auto;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
@@ -2760,7 +2955,7 @@ function openFinder(afterUpload){
       visaSel:P.visaSel||'',contractLen:P.contractLen||'',startWhen:P.startWhen||'',salaryBand:P.salaryBand||'',lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
   }
   const wrap=document.createElement('div');wrap.className='ff-finder';
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;display:flex;align-items:center;justify-content:center;padding:16px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
   wrap.innerHTML=`<div style="max-width:440px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
   <div class="spread"><h3 style="margin:0">${afterUpload?'Documents received':'Find my opportunities'}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-finder').remove()" aria-label="Close">✕</button></div>
   <div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.45);border-radius:10px;padding:9px 12px;margin:8px 0;font:600 12.5px Inter;color:#FFE9C7">Choose your filters wisely, your opportunities depend on them. Broader is better: select multiple countries, and pick more than one language rule (for example No certificate AND IELTS accepted) for the widest, strongest matches.</div>
@@ -3293,7 +3488,7 @@ window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.d
 setTimeout(()=>{try{window.postMessage({type:'FF_ASSIST_PING'},location.origin)}catch(e){}},1200);
 function showThanks(appId){
   const w=document.createElement('div');
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:70;display:flex;align-items:center;justify-content:center;padding:18px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:70;overflow:auto;display:flex;align-items:center;justify-content:center;padding:18px';
   w.innerHTML=`<div style="max-width:430px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(0,212,255,.5);color:#eef4ff;border-radius:16px;padding:22px;text-align:center">
   <div style="font:800 20px Inter;background:linear-gradient(90deg,#1683FF,#00D4FF);-webkit-background-clip:text;background-clip:text;color:transparent">Application on its way</div>
   <div class="sub" style="margin-top:8px;line-height:1.6">Thank you for trusting ForiForeign. Check your Sent folder, your application, documents and email were sent from your own address.</div>
@@ -3393,15 +3588,20 @@ function startApp(id,inst,reqs){
      simply false. The confirmation says what will actually happen to whoever is looking. */
   const _st=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
   const w=document.createElement('div');w.className='ff-ack';
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:66;display:flex;align-items:center;justify-content:center;padding:18px';
-  w.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);color:#eef4ff;border-radius:16px;padding:20px">
-  <h3 style="margin:0 0 6px">Are you sure?</h3>
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:66;overflow:auto;display:flex;align-items:center;justify-content:center;padding:18px';
+  w.innerHTML=`<div style="position:relative;max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);color:#eef4ff;border-radius:16px;padding:20px">
+  <button class="ff-x" aria-label="Close" onclick="this.closest('.ff-ack').remove()">\u00d7</button>
+  <h3 style="margin:0 0 6px;padding-right:34px">Are you sure?</h3>
   <div style="background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.4);border-radius:10px;padding:10px;font:600 13.5px Inter;margin-bottom:8px">You are choosing <b style="color:#00D4FF">${esc(inst)}</b>. ${_st?'Preparing this case will use <b>no credit</b>, because staff accounts are exempt. A customer would spend 1 case here.':'Preparing this case will use <b>1 case</b> from your package.'} Nothing is ever selected for you, this is entirely your decision.</div>
   ${reqs?`<div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.35);border-radius:10px;padding:10px;font-size:13px"><b style="color:#F5B841">Stated requirements:</b> ${esc(reqs)}</div>`:`<div class="sub">No special requirements are stated on the official page beyond standard documents.</div>`}
   <div class="sub" style="margin-top:8px">Documents are collected step by step, only what each stage needs, never everything at once. If the official page later shows a requirement we did not list here, ${_st?'the customer\u2019s credit is returned':'your credit is returned'}.</div>
   <div class="sub" style="margin-top:6px">${_st?'Staff accounts are not charged. For a customer, each case uses 1 credit.':'Each case uses 1 credit'} and is prepared completely, end to end. Only this case is prepared.</div>
   <button class="btn b-gold" style="width:100%;margin-top:12px" onclick="this.disabled=true;doStartApp('${id}',this)">Yes, I am sure. Prepare my case</button>
   <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-ack').remove()">Choose another opportunity</button></div>`;
+  /* Three ways out, because one that the user cannot find is none. */
+  w.onclick=e=>{if(e.target===w)w.remove()};
+  const esc=e=>{if(e.key==='Escape'){w.remove();document.removeEventListener('keydown',esc)}};
+  document.addEventListener('keydown',esc);
   document.body.appendChild(w);
 }
 async function doStartApp(id,btn){
@@ -3664,7 +3864,7 @@ async function loadRefs(){
   }catch(e){}}
 function uploadAll(){
   const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.7);z-index:60;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.7);z-index:60;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px';
   wrap.innerHTML=`<div style="max-width:440px;background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:22px">
   <h3 style="margin:0 0 8px">Upload all documents at once</h3>
   <div class="sub" style="margin-bottom:6px">The agent will read every file, sort it into the right section, and fill your profile automatically.</div>
@@ -4986,7 +5186,7 @@ function payPending(d){
   const ref='FF-'+String(p.id||'').slice(0,8).toUpperCase();
   const amt=Number(d&&d.amount_pkr||p.amount_pkr||0);
   const w=document.createElement('div');w.className='ff-ack';
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:78;display:flex;align-items:center;justify-content:center;padding:18px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:78;overflow:auto;display:flex;align-items:center;justify-content:center;padding:18px';
   w.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(45,212,191,.5);border-radius:16px;padding:20px;color:#eef4ff">
     <h3 style="margin:0 0 8px;color:#2dd4bf">Recorded \u2713</h3>
     <div class="sub" style="line-height:1.65">
@@ -5022,7 +5222,7 @@ async function buyPack(credits){
   const P=(SITE&&SITE.payment)||{};
   const row=(l,v)=>v?`<div class="row" style="justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(140,178,255,.14)"><span class="sub" style="font-weight:700">${l}</span><span style="display:flex;gap:8px;align-items:center"><b style="font-size:13.5px">${esc(v)}</b><button class="btn b-line" style="padding:3px 10px;font-size:11px" onclick="copyTxt('${escAttr(v)}',this)">Copy</button></span></div>`:'';
   const w=document.createElement('div');w.className='ff-ack';
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:75;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:75;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
   w.innerHTML=`<div style="max-width:430px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.97);border:1px solid rgba(0,212,255,.5);border-radius:16px;padding:18px;color:#eef4ff">
     <div class="spread"><h3 style="margin:0">${(()=>{const t=pkgByCredits(credits);
       return 'Pay for '+(t?esc(t.name):(credits+' case'+(credits===1?'':'s')))+', one step';})()}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-ack').remove()" aria-label="Close">✕</button></div>
