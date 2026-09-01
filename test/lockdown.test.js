@@ -88,4 +88,28 @@ t('every route handler is wrapped against unhandled rejections',()=>{
 t('the owner account is not re-checked on every request',()=>{
   assert.ok(sv.includes('_ownerChecked.has(u.id)'),'per-request owner check is back');
 });
+/* THE ADJACENCY CAPABILITY TEST (item 14 of the fifteen). A different title is not a
+   different job when the applicant's stated skills cover what the posting asks for; a
+   licensed practitioner title the applicant does not hold is never crossed. */
+const M=require('../lib/match');
+const PH={_profile:{field:'pharmacy',professions:['Pharmacist'],skills_verbatim:['pharmacovigilance','signal detection','regulatory affairs','SOP writing','internal audit','ISO 9001'],methods:''},_wantCountries:['IE']};
+const ev=(title,desc)=>M.evaluate({kind:'work',title,country_code:'IE',description:desc},PH);
+t('a covering skill set makes a different title ADJACENT, with evidence',()=>{
+  const r=ev('Compliance Officer','Own the SOP writing programme, run internal audit cycles against ISO 9001, lead regulatory affairs submissions');
+  assert.strictEqual(r.adjacentRole,true); assert.strictEqual(r.fieldMismatch,false);
+  assert.ok(r.adjacentEvidence.length>=3,'evidence missing');
+});
+t('a licensed practitioner title is never crossed, whatever the overlap',()=>{
+  ['Consultant Physician','Solicitor','Staff Nurse'].forEach(ti=>{
+    const r=ev(ti,'pharmacovigilance signal detection regulatory affairs SOP writing internal audit ISO 9001');
+    assert.strictEqual(r.adjacentRole,false,ti); assert.strictEqual(r.fieldMismatch,true,ti);
+  });
+});
+t('one incidental overlapping word does not make a role adjacent',()=>{
+  const r=ev('Marketing Manager','campaigns, brand strategy, an ISO 9001 mention');
+  assert.strictEqual(r.adjacentRole,false); assert.strictEqual(r.fieldMismatch,true);
+});
+t('a case cannot start on a closed or dead position and no credit is spent',()=>{
+  assert.ok(sv.includes('RE-VERIFY BEFORE A CREDIT IS SPENT')&&sv.includes("OPP_DEAD_ON_OPEN")&&sv.includes('No credit was spent'));
+});
 console.log('lockdown: '+passed+' assertions passed'+(process.exitCode?' WITH FAILURES':''));

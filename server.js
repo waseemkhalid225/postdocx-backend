@@ -121,7 +121,7 @@ const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimu
 const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-09-02-R4710';
+const FF_BUILD = '2026-09-02-R4720';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 /* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
    assistant.zip was a file committed by hand, and it had drifted: users were downloading
@@ -2284,7 +2284,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
       const wantedCountries = multi(req.query.country).map(x => String(x).toUpperCase());
       const m = await matchMany(req.userId, opportunities, wantedLevels, wantedCountries);
       const byId = {}; m.forEach(x => { byId[x.id] = x; });
-      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct, dims: byId[o.id].dims, overqualified: byId[o.id].overqualified, fieldMismatch: byId[o.id].fieldMismatch, wrongTarget: byId[o.id].wrongTarget, levelUnknown: byId[o.id].levelUnknown } : null }));
+      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct, dims: byId[o.id].dims, overqualified: byId[o.id].overqualified, fieldMismatch: byId[o.id].fieldMismatch, wrongTarget: byId[o.id].wrongTarget, levelUnknown: byId[o.id].levelUnknown, adjacentRole: byId[o.id].adjacentRole, adjacentEvidence: byId[o.id].adjacentEvidence } : null }));
       // HARD RELEVANCE GATE (never show the user anything that is not a real fit):
       //  - below the applicant's own level (PhD holder must never see MPhil/Masters/Bachelors)
       //  - a clear field/profession mismatch (pharmacist must not see biochemistry-only roles)
@@ -2346,7 +2346,10 @@ app.get('/api/opportunities', auth, async (req, res) => {
          requiring a licence or degree they lack, because those are still rejected
          outright upstream. Adjacent results always sit BELOW every direct one. */
       opportunities = opportunities.map(o => {
-        const adjacent = !!(o.match && o.match.fieldMismatch)
+        /* Adjacent now has a real definition: the capability test in match.js found the
+           applicant's stated skills covering the posting's requirements under a different
+           title. The model's own "track" hint still counts, as a second signal. */
+        const adjacent = !!(o.match && o.match.adjacentRole)
           || String((((o.intelligence || o.extra) || {}).track || '')).toLowerCase() === 'adjacent';
         return Object.assign({}, o, { track: adjacent ? 'adjacent' : 'direct' });
       });
@@ -2444,8 +2447,33 @@ async function createApplication(req, res) {
   if (!isAdmin && bal < 1) {
     return res.status(402).json({ error: 'Your matches are ready. Choose a package to start this case - every case is prepared completely, end to end.' });
   }
-  const { data: opp } = await admin().from('opportunities').select('id,institution').eq('id', opportunityId).single();
+  const { data: opp } = await admin().from('opportunities').select('id,institution,url,deadline,status').eq('id', opportunityId).single();
   if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
+  /* RE-VERIFY BEFORE A CREDIT IS SPENT. A position can be genuine when we found it and
+     withdrawn a week later. The moment that matters is the moment money changes hands,
+     so the official page is checked again right here, before the debit. A page that has
+     been taken down stops the case, costs nothing, and is retired from every search. A
+     slow or bot-blocking server is not treated as gone - only a definite 404 or 410 is. */
+  if (opp.deadline && String(opp.deadline).slice(0, 10) < new Date().toISOString().slice(0, 10)) {
+    try { await admin().from('opportunities').update({ status: 'expired' }).eq('id', opp.id); } catch (e) {}
+    return res.status(409).json({ error: 'This position closed on ' + String(opp.deadline).slice(0, 10) + '. No credit was spent. Please choose another.' });
+  }
+  if (opp.url && /^https?:\/\//i.test(opp.url)) {
+    try {
+      const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 7000);
+      let r = null;
+      try {
+        r = await fetch(opp.url, { method: 'HEAD', redirect: 'follow', signal: ac.signal, headers: { 'user-agent': 'Mozilla/5.0 (compatible; ForiForeignBot/1.0)' } });
+        if (r && (r.status === 405 || r.status === 501)) r = await fetch(opp.url, { method: 'GET', redirect: 'follow', signal: ac.signal, headers: { 'user-agent': 'Mozilla/5.0 (compatible; ForiForeignBot/1.0)' } });
+      } finally { clearTimeout(timer); }
+      if (r && (r.status === 404 || r.status === 410)) {
+        try { await admin().from('opportunities').update({ status: 'expired' }).eq('id', opp.id); } catch (e) {}
+        try { await admin().from('audit_log').insert({ actor: req.userId, event: 'OPP_DEAD_ON_OPEN', detail: opp.id + ' ' + String(opp.url).slice(0, 120) }); } catch (e) {}
+        return res.status(409).json({ error: 'The official page for this position has been taken down since we found it, so it is no longer open. No credit was spent. Please choose another.' });
+      }
+      try { await admin().from('opportunities').update({ verified_at: new Date().toISOString() }).eq('id', opp.id); } catch (e) {}
+    } catch (e) { /* unreachable is not the same as gone */ }
+  }
   const caseNo = 'FF-' + Date.now().toString(36).toUpperCase();
   // DEBIT FIRST, then create. Combined with the per-user lock this removes the
   // check-then-act window entirely; if creation fails we refund immediately.
