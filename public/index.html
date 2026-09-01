@@ -1960,6 +1960,14 @@ window._selData=window._selData||{};
 function selHas(id){return window._sel.indexOf(id)>=0}
 function selItems(){return window._sel.map(id=>window._selData[id]).filter(Boolean)}
 function selClear(){window._sel=[];window._selData={};selBar()}
+/* One tap to take the whole shortlist, one tap to drop it. */
+function selAll(on){
+  const list=window._top15||[];
+  if(on){list.forEach(o=>{if(!selHas(o.id)){window._sel.push(o.id);window._selData[o.id]=o}})}
+  else{list.forEach(o=>{const i=window._sel.indexOf(o.id);if(i>=0){window._sel.splice(i,1);delete window._selData[o.id]}})}
+  if(window._lastMatches)showMatches(window._lastMatches.kind,Object.assign({},window._lastMatches.opts||{},{_fromCache:true}));
+  selBar();
+}
 function selToggle(id,btn){
   const i=window._sel.indexOf(id);
   if(i>=0){window._sel.splice(i,1);delete window._selData[id]}
@@ -1979,6 +1987,10 @@ function selToggle(id,btn){
 function selBar(){
   document.querySelectorAll('.ff-selbar').forEach(x=>x.remove());
   if(!window._sel.length)return;
+  /* The bar belongs to the results sheet. On the package page it sat over the payment
+     account block and offered "Continue" to a page the user was already on. It shows only
+     while the results sheet is open. */
+  if(!document.querySelector('.ffmatches'))return;
   const b=document.createElement('div');b.className='ff-selbar';
   /* THE RESULTS SHEET SITS AT z-index 65 AND THE LIVE SEARCH BAR AT 69. This bar was at
      64, so it was painted behind both: the applicant selected positions and never saw a
@@ -1992,7 +2004,9 @@ function selBar(){
     <div style="flex:1;min-width:0"><div style="font:700 13px Inter;color:#EAF2FF">MY SELECTION \u00b7 ${window._sel.length}</div>
     <div class="sub" style="font-size:11px">Nothing is charged until you choose a package.</div></div>
     <button class="btn b-line" style="padding:5px 12px;font-size:12px" onclick="selReview()">Review</button>
-    <button class="btn b-gold" style="padding:6px 16px;font-size:13px" onclick="selReview()">Continue \u2192</button></div>`;
+    ${(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})()
+      ?`<button class="btn" style="padding:6px 14px;font-size:12.5px;background:#F5B841;color:#0E1F42;font-weight:800" onclick="adminSkipAndUnlock(this)">\u26a1 Skip payment</button>`
+      :`<button class="btn b-gold" style="padding:6px 16px;font-size:13px" onclick="selReview()">Continue \u2192</button>`}</div>`;
   document.body.appendChild(b);
 }
 /* THE TOP 15. One row each: number, what it is, country, funding, deadline, match. */
@@ -2052,7 +2066,10 @@ function topTable(list){
       style="width:30px;height:30px;border-radius:8px;border:1px solid ${selHas(o.id)?'rgba(74,222,128,.6)':'rgba(140,178,255,.3)'};background:transparent;color:${selHas(o.id)?'#4ade80':'#8FA9CE'};font:700 16px/1 Inter;cursor:pointer">${selHas(o.id)?'\u2713':'+'}</button>
   </div>`).join('');
   return `<div style="margin-top:10px;border:1px solid rgba(140,178,255,.22);border-radius:14px;overflow:hidden;background:rgba(8,18,40,.5)">
-    <div style="padding:10px 12px;border-bottom:1px solid rgba(140,178,255,.2);font:700 12px Inter;letter-spacing:.06em;color:#9db8e8">TOP ${list.length} MATCHES</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;border-bottom:1px solid rgba(140,178,255,.2)">
+      <span style="font:700 12px Inter;letter-spacing:.06em;color:#9db8e8">TOP ${list.length} MATCHES</span>
+      <button class="btn b-line" style="padding:4px 12px;font-size:11.5px" onclick="selAll(${list.every(o=>selHas(o.id))?'false':'true'})">${list.every(o=>selHas(o.id))?'Clear all':'Select all'}</button>
+    </div>
     ${rows}</div>
     <div class="sub" style="margin:8px 2px 0;font-size:11.5px">Tap any row for the details. Add the ones you want, then choose a package.</div>
     <div style="height:76px"></div>`;
@@ -5135,7 +5152,12 @@ async function vBuyRender(){
     </div>`;};
   setTimeout(promoTicker,300);
   const _staff=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
-  $('view').innerHTML=`<div class="spread" style="margin-bottom:6px"><h2 style="margin:0">Choose your package</h2><button class="btn b-line" style="padding:4px 12px" onclick="go('home')" aria-label="Close">✕</button></div>
+  $('view').innerHTML=`<div class="spread" style="margin-bottom:6px">
+    <button class="btn b-line" style="padding:5px 12px;font-size:12.5px" onclick="if(window._lastMatches){go('home');setTimeout(()=>showMatches(window._lastMatches.kind,Object.assign({},window._lastMatches.opts||{},{_fromCache:true})),80)}else go('home')">\u2190 Back to my matches</button>
+    <h2 style="margin:0">Choose your package</h2><button class="btn b-line" style="padding:4px 12px" onclick="go('home')" aria-label="Close">✕</button></div>
+  ${_staff?`<div style="position:sticky;top:6px;z-index:5;margin-bottom:10px;padding:9px 12px;border-radius:12px;background:#F5B841;color:#0E1F42;display:flex;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(2,8,20,.4)">
+    <div style="flex:1;font:700 13px Inter">Staff: you never pay here.</div>
+    <button class="btn" style="padding:6px 14px;font-size:12.5px;background:#0E1F42;color:#FFD070;font-weight:800" onclick="adminSkipAndUnlock(this)">\u26a1 Skip payment and proceed</button></div>`:''}
   ${_staff?`<div class="card" style="border-color:rgba(245,184,65,.6);background:rgba(245,184,65,.07);margin-bottom:12px">
     <b style="color:#FFD070">\u2699 Staff view</b>
     <div class="sub" style="margin-top:4px;line-height:1.6">This is the page exactly as a customer sees it, including the payment account block below. Nothing here is hidden from you and nothing extra is shown to them. Use it to check the plan numbers, the prices and the payment details before a client does.</div>

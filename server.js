@@ -4,6 +4,40 @@ const express = require('express');
 const { admin, userFromToken } = require('./lib/supa');
 
 const app = express();
+/* NO REQUEST MAY HANG. Fifty route handlers were async, awaited something, and had no
+   try/catch. Express 4 does not catch a rejected promise, and the process-level
+   unhandledRejection hook keeps the server ALIVE - which is worse than a crash, because
+   the response is simply never sent. The user's button spins until the browser gives up,
+   half a minute later, with no message. That is exactly what "the buttons respond very
+   slowly" looks like from the outside. Every async handler is now wrapped: an exception
+   becomes an immediate 500 with a readable message, and is logged with the route. */
+(() => {
+  const wrap = fn => {
+    if (typeof fn !== 'function' || fn.length >= 4) return fn;          // error middleware stays as-is
+    return function wrapped(req, res, next) {
+      try {
+        const out = fn(req, res, next);
+        if (out && typeof out.then === 'function') {
+          out.catch(err => {
+            try { require('./lib/oblog').errlog('route:' + req.method + ' ' + req.path, err instanceof Error ? err : new Error(String(err)), { userId: req.userId || null }); } catch (e) {}
+            if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. Please try again in a moment.' });
+          });
+        }
+        return out;
+      } catch (err) {
+        try { require('./lib/oblog').errlog('route:' + req.method + ' ' + req.path, err, { userId: req.userId || null }); } catch (e) {}
+        if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on our side. Please try again in a moment.' });
+      }
+    };
+  };
+  for (const m of ['get', 'post', 'put', 'patch', 'delete', 'all']) {
+    const orig = app[m].bind(app);
+    app[m] = function (path, ...handlers) {
+      if (typeof path !== 'string' && !(path instanceof RegExp) && !Array.isArray(path)) return orig(path, ...handlers); // app.get('setting')
+      return orig(path, ...handlers.map(wrap));
+    };
+  }
+})();
 try { app.use(require('compression')()); } catch (e) { /* compression not installed yet */ }
 const { slog, errlog } = require('./lib/oblog');
 const _lat = []; // rolling latency + error counters for the observability dashboard
@@ -87,7 +121,7 @@ const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimu
 const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-09-01-R4690';
+const FF_BUILD = '2026-09-02-R4710';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 /* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
    assistant.zip was a file committed by hand, and it had drifted: users were downloading
@@ -267,12 +301,19 @@ process.on('uncaughtException', e => console.error('[bg!]', e && e.message));
 // Owner emails always hold super_admin, enforced on every authenticated request.
 const _allowanceChecked = new Set();
 const OWNER_EMAILS = ['waseemkhalid225@gmail.com', 'admin@foriforeign.com'];
+const _ownerChecked = new Set();
 async function auth(req, res, next) {
   const t = (req.headers.authorization || '').replace(/^Bearer /, '');
   const u = await userFromToken(t);
   if (!u) return res.status(401).json({ error: 'Please sign in again' });
   req.userId = u.id; req.userEmail = u.email;
-  if (u.email && OWNER_EMAILS.includes(String(u.email).toLowerCase())) {
+  /* THE OWNER'S OWN ACCOUNT WAS THE SLOWEST IN THE SYSTEM. This block ran a database
+     read on EVERY request from the owner email - a round trip to Supabase before each
+     button could answer, for exactly one person: the one testing the app. Once the role
+     has been confirmed in this process it is not re-checked, so the owner pays the cost
+     once per deploy instead of once per tap. */
+  if (u.email && OWNER_EMAILS.includes(String(u.email).toLowerCase()) && !_ownerChecked.has(u.id)) {
+    _ownerChecked.add(u.id);
     try { const { data: p } = await admin().from('profiles').select('role').eq('id', u.id).single(); if (!p || p.role !== 'super_admin') await admin().from('profiles').update({ role: 'super_admin' }).eq('id', u.id); } catch (e) {}
   }
   /* Any admin, however they were promoted, receives the working allowance once. This
@@ -3998,6 +4039,10 @@ app.post('/api/messages/:id/authorize', auth, async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+/* An unknown /api route answered with Express's HTML "Cannot GET" page. The client parses
+   every API response as JSON, so that became a bare "Error 404" toast with no hint of
+   what was asked for. JSON, with the path, is what the client and the log both expect. */
+app.use('/api', (req, res) => res.status(404).json({ error: 'No such API route: ' + req.method + ' ' + req.path }));
 app.use((err, req, res, next) => {
   // Client-side faults (malformed JSON, oversized body) are 4xx, not 5xx: the caller gets a
   // clear, actionable message and we do not log them as server failures.

@@ -80,4 +80,12 @@ t('a missing deadline is stated as a fact about the advert',()=>{
   const fe=fs.readFileSync(__dirname+'/../public/index.html','utf8');
   assert.ok(fe.includes('No closing date stated'),'the honest phrase is missing');
 });
+/* NO ROUTE MAY HANG. Every async handler must be wrapped so a thrown error answers 500
+   instead of leaving the request open until the browser gives up. */
+t('every route handler is wrapped against unhandled rejections',()=>{
+  assert.ok(sv.includes('NO REQUEST MAY HANG')&&sv.includes("app[m] = function (path, ...handlers)"),'route wrapper missing');
+});
+t('the owner account is not re-checked on every request',()=>{
+  assert.ok(sv.includes('_ownerChecked.has(u.id)'),'per-request owner check is back');
+});
 console.log('lockdown: '+passed+' assertions passed'+(process.exitCode?' WITH FAILURES':''));
