@@ -613,16 +613,20 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
    on screen belonged to the page behind, pinned to the far edge and moving the wrong
    thing. Every centred panel now carries its own scrollbar, against its own right edge,
    and the backdrop scrolls only as a fallback. */
-.ff-ack{overflow:auto}
-.ff-ack>div{max-height:calc(100vh - 40px);overflow-y:auto;overscroll-behavior:contain}
+/* (panel scrolling is defined once, below) */
 /* The results sheet is a full-screen overlay, so the only scrollbar on screen belonged to
    it and sat at the very edge of the window, far from the panel it moved. Each panel
    scrolls inside its own frame now, with its bar against its own right edge. */
-.ffmatches,.ff-appview,.ff-finder{overflow:auto}
-.ffmatches>div,.ff-appview>div,.ff-finder>div{max-height:calc(100vh - 24px);overflow-y:auto;overscroll-behavior:contain}
-.ffmatches>div::-webkit-scrollbar,.ff-appview>div::-webkit-scrollbar,.ff-finder>div::-webkit-scrollbar{width:8px}
-.ffmatches>div::-webkit-scrollbar-thumb,.ff-appview>div::-webkit-scrollbar-thumb,.ff-finder>div::-webkit-scrollbar-thumb{background:rgba(140,178,255,.4);border-radius:8px}
-.ffmatches>div,.ff-appview>div,.ff-finder>div{scrollbar-width:thin;scrollbar-color:rgba(140,178,255,.45) transparent}
+/* ONE BAR PER PANEL. The overlay scrolled AND the panel inside it scrolled, so the window
+   drew a scrollbar at the far edge of the screen while the panel drew its own - two bars,
+   one of them nowhere near the content it moved. Only the panel scrolls now, and every
+   panel in the app uses the same white bar against its own right edge. */
+.ffmatches,.ff-appview,.ff-finder,.ff-ack{overflow:hidden}
+.ffmatches>div,.ff-appview>div,.ff-finder>div,.ff-ack>div{max-height:calc(100vh - 40px);overflow-y:auto;overscroll-behavior:contain}
+.ffmatches>div::-webkit-scrollbar,.ff-appview>div::-webkit-scrollbar,.ff-finder>div::-webkit-scrollbar,.ff-ack>div::-webkit-scrollbar{width:9px}
+.ffmatches>div::-webkit-scrollbar-track,.ff-appview>div::-webkit-scrollbar-track,.ff-finder>div::-webkit-scrollbar-track,.ff-ack>div::-webkit-scrollbar-track{background:transparent}
+.ffmatches>div::-webkit-scrollbar-thumb,.ff-appview>div::-webkit-scrollbar-thumb,.ff-finder>div::-webkit-scrollbar-thumb,.ff-ack>div::-webkit-scrollbar-thumb{background:#FFFFFF;border-radius:9px;border:2px solid rgba(8,18,40,.9)}
+.ffmatches>div,.ff-appview>div,.ff-finder>div,.ff-ack>div{scrollbar-width:thin;scrollbar-color:#FFFFFF transparent}
 .ff-ack>div::-webkit-scrollbar,.ff-appview>div::-webkit-scrollbar,.ffmatches>div::-webkit-scrollbar{width:8px}
 .ff-ack>div::-webkit-scrollbar-thumb,.ff-appview>div::-webkit-scrollbar-thumb,.ffmatches>div::-webkit-scrollbar-thumb{background:rgba(140,178,255,.38);border-radius:8px}
 .ff-ack>div::-webkit-scrollbar-track,.ff-appview>div::-webkit-scrollbar-track,.ffmatches>div::-webkit-scrollbar-track{background:transparent}
@@ -876,7 +880,7 @@ async function _apiRaw(p,o={}){
   await loadSiteConfig();
   SB=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey);
   SB.auth.onAuthStateChange((ev)=>{if(ev==='PASSWORD_RECOVERY'){
-    const w=document.createElement('div');w.style.cssText='position:fixed;inset:0;background:rgba(3,9,22,.8);z-index:90;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px';
+    const w=document.createElement('div');w.style.cssText='position:fixed;inset:0;background:rgba(3,9,22,.8);z-index:90;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:20px';
     w.innerHTML=`<div class="sheet"><h3 style="color:#fff">Set a new password</h3>
     <input id="npw" type="password" placeholder="New password (min 6 characters)" style="margin:10px 0">
     <button class="btn b-gold" style="width:100%" onclick="(async b=>{b.disabled=true;const p=document.getElementById('npw').value;if(p.length<6){toast('Minimum 6 characters');b.disabled=false;return}const {error}=await SB.auth.updateUser({password:p});if(error){toast(error.message);b.disabled=false}else{toast('✓ Password updated. You are signed in.');b.closest('div[style*=fixed]').remove()}})(this)">Save new password</button></div>`;
@@ -1359,7 +1363,7 @@ async function forgotPassword(){
 // When the user arrives from the reset email, Supabase fires PASSWORD_RECOVERY.
 function promptNewPassword(){
   const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.6);z-index:80;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.6);z-index:80;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:20px';
   wrap.innerHTML=`<div style="max-width:400px;width:100%;background:rgba(8,18,40,.9);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:22px">
   <h2>Set a new password</h2>
   <label>New password</label><input id="np-1" type="password" placeholder="minimum 8 characters">
@@ -1445,7 +1449,7 @@ async function openSupport(){
 }
 function openReviewForm(){
   const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(20,33,61,.5);z-index:60;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:16px';
   wrap.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.95);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
   <div class="spread"><h3 style="margin:0">Share your review</h3><button class="btn b-line" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></div>
   <label>Your rating</label>
@@ -1863,6 +1867,14 @@ function matchBadge(m){
   if(!hit)return '';
   return `<span class="chip ${hit[0]}">${hit[1]}</span>`;
 }
+/* Rupees the way people actually say them, matching lib/pay.js on the server so the two
+   never disagree on the same figure. */
+function pkrWords(pkr){
+  const n=Number(pkr); if(!isFinite(n)||n<=0)return '';
+  if(n>=1e7)return 'Rs '+(n/1e7).toFixed(2).replace(/\.00$/,'')+' crore';
+  if(n>=1e5)return 'Rs '+(n/1e5).toFixed(1).replace(/\.0$/,'')+' lakh';
+  return 'Rs '+Math.round(n).toLocaleString();
+}
 function pkrHint(txt){
   try{
     const m=String(txt||'').match(/([$€£])\s?([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s?(USD|EUR|GBP)/i);
@@ -1904,8 +1916,11 @@ function oppHeadline(o){
     const xp={entry:'entry level',mid:'mid level',senior:'senior level'}[o.experience_level]||'';
     return [jt,field?'in '+field:'',xp?'\u00b7 '+xp:''].filter(Boolean).join(' ');
   }
-  const lv=LV[o.level]||'Verified position';
-  return field?lv+' in '+field:lv;
+  /* The hint the server computes already names the level and the subject. Falling back to
+     "Verified position" here reintroduced, on the card, exactly the empty label that was
+     removed from the table. */
+  const lv=LV[o.level]||(o.hint?String(o.hint).split(' \u00b7 ')[0]:'Research position');
+  return field?lv+' in '+field:(o.hint?String(o.hint):lv);
 }
 /* The facts a buyer actually weighs, each only when the official page stated it. Silence
    is better than "not published" repeated six times down the card. */
@@ -1937,10 +1952,22 @@ function oppFactsHtml(o){
    before they choose a package. Nothing is charged and nothing is prepared until they
    act on it deliberately. */
 window._sel=window._sel||[];
+/* The chosen opportunities are kept whole, not as bare ids. The review screen used to
+   rebuild itself from the CURRENT result table, so as soon as a top-up or a new search
+   replaced that table, anything selected from the previous one silently vanished from the
+   review while the counter kept counting it. */
+window._selData=window._selData||{};
 function selHas(id){return window._sel.indexOf(id)>=0}
+function selItems(){return window._sel.map(id=>window._selData[id]).filter(Boolean)}
+function selClear(){window._sel=[];window._selData={};selBar()}
 function selToggle(id,btn){
   const i=window._sel.indexOf(id);
-  if(i>=0)window._sel.splice(i,1);else window._sel.push(id);
+  if(i>=0){window._sel.splice(i,1);delete window._selData[id]}
+  else{
+    window._sel.push(id);
+    const o=(window._top15||[]).find(x=>x.id===id);
+    if(o)window._selData[id]=o;
+  }
   if(btn){btn.textContent=selHas(id)?'\u2713 Selected':'+ Add';btn.className='btn '+(selHas(id)?'b-green':'b-line')}
   document.querySelectorAll('[data-selrow="'+id+'"]').forEach(el=>{
     el.textContent=selHas(id)?'\u2713':'+';
@@ -1953,12 +1980,19 @@ function selBar(){
   document.querySelectorAll('.ff-selbar').forEach(x=>x.remove());
   if(!window._sel.length)return;
   const b=document.createElement('div');b.className='ff-selbar';
-  b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:64;background:linear-gradient(180deg,rgba(8,18,40,.94),rgba(6,14,32,.99));border-top:1px solid rgba(0,212,255,.45);padding:10px 14px;backdrop-filter:blur(10px)';
+  /* THE RESULTS SHEET SITS AT z-index 65 AND THE LIVE SEARCH BAR AT 69. This bar was at
+     64, so it was painted behind both: the applicant selected positions and never saw a
+     way to proceed, because the button was underneath the very panel they were reading.
+     Selection is the most important control on the screen, so it goes above everything,
+     and the search bar is lifted clear of it. */
+  const liveOn=!!document.querySelector('.ff-live');
+  b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:80;background:linear-gradient(180deg,rgba(8,18,40,.97),rgba(6,14,32,.995));border-top:2px solid rgba(0,212,255,.6);padding:11px 14px;backdrop-filter:blur(10px);box-shadow:0 -8px 28px rgba(2,8,20,.55)';
+  if(liveOn)document.querySelectorAll('.ff-live').forEach(x=>{x.style.bottom='68px'});
   b.innerHTML=`<div style="display:flex;align-items:center;gap:10px;max-width:660px;margin:0 auto">
     <div style="flex:1;min-width:0"><div style="font:700 13px Inter;color:#EAF2FF">MY SELECTION \u00b7 ${window._sel.length}</div>
     <div class="sub" style="font-size:11px">Nothing is charged until you choose a package.</div></div>
     <button class="btn b-line" style="padding:5px 12px;font-size:12px" onclick="selReview()">Review</button>
-    <button class="btn b-gold" style="padding:5px 14px;font-size:12.5px" onclick="selReview()">Continue</button></div>`;
+    <button class="btn b-gold" style="padding:6px 16px;font-size:13px" onclick="selReview()">Continue \u2192</button></div>`;
   document.body.appendChild(b);
 }
 /* THE TOP 15. One row each: number, what it is, country, funding, deadline, match. */
@@ -1970,23 +2004,39 @@ function topTable(list){
     return d.getUTCDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]+' '+d.getUTCFullYear();
   }catch(e){return String(s).slice(0,10)}};
   const dl=o=>{const d=daysLeft(o.deadline);
-    if(d==null)return '<span style="color:#9db8e8">Rolling, no fixed date</span>';
+    /* "Rolling", "open", "no fixed date" all described OUR ignorance as if it were a
+       feature of the position. The page did not print a closing date; that is a fact
+       about the advert, and the useful advice that follows from it is to apply early. */
+    if(d==null)return '<span style="color:#9db8e8">No closing date stated \u00b7 apply early</span>';
     const c=d<=14?'#ff8a8a':d<=45?'#FFD070':'#9db8e8';
     return '<span style="color:'+c+'">'+fmtD(o.deadline)+(d<=45?' \u00b7 '+d+'d left':'')+'</span>'};
   /* The money, in the applicant's own terms: what they are paid, or what they must pay. */
+  /* "Commensurate with experience" and "Competitive" are not pay. Printing them in green
+     beside real figures like "EUR 3,100 per month" implied we had found the money when we
+     had found only a phrase. They are now labelled for what they are. */
+  const VAGUEPAY=/^(n\/?a|tbd|tba|competitive|negotiable|attractive|market rate|commensurate|as per|not (specified|stated|disclosed)|depends|varies|unspecified|-|--)/i;
   const money=o=>{
     const pay=String(o.stipend||o.salary_note||'').trim();
-    if(pay)return '<span style="color:#4ade80">'+esc(pay.slice(0,42))+'</span>';
+    const px=o.pay_explained;
+    /* A pay scale is a precise salary to someone who knows the system and a code to
+       everyone else. Where we can decode it, the real figure and the rupee equivalent are
+       shown instead of the code. */
+    if(px&&px.pkr_monthly)
+      return '<span style="color:#4ade80">'+esc(px.currency+' '+px.monthly.toLocaleString()+'/month')+'</span>'
+        +' <span class="sub" style="font-size:11px">\u2248 '+esc(pkrWords(px.pkr_monthly))+'/month</span>';
+    if(pay&&VAGUEPAY.test(pay)&&!/\d/.test(pay))
+      return '<span style="color:#9db8e8">Pay not stated as a figure</span>';
+    if(pay)return '<span style="color:#4ade80">'+esc(pay.slice(0,42))+'</span>'+pkrHint(pay);
     const tu=String(o.tuition||'').trim();
     if(o.funding_type==='fully')return '<span style="color:#4ade80">Fully funded</span>';
     if(tu)return '<span style="color:#FFD070">Tuition '+esc(tu.slice(0,30))+'</span>';
     if(o.funding_type==='partial')return '<span style="color:#FFD070">Partial funding</span>';
     if(o.funding_type==='self')return '<span style="color:#9db8e8">Self-financed</span>';
-    return '<span style="color:#9db8e8">Terms on the official page</span>'};
+    return '<span style="color:#9db8e8">Pay not stated on the advert</span>'};
   const fund=o=>o.funding_type==='fully'?'<span style="color:#4ade80">Fully funded</span>'
     :o.funding_type==='partial'?'<span style="color:#FFD070">Partial</span>'
     :o.funding_type==='self'?'<span style="color:#9db8e8">Self-financed</span>'
-    :(o.stipend?'<span style="color:#4ade80">Stipend</span>':'<span style="color:#9db8e8">Stated on page</span>');
+    :(o.stipend?'<span style="color:#4ade80">Stipend</span>':'<span style="color:#9db8e8">Funding not stated</span>');
   const pct=o=>{const p=o.match&&o.match.pct;if(p==null)return '';
     const c=p>=85?'#4ade80':p>=70?'#7EE6FF':'#FFD070';
     return `<b style="color:${c};font:800 13.5px Inter">${p}%</b>`};
@@ -2004,15 +2054,17 @@ function topTable(list){
   return `<div style="margin-top:10px;border:1px solid rgba(140,178,255,.22);border-radius:14px;overflow:hidden;background:rgba(8,18,40,.5)">
     <div style="padding:10px 12px;border-bottom:1px solid rgba(140,178,255,.2);font:700 12px Inter;letter-spacing:.06em;color:#9db8e8">TOP ${list.length} MATCHES</div>
     ${rows}</div>
-    <div class="sub" style="margin:8px 2px 0;font-size:11.5px">Tap any row for the details. Add the ones you want, then choose a package.</div>`;
+    <div class="sub" style="margin:8px 2px 0;font-size:11.5px">Tap any row for the details. Add the ones you want, then choose a package.</div>
+    <div style="height:76px"></div>`;
 }
 /* A short intelligence preview. Everything that helps the decision, nothing that lets the
    position be found on Google before it is unlocked. */
 async function oppPeek(id){
-  const o=(window._top15||[]).find(x=>x.id===id);if(!o)return;
+  const o=(window._top15||[]).find(x=>x.id===id)||window._selData[id];
+  if(!o){toast('That position is no longer in this list. Run the search again to see it.');return}
   const m=o.match||{};
   const w=document.createElement('div');w.className='ff-ack';
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:67;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:67;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:16px';
   const R=(k,v)=>v?`<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid rgba(140,178,255,.12)">
     <span class="sub" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.04em">${esc(k)}</span>
     <span style="font:600 13px Inter;color:#EAF2FF;text-align:right">${v}</span></div>`:'';
@@ -2025,7 +2077,13 @@ async function oppPeek(id){
     ${R('Opportunity type',esc(({bachelors:"Bachelor's",masters:"Master's",phd:'PhD',postdoc:'Postdoctoral',fellowship:'Fellowship'})[o.level]||(o.kind==='work'?'Employment':'Programme')))}
     ${R('Field',esc(o.field||o.req_field||''))}
     ${R('Funding',esc(o.funding_type==='fully'?'Fully funded':o.funding_type==='partial'?'Partially funded':o.funding_type==='self'?'Self-financed':(o.stipend?'Stipend stated':'')))}
-    ${o.kind==='work'?R('Salary',esc(String(o.salary_note||o.stipend||'').slice(0,80))):R('Stipend',esc(String(o.stipend||o.salary_note||'').slice(0,80)))}
+    ${o.kind==='work'?R('Salary',esc(String(o.salary_note||o.stipend||'').slice(0,80))+pkrHint(String(o.salary_note||o.stipend||''))):R('Stipend',esc(String(o.stipend||o.salary_note||'').slice(0,80))+pkrHint(String(o.stipend||o.salary_note||'')))}
+    ${o.pay_explained?`<div style="margin:8px 0;padding:9px 11px;border-radius:9px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.3)">
+      <div style="font:700 11px Inter;color:#4ade80;text-transform:uppercase;letter-spacing:.04em">What ${esc(o.pay_explained.name)} means</div>
+      <div class="sub" style="font-size:12.5px;margin-top:3px;line-height:1.5">${esc(o.pay_explained.plain)}</div>
+      ${o.pay_explained.pkr_monthly?`<div style="font:700 13px Inter;color:#EAF2FF;margin-top:5px">${esc(o.pay_explained.currency)} ${o.pay_explained.monthly.toLocaleString()} a month \u2248 ${esc(pkrWords(o.pay_explained.pkr_monthly))}</div>
+      <div class="sub" style="font-size:11px">Approximate, from the published scale rather than this advert. Confirm the exact figure on the official page.</div>`:''}
+    </div>`:''}
     ${R('Tuition',esc(String(o.tuition||'').slice(0,60)))}
     ${R('Application fee',esc(String(o.application_fee||'').slice(0,40)))}
     ${R('Duration',esc(String(o.duration||'').slice(0,40)))}
@@ -2035,7 +2093,7 @@ async function oppPeek(id){
     ${R('Work rights',esc(String((o.money||{}).work_rights||'').slice(0,60)))}
     ${R('Residence route',esc(String((o.money||{}).pr_pathway||'').slice(0,60)))}
     ${R('Match',m.pct!=null?m.pct+'%':'')}
-    ${R('Deadline',o.deadline?(esc(String(o.deadline).slice(0,10))+(d!=null&&d>0?' <span class="sub">('+d+' days left)</span>':d!=null&&d<=0?' <span style="color:#ff8a8a">(closed)</span>':'')):'Rolling or open')}
+    ${R('Deadline',o.deadline?(esc(String(o.deadline).slice(0,10))+(d!=null&&d>0?' <span class="sub">('+d+' days left)</span>':d!=null&&d<=0?' <span style="color:#ff8a8a">(closed)</span>':'')):'No closing date on the official page \u2014 apply early')}
     ${R('Application effort',esc(o.complexity||''))}
     ${o.relevance_line?`<div style="margin-top:10px;padding:9px 11px;border-radius:9px;background:rgba(45,212,191,.08);border:1px solid rgba(45,212,191,.3)">
       <div style="font:700 11px Inter;color:#2dd4bf;text-transform:uppercase;letter-spacing:.04em">Why it matches</div>
@@ -2065,9 +2123,9 @@ async function adminSkipAndUnlock(btn){
   }catch(e){toast(e.message);if(btn){btn.disabled=false;btn.textContent=label}}
 }
 function selReview(){
-  const list=(window._top15||[]).filter(o=>selHas(o.id));
+  const list=selItems();
   const w=document.createElement('div');w.className='ff-ack';
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:68;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:68;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:16px';
   w.innerHTML=`<div style="position:relative;max-width:460px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);border-radius:16px;padding:18px;color:#eef4ff">
     <button class="ff-x" onclick="this.closest('.ff-ack').remove()">\u00d7</button>
     <div style="font:700 12px Inter;letter-spacing:.06em;color:#9db8e8;padding-right:34px">MY SELECTED OPPORTUNITIES</div>
@@ -2079,14 +2137,19 @@ function selReview(){
       <button class="btn b-line" style="padding:2px 9px;font-size:11.5px" onclick="selToggle('${escAttr(o.id)}');this.closest('.ff-ack').remove();selReview()">Remove</button></div>`).join('')
       ||'<div class="sub">Nothing selected yet.</div>'}
     <div class="sub" style="margin:12px 0 0;line-height:1.55">Unlock complete intelligence and application preparation for the opportunities you selected. Each package covers a set number of cases.</div>
-    <button class="btn b-gold" style="width:100%;margin-top:10px" onclick="this.closest('.ff-ack').remove();go('buy')">Choose a package</button>
+    <button class="btn b-gold" style="width:100%;margin-top:10px" onclick="this.closest('.ff-ack').remove();go('buy')">Choose a package \u2192</button>
+    ${(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})()?`
+    <button class="btn b-line" style="width:100%;margin-top:8px;border-color:#F5B841;color:#FFD070"
+      onclick="adminSkipAndUnlock(this)">\u26a1 Admin: skip payment and unlock everything</button>
+    <div class="sub" style="margin-top:5px;font-size:11px">Staff only. Reveals every selected position in full and lets you apply without limit.</div>`:''}
   </div>`;
   w.onclick=e=>{if(e.target===w)w.remove()};
   document.body.appendChild(w);
 }
 function oppCard(o,ctaColor){
   const dl=daysLeft(o.deadline);
-  const dlChip=dl!=null?(dl<=14?`<span class="chip c-red">Closes in ${dl}d</span>`:`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`):'';
+  const dlChip=dl!=null?(dl<=14?`<span class="chip c-red">Closes in ${dl}d</span>`:`<span class="chip c-gray">Deadline ${esc(o.deadline)}</span>`)
+    :`<span class="chip c-gray">No closing date stated</span>`;
   const newChip=isNewOpp(o)?'<span class="chip c-blue">New this week</span>':'';
   const fundingChip = o.funding_type==='fully'?'<span class="chip c-green">Fully funded</span>'
     : o.funding_type==='partial'?'<span class="chip c-gold">Partial funding</span>'
@@ -2453,7 +2516,7 @@ function showLastChance(d){
   document.querySelectorAll('.ff-lastchance').forEach(n=>n.remove());
   const w=document.createElement('div');
   w.className='ff-lastchance';
-  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.86);z-index:9998;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.86);z-index:9998;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:16px';
   w.onclick=e=>{if(e.target===w)w.remove()};
   const total=(d&&(d.search_limit||d.limit))||3;
   const used=(d&&d.searches_used)||(total-1);
@@ -2471,7 +2534,7 @@ function showSearchLocked(d){
   document.querySelectorAll('.ff-locked-modal').forEach(n=>n.remove());
   const w=document.createElement('div');
   w.className='ff-locked-modal';
-  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.88);z-index:9998;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(3,10,24,.88);z-index:9998;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:16px';
   w.onclick=e=>{if(e.target===w)w.remove()};
   const when=d.resets_at?new Date(d.resets_at):null;
   const clock=when?when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'midnight';
@@ -2558,6 +2621,10 @@ function liveSearchBar(kind,opts,runInfo){
       if(f>lastFound&&lastFound>=0){try{await showMatches(kind,Object.assign({},opts));}catch(e){}}
       lastFound=Math.max(lastFound,f);
       if(s.status==='done'||s.status==='error'){
+        /* The hunt is over: the note claiming it is still running must go, and the
+           shortfall is reset so a later render does not resurrect it. */
+        window._topupShort=0;
+        const tn=document.getElementById('topupNote'); if(tn)tn.remove();
         try{await showMatches(kind,Object.assign({},opts))}catch(e){}
         stop(s.status==='error'?'Search finished with some sources unreachable.':(f?('Search complete, '+f+' new positions verified.'):'Search complete.'));
         return;
@@ -2574,7 +2641,7 @@ async function resumeSearch(kind){
   kind=kind||undefined;
   document.querySelectorAll('.ffresume').forEach(x=>x.remove());
   const wrap=document.createElement('div');wrap.className='ffresume';
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(15,39,72,.55);z-index:70;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:20px';
   wrap.innerHTML=`<div class="sheet" style="text-align:center;max-width:400px">
     <div class="search-ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="rsFg" cx="60" cy="60" r="52"/></svg><div class="ring-pct" id="rsPct" style="color:#00D4FF">…</div></div>
     <h3 style="margin-top:14px;color:#fff">Your search is still running.</h3>
@@ -2869,8 +2936,12 @@ async function showMatches(kind,opts){
         Searching official sources live for ${window._topupShort} more strong ${window._topupShort===1?'match':'matches'}. New positions appear here as they are verified.</div>`:'')})();
   try{warmPricing()}catch(e){}   // results are on screen; Apply is the next tap
   try{topUpIfThin(kind,opts)}catch(e){}
+  /* Re-renders happen constantly while a live search streams in. The bar lives on the
+     body rather than inside the sheet, but a blanket overlay cleanup elsewhere can take
+     it with them, so it is restored on every render rather than only when toggled. */
+  try{selBar()}catch(e){}
   const wrap=document.createElement('div');wrap.className='ffmatches';
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:65;overflow:auto;padding:20px 10px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:65;overflow:hidden;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
   <div class="spread"><h2 style="margin:0">Your matches are ready</h2><span><button class="btn b-line" style="padding:4px 10px;margin-right:6px" onclick="document.querySelectorAll('.ffmatches').forEach(x=>x.remove());openFinder(true)">New search</button><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></span></div>
   ${list.length?`${matchStatsTable(list,opts)}
@@ -2928,7 +2999,7 @@ function openFinder(afterUpload){
       visaSel:P.visaSel||'',contractLen:P.contractLen||'',startWhen:P.startWhen||'',salaryBand:P.salaryBand||'',lang:P.lang||'',workmode:P.workmode||'',field:P.field||'',intake:P.intake||'',ctrys:Array.isArray(P.ctrys)?P.ctrys:window._finder.ctrys});if(document.querySelector('.ff-finder'))renderFinder()}}).catch(()=>{});
   }
   const wrap=document.createElement('div');wrap.className='ff-finder';
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.78);z-index:64;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:16px';
   wrap.innerHTML=`<div style="max-width:440px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
   <div class="spread"><h3 style="margin:0">${afterUpload?'Documents received':'Find my opportunities'}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-finder').remove()" aria-label="Close">✕</button></div>
   <div style="background:rgba(245,184,65,.08);border:1px solid rgba(245,184,65,.45);border-radius:10px;padding:9px 12px;margin:8px 0;font:600 12.5px Inter;color:#FFE9C7">Choose your filters wisely, your opportunities depend on them. Broader is better: select multiple countries, and pick more than one language rule (for example No certificate AND IELTS accepted) for the widest, strongest matches.</div>
@@ -3461,7 +3532,7 @@ window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.d
 setTimeout(()=>{try{window.postMessage({type:'FF_ASSIST_PING'},location.origin)}catch(e){}},1200);
 function showThanks(appId){
   const w=document.createElement('div');
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:70;overflow:auto;display:flex;align-items:center;justify-content:center;padding:18px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:70;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:18px';
   w.innerHTML=`<div style="max-width:430px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(0,212,255,.5);color:#eef4ff;border-radius:16px;padding:22px;text-align:center">
   <div style="font:800 20px Inter;background:linear-gradient(90deg,#1683FF,#00D4FF);-webkit-background-clip:text;background-clip:text;color:transparent">Application on its way</div>
   <div class="sub" style="margin-top:8px;line-height:1.6">Thank you for trusting ForiForeign. Check your Sent folder, your application, documents and email were sent from your own address.</div>
@@ -3561,7 +3632,7 @@ function startApp(id,inst,reqs){
      simply false. The confirmation says what will actually happen to whoever is looking. */
   const _st=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
   const w=document.createElement('div');w.className='ff-ack';
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:66;overflow:auto;display:flex;align-items:center;justify-content:center;padding:18px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:66;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:18px';
   w.innerHTML=`<div style="position:relative;max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);color:#eef4ff;border-radius:16px;padding:20px">
   <button class="ff-x" aria-label="Close" onclick="this.closest('.ff-ack').remove()">\u00d7</button>
   <h3 style="margin:0 0 6px;padding-right:34px">Are you sure?</h3>
@@ -3581,7 +3652,10 @@ async function doStartApp(id,btn){
   try{const d=await api('/api/applications',{method:'POST',body:{opportunityId:id,requirements_acknowledged:true}});
     toast('Case '+d.application.case_no+' started. Preparing your documents now.');
     refreshCredits();
-    document.querySelectorAll('.ffmatches,.ff-finder,.ff-ack').forEach(x=>x.remove());
+    document.querySelectorAll('.ffmatches,.ff-finder,.ff-ack,.ff-live').forEach(x=>x.remove());
+    /* The case is under way, so the shortlist that led to it is finished with. Leaving it
+       on screen put a "MY SELECTION" bar over every other page in the app. */
+    try{selClear()}catch(e){}
     try{await api('/api/applications/'+d.application.id+'/prepare',{method:'POST'})}catch(e){}
     ffWait(d.application.id);
   }catch(e){
@@ -3837,7 +3911,7 @@ async function loadRefs(){
   }catch(e){}}
 function uploadAll(){
   const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.7);z-index:60;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.7);z-index:60;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:20px';
   wrap.innerHTML=`<div style="max-width:440px;background:rgba(8,18,40,.96);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:22px">
   <h3 style="margin:0 0 8px">Upload all documents at once</h3>
   <div class="sub" style="margin-bottom:6px">The agent will read every file, sort it into the right section, and fill your profile automatically.</div>
@@ -5159,7 +5233,7 @@ function payPending(d){
   const ref='FF-'+String(p.id||'').slice(0,8).toUpperCase();
   const amt=Number(d&&d.amount_pkr||p.amount_pkr||0);
   const w=document.createElement('div');w.className='ff-ack';
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:78;overflow:auto;display:flex;align-items:center;justify-content:center;padding:18px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:78;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:18px';
   w.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(45,212,191,.5);border-radius:16px;padding:20px;color:#eef4ff">
     <h3 style="margin:0 0 8px;color:#2dd4bf">Recorded \u2713</h3>
     <div class="sub" style="line-height:1.65">
@@ -5195,7 +5269,7 @@ async function buyPack(credits){
   const P=(SITE&&SITE.payment)||{};
   const row=(l,v)=>v?`<div class="row" style="justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(140,178,255,.14)"><span class="sub" style="font-weight:700">${l}</span><span style="display:flex;gap:8px;align-items:center"><b style="font-size:13.5px">${esc(v)}</b><button class="btn b-line" style="padding:3px 10px;font-size:11px" onclick="copyTxt('${escAttr(v)}',this)">Copy</button></span></div>`:'';
   const w=document.createElement('div');w.className='ff-ack';
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:75;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:75;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:16px';
   w.innerHTML=`<div style="max-width:430px;width:100%;max-height:92vh;overflow:auto;background:rgba(8,18,40,.97);border:1px solid rgba(0,212,255,.5);border-radius:16px;padding:18px;color:#eef4ff">
     <div class="spread"><h3 style="margin:0">${(()=>{const t=pkgByCredits(credits);
       return 'Pay for '+(t?esc(t.name):(credits+' case'+(credits===1?'':'s')))+', one step';})()}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-ack').remove()" aria-label="Close">✕</button></div>

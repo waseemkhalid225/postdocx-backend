@@ -46,4 +46,38 @@ t('complexity rises with what the advert demands',()=>{
   assert.strictEqual(complexity({req_documents:[]}),'Low');
   assert.strictEqual(complexity({req_documents:['a','b','c','d','e','f'],req_language:'IELTS'}),'High');
 });
+/* THE LEVEL LABEL MUST NEVER FALL BELOW THE EVIDENCE. A postdoc with an empty level
+   column and a "Research Associate" title was being labelled "Graduate opportunity" and
+   shown to a PhD holder who had filtered for postdocs. */
+t('a salaried research associate post is labelled postdoctoral, not graduate',()=>{
+  const h=hintLabel({level:null,kind:'study',title:'Research Associate in Molecular Biology',
+    salary_note:'\u00a339,906 to \u00a346,049 per annum',description:'molecular biology group'});
+  assert.ok(/Postdoctoral/.test(h),h);
+  assert.ok(!/Graduate/.test(h),h);
+});
+t('a research fellow post is not called a graduate opportunity',()=>{
+  const h=hintLabel({level:null,kind:'study',title:'Research Fellow',description:'the postholder will lead immunology projects'});
+  assert.ok(/Postdoctoral/.test(h),h);
+});
+t('a German doctoral post is read as doctoral',()=>{
+  assert.ok(/Doctoral/.test(hintLabel({level:null,kind:'study',title:'Promotionsstelle',description:'doctoral position in chemistry'})));
+});
+t('an unclassifiable academic post claims no level at all',()=>{
+  const h=hintLabel({level:null,kind:'study',title:'Opening in the department',description:'we are recruiting'});
+  assert.ok(/Research position/.test(h),h);
+  assert.ok(!/Graduate|Master|Undergraduate/.test(h),h);
+});
+/* NO VAGUE LABEL MAY RETURN. Each of these phrases described our own ignorance as if it
+   were a property of the position, and each one reached a paying customer's screen. */
+t('no vague deadline or placeholder wording survives in the interface',()=>{
+  const fe=fs.readFileSync(__dirname+'/../public/index.html','utf8');
+  ['Rolling, no fixed date','Rolling or open','Verified position',
+   'Terms on the official page','Stated on page'].forEach(p=>{
+    assert.ok(!fe.includes("'"+p+"'")&&!fe.includes('>'+p+'<'),'vague label back in the UI: '+p);
+  });
+});
+t('a missing deadline is stated as a fact about the advert',()=>{
+  const fe=fs.readFileSync(__dirname+'/../public/index.html','utf8');
+  assert.ok(fe.includes('No closing date stated'),'the honest phrase is missing');
+});
 console.log('lockdown: '+passed+' assertions passed'+(process.exitCode?' WITH FAILURES':''));

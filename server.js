@@ -87,7 +87,7 @@ const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimu
 const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-09-01-R4630';
+const FF_BUILD = '2026-09-01-R4690';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 /* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
    assistant.zip was a file committed by hand, and it had drifted: users were downloading
@@ -1660,10 +1660,27 @@ function hintLabel(o) {
   const LV = { bachelors: 'Undergraduate study', masters: "Master's-level opportunity", phd: 'Doctoral research',
     postdoc: 'Postdoctoral research', fellowship: 'Fellowship', diploma: 'Diploma programme',
     short_course: 'Short course', observership: 'Clinical observership' };
-  const t = String(o.title || '').toLowerCase();
+  /* THE LEVEL MUST NEVER BE GUESSED DOWNWARDS. A postdoc advertised with an empty level
+     column and a title of "Research Associate" was falling through every test and landing
+     on "Graduate opportunity" - shown to a PhD holder who had explicitly filtered for
+     postdocs. Reading the description as well as the title catches most of them, a
+     research-grade salary is strong evidence on its own, and the final fallback is the
+     honest "Research position", which claims no level at all. We never invent a level,
+     and we never claim one BELOW what the evidence supports. */
+  const t = (String(o.title || '') + ' ' + String(o.description || '')).toLowerCase();
+  const pay = String(o.stipend || o.salary_note || o.funding || '');
+  const annualPay = (() => {
+    const m = pay.replace(/[, ]/g, '').match(/(\d{5,6})/);
+    return m ? parseInt(m[1], 10) : 0;   // any five/six figure annual salary
+  })();
   let lead = LV[o.level] || (o.kind === 'work' ? 'Professional role'
-    : /post[\s-]?doc/.test(t) ? 'Postdoctoral research' : /\bphd\b|doctoral/.test(t) ? 'Doctoral research'
-    : /master|msc|mphil/.test(t) ? "Master's-level opportunity" : 'Graduate opportunity');
+    : /post[\s-]?doc|postdoctoral|research fellow|research associate|senior researcher|junior group leader/.test(t) ? 'Postdoctoral research'
+    : /\bphd\b|ph\.d|doctoral|doctorate|promotionsstelle|studentship/.test(t) ? 'Doctoral research'
+    : /\bmaster|\bmsc\b|\bm\.sc|mphil|graduate programme/.test(t) ? "Master's-level opportunity"
+    : /bachelor|\bbsc\b|undergraduate/.test(t) ? 'Undergraduate study'
+    /* A salaried research post is not a graduate programme, whatever the column says. */
+    : annualPay >= 25000 ? 'Research position'
+    : 'Research position');
   /* The subject comes from the stated field, or from the title with the identifying words
      removed - never the institution, never the programme's own name. */
   let subj = String(o.req_field || o.field || '').trim();
@@ -1729,6 +1746,23 @@ function lockTease(o) {
     stipend: o.stipend || null, tuition: o.tuition || null, salary_note: o.salary_note || null,
     application_fee: o.application_fee || null, fee_structure: o.fee_structure || null,
     duration: o.duration || null,
+    /* PAY, DECODED AND IN RUPEES. A line like "TV-L E13, 65%" is a precise salary to
+       someone who knows the German system and a code to everyone else, and "fully funded"
+       with no figure answers nothing. We explain the scale in plain words, give the figure
+       the scale itself publishes, and convert to PKR so the applicant can judge it against
+       a life they actually know. Never the advert's own claim - always the published
+       scale, and always labelled approximate. */
+    pay_explained: (() => {
+      try {
+        const src = String(o.stipend || o.salary_note || o.funding || '');
+        const dec = require('./lib/payscale').decode(src);
+        if (!dec) return null;
+        const { toPKR } = require('./lib/pay');
+        const pkrM = toPKR ? toPKR(dec.monthly, dec.currency) : null;
+        return { name: dec.name, plain: dec.plain, currency: dec.currency,
+          monthly: dec.monthly, yearly: dec.yearly, pkr_monthly: pkrM || null, approximate: true };
+      } catch (e) { return null; }
+    })(),
     money: (() => {
       const x = o.intelligence || o.extra || {};
       return {
@@ -2823,6 +2857,20 @@ app.post('/api/opportunities/:id/dismiss', auth, async (req, res) => {
    a page refresh cannot start a queue of expensive runs. */
 app.post('/api/run/topup', auth, async (req, res) => {
   try {
+    /* THREE GUARDS THIS ENDPOINT WAS MISSING. It calls the same expensive discovery
+       pipeline as a full search, but it skipped the maintenance switch that /api/run
+       respects, it would run for someone who had never searched at all, and it would run
+       while their previous search was still going - stacking two paid AI runs on one
+       profile. A cheap endpoint to call is not a cheap endpoint to serve. */
+    const feat = ((require('./lib/settings').cache() || {}).features) || {};
+    if (feat.discovery_enabled === false) return res.json({ ok: true, ran: false, reason: 'Search is briefly paused for maintenance.' });
+    try {
+      const { data: prog } = await admin().from('app_settings').select('value').eq('key', 'discover:' + req.userId).single();
+      if (prog && prog.value && prog.value.status === 'running') {
+        const started = Date.parse(prog.value.startedAt || '') || 0;
+        if (started && Date.now() - started < 12 * 60000) return res.json({ ok: true, ran: false, reason: 'A search is already running for you.' });
+      }
+    } catch (e) {}
     const key = 'topup:' + req.userId;
     const now = Date.now();
     let last = 0;
@@ -3337,7 +3385,7 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   KV('Institution:', [opp.institution, opp.city, countryLabel(opp.country_code)].filter(Boolean).join(', '));
   KV('Level:', opp.level ? String(opp.level).replace(/_/g, ' ') : (opp.kind === 'work' ? 'Employment' : 'As stated on the official page'));
   KV('Funding:', opp.funding_type === 'fully' ? 'Fully funded' : opp.funding_type === 'partial' ? 'Partially funded' : (opp.funding || 'Stated on the official page'));
-  KV('Deadline:', opp.deadline ? String(opp.deadline).slice(0, 10) : 'Rolling or not stated');
+  KV('Deadline:', opp.deadline ? String(opp.deadline).slice(0, 10) : 'No closing date on the official page - apply as early as you can');
   KV('How to apply:', /portal/i.test(String(opp.apply_via || '')) ? 'Through the official online portal' : ((opp.contact_emails || [])[0] ? 'By email to ' + (opp.contact_emails || [])[0] : 'Confirm on the official page'));
   LINK('Official page:', opp.url || '');
 
@@ -3486,7 +3534,7 @@ app.get('/api/applications/:id/guide.pdf', auth, async (req, res) => {
   /* There is no contact_email or contact_phone column on opportunities - the addresses
      live in the contact_emails array - so this line silently printed nothing at all. */
   KV('Contact:', [opp.contact_name].concat(opp.contact_emails || []).filter(Boolean).join('  ·  '));
-  KV('Deadline:', opp.deadline ? String(opp.deadline).slice(0, 10) : 'Rolling or not stated');
+  KV('Deadline:', opp.deadline ? String(opp.deadline).slice(0, 10) : 'No closing date on the official page - apply as early as you can');
   pdf.moveDown(0.35);
   P('Always confirm these details on the official page before you travel, post documents or pay any fee. Institutions move offices and change contacts, and the official page is the only source that is always current.');
   try {
