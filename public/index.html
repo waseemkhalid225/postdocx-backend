@@ -4793,12 +4793,18 @@ async function vBuyRender(){
     <b style="color:#FFD070">\u2699 Staff view</b>
     <div class="sub" style="margin-top:4px;line-height:1.6">This is the page exactly as a customer sees it, including the payment account block below. Nothing here is hidden from you and nothing extra is shown to them. Use it to check the plan numbers, the prices and the payment details before a client does.</div>
     <div class="sub" style="margin-top:4px">You can start any case without paying from the <b>Admin: open and apply</b> button on any opportunity card.</div>
+    <button class="btn b-gold" style="width:100%;margin-top:8px;padding:11px;font-size:14px" onclick="adminBypassBuy(0,this)">⚡ Activate me without payment — unlimited searches and cases</button>
+    <div class="sub" style="margin-top:4px;font-size:11.5px">Staff only, never rendered for a customer. Grants the entitlement instantly: no payment, no approval, no limit on searching or applying.</div>
     <div class="row" style="margin-top:8px"><button class="btn b-line" style="padding:4px 12px;font-size:12px" onclick="go('adminx')">Open admin panel</button>
     <button class="btn b-line" style="padding:4px 12px;font-size:12px" onclick="toggleSimUser(0)">Preview as a brand-new user</button></div></div>`:''}
   <div id="refBox"></div>
   <div style="border:1px solid rgba(0,212,255,.4);background:linear-gradient(135deg,rgba(0,212,255,.1),rgba(22,131,255,.05));border-radius:12px;padding:12px 14px;margin-bottom:14px">
     <b style="color:#7EE6FF;font-size:14px">These are not random listings, they are hand-picked for you.</b>
-    <div class="sub" style="margin-top:5px;line-height:1.6">Every opportunity is matched to your exact profile, field and goals, and verified on its official page. Because each application is this precise and this well-prepared, your real chance of selection is far higher than applying blindly on your own.</div>
+    <div class="sub" style="margin-top:5px;line-height:1.6">
+      <div style="padding:2px 0">• Matched to your exact profile, field and goals.</div>
+      <div style="padding:2px 0">• Every position verified on its own official page.</div>
+      <div style="padding:2px 0">• A precise, fully prepared application beats applying blindly.</div>
+    </div>
   </div>
   ${HM&&HM.promo&&HM.promo.active?`<div style="position:relative;border:2px solid #F5B841;background:linear-gradient(160deg,rgba(245,184,65,.18),rgba(22,131,255,.05));border-radius:14px;padding:16px;margin-bottom:12px;overflow:hidden">
     <div style="position:absolute;top:0;right:0;background:#F5B841;color:#3a2a00;font:800 10px Inter;padding:4px 12px;border-radius:0 0 0 10px;letter-spacing:.05em">LIMITED TIME</div>
@@ -4826,11 +4832,17 @@ async function vBuyRender(){
       <b style="color:#2dd4bf;font-size:13px">Trusted by ambitious Pakistanis${n?', '+Number(n).toLocaleString()+'+ applications prepared':''}</b>
       ${rv.map(r=>`<div style="margin-top:7px"><span style="color:#FFD070">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</span> <span class="sub" style="color:#EAF2FF">${esc(String(r.text).slice(0,90))}</span> <span class="sub">— ${esc(r.name||'Client')}</span></div>`).join('')}
     </div>`:'';})()}
-  <div class="card"><h3 style="margin-top:0">How credits work</h3>
-  <div class="sub" style="line-height:1.7">Every account gets <b>${(((SITE||{}).fair_use||{}).daily_searches)||3} searches a day</b>, with no waiting between them, and each search shows your full analysis and your best-matched positions with country, deadline, funding and the stipend or salary. Buying any package clears whatever you have already used and gives you <b>${(((SITE||{}).fair_use||{}).paid_daily_searches)||5} searches a day</b> from then on. A case credit is spent only when YOU pick a position and confirm, never by searching. Credits never expire before your chosen opportunities do, and every prepared case is fully editable and re-openable at no extra cost.</div></div>
-  <div class="card" style="margin-top:14px"><h3>How to pay</h3>
-  <div class="sub" style="margin-top:6px;line-height:1.7">${esc((SITE&&SITE.payment&&SITE.payment.instructions)||'Transfer to the account below, then submit your reference.')}</div>
-  ${SITE&&SITE.payment&&(SITE.payment.account_number||SITE.payment.iban||SITE.payment.jazzcash_number||SITE.payment.easypaisa_number)?`<div class="card" style="background:var(--soft);margin-top:8px">
+  <div class="card"><h3 style="margin-top:0">Credits and payment, in short</h3>
+  <div class="sub" style="line-height:1.65">
+    <div style="padding:3px 0">• <b>${(((SITE||{}).fair_use||{}).daily_searches)||3} searches a day, free</b>, with no waiting between them.</div>
+    <div style="padding:3px 0">• Any package clears what you have used and gives <b>${(((SITE||{}).fair_use||{}).paid_daily_searches)||5} searches a day</b>.</div>
+    <div style="padding:3px 0">• Searching never costs a case. A case is spent only when YOU pick a position and confirm.</div>
+    <div style="padding:3px 0">• Prepared cases stay editable and re-openable at no extra cost.</div>
+    <div style="padding:3px 0">• <b>To pay:</b> send the amount to any account below, tap your package, tap I HAVE PAID.</div>
+    <div style="padding:3px 0">• Cases activate once we confirm the transfer, usually within 30 minutes.</div>
+    <div style="padding:3px 0">• Unused cases are refundable within 14 days. Work already delivered is not.</div>
+  </div>
+  ${SITE&&SITE.payment&&(SITE.payment.account_number||SITE.payment.iban||SITE.payment.jazzcash_number||SITE.payment.easypaisa_number)?`<div class="card" style="background:var(--soft);margin-top:10px">
     ${SITE.payment.bank_name?`<div><b>Bank:</b> ${esc(SITE.payment.bank_name)}</div>`:''}
     ${SITE.payment.account_title?`<div><b>Title:</b> ${esc(SITE.payment.account_title)}</div>`:''}
     ${SITE.payment.account_number?`<div><b>Account #:</b> ${esc(SITE.payment.account_number)}</div>`:''}
@@ -4838,7 +4850,7 @@ async function vBuyRender(){
     ${SITE.payment.jazzcash_number?`<div><b>JazzCash:</b> ${esc(SITE.payment.jazzcash_number)}</div>`:''}
     ${SITE.payment.easypaisa_number?`<div><b>Easypaisa:</b> ${esc(SITE.payment.easypaisa_number)}</div>`:''}
   </div>`:'<div class="sub" style="margin-top:8px;color:var(--crimson)">Payment account details are being set up. Please contact support to pay.</div>'}
-  <div class="sub" style="margin-top:8px">After transferring, choose a package above and submit your transaction reference. ${esc((d.pricing||{}).refund_policy||'')}</div></div>`;
+  </div>`;
 }
 function waOpen(phone,text){
   const p=String(phone||'').replace(/[^0-9]/g,'').replace(/^0/,'92');
@@ -4846,6 +4858,66 @@ function waOpen(phone,text){
   window.open('https://wa.me/'+p+(text?'?text='+encodeURIComponent(text):''),'_blank');
 }
 function copyTxt(t,btn){navigator.clipboard.writeText(t).then(()=>{btn.textContent='Copied ✓';setTimeout(()=>btn.textContent='Copy',1200)}).catch(()=>{})}
+/* The old I HAVE PAID button carried its whole handler inside an onclick attribute, and
+   that attribute referred to `credits` and `w`, which live inside buyPack and do not
+   exist in the global scope where an onclick actually runs. Every tap threw a reference
+   error, was swallowed by the catch, and surfaced as a meaningless toast: the button had
+   never once recorded a payment. It is a named function now, with the amount passed in. */
+async function payDeclare(credits,btn){
+  const el=document.getElementById('payRef');
+  const reference=((el&&el.value)||'').trim()||'PENDING';
+  const label=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Sending\u2026'}
+  try{
+    const d=await api('/api/payments',{method:'POST',body:{credits:Number(credits),reference}});
+    document.querySelectorAll('.ff-ack').forEach(x=>x.remove());
+    try{await refreshCredits()}catch(e){}
+    payPending(d);
+  }catch(e){
+    toast(e.message||'We could not record that. Please try again or send your transaction ID on WhatsApp.');
+    if(btn){btn.disabled=false;btn.textContent=label}
+  }
+}
+/* A pending payment is a real state, so it gets a real screen: what was recorded, what
+   happens next, and a direct way to reach a human. A toast that vanishes in four seconds
+   left people unsure whether their money had registered at all. */
+function payPending(d){
+  const p=(d&&d.payment)||{};
+  const ref='FF-'+String(p.id||'').slice(0,8).toUpperCase();
+  const amt=Number(d&&d.amount_pkr||p.amount_pkr||0);
+  const w=document.createElement('div');w.className='ff-ack';
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:78;display:flex;align-items:center;justify-content:center;padding:18px';
+  w.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(45,212,191,.5);border-radius:16px;padding:20px;color:#eef4ff">
+    <h3 style="margin:0 0 8px;color:#2dd4bf">Recorded \u2713</h3>
+    <div class="sub" style="line-height:1.65">
+      <div style="padding:3px 0">\u2022 Your reference: <b style="color:#EAF2FF">${esc(ref)}</b></div>
+      ${amt?`<div style="padding:3px 0">\u2022 Amount to send: <b style="color:#EAF2FF">Rs ${amt.toLocaleString()}</b></div>`:''}
+      <div style="padding:3px 0">\u2022 We verify the transfer and activate your cases, usually within 30 minutes.</div>
+      <div style="padding:3px 0">\u2022 If we cannot confirm it, the payment is simply returned.</div>
+    </div>
+    <a class="btn b-gold" style="width:100%;margin-top:12px;text-decoration:none;display:block;text-align:center" target="_blank" href="https://wa.me/923455216903?text=${encodeURIComponent('Assalam o Alaikum ForiForeign, my payment reference is '+ref+'. ')}">Send my transaction ID on WhatsApp</a>
+    <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-ack').remove()">Close</button></div>`;
+  document.body.appendChild(w);
+}
+/* STAFF NEVER PAY. This grants the entitlement directly, so the owner can search and
+   apply without limit and without a payment row waiting for his own approval. Client
+   preview is switched off first, because that mode strips admin power by design and the
+   server correctly refuses a bypass while it is on. */
+async function adminBypassBuy(credits,btn){
+  const label=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Activating\u2026'}
+  try{
+    if(localStorage.getItem('ffSimUser')==='1'){localStorage.setItem('ffSimUser','0')}
+    const d=await api('/api/admin/bypass-activate',{method:'POST',body:{credits:Number(credits)||0}});
+    document.querySelectorAll('.ff-ack').forEach(x=>x.remove());
+    try{await refreshCredits()}catch(e){}
+    toast('Activated without payment. '+(d.unlimited?'Unlimited cases':d.balance+' cases')+' ready \u2014 search and apply freely.');
+    window._homeCache=null;HM=null;go('home');
+  }catch(e){
+    toast(e.message||'Could not activate.');
+    if(btn){btn.disabled=false;btn.textContent=label}
+  }
+}
 async function buyPack(credits){
   const P=(SITE&&SITE.payment)||{};
   const row=(l,v)=>v?`<div class="row" style="justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(140,178,255,.14)"><span class="sub" style="font-weight:700">${l}</span><span style="display:flex;gap:8px;align-items:center"><b style="font-size:13.5px">${esc(v)}</b><button class="btn b-line" style="padding:3px 10px;font-size:11px" onclick="copyTxt('${escAttr(v)}',this)">Copy</button></span></div>`:'';
@@ -4857,7 +4929,8 @@ async function buyPack(credits){
     <div class="sub" style="margin:6px 0 8px" id="payQuote">Checking your exact amount&hellip;</div>
     ${row('JazzCash',P.jazzcash_number)}${row('Easypaisa',P.easypaisa_number)}${row('Bank',P.bank_name)}${row('Title',P.account_title)}${row('Account #',P.account_number)}${row('IBAN',P.iban)}
     <input id="payRef" placeholder="Transaction ID / reference (optional now)" style="margin-top:10px">
-    <button class="btn b-gold" style="width:100%;margin-top:10px;padding:12px;font-size:15px" onclick="(async b=>{b.disabled=true;try{const d=await api('/api/payments',{method:'POST',body:{credits,reference:document.getElementById('payRef').value||'PENDING'}});this.closest&&0;w.remove();toast('Received! We are confirming your payment, usually under 30 minutes. You will see it on your dashboard.');}catch(e){toast(e.message);b.disabled=false}})(this)">I HAVE PAID, activate my cases</button>
+    <button class="btn b-gold" style="width:100%;margin-top:10px;padding:12px;font-size:15px" onclick="payDeclare(${credits},this)">I HAVE PAID, activate my cases</button>
+    ${(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})()?`<button class="btn b-line" style="width:100%;margin-top:8px;padding:11px;font-size:14px;border-color:#F5B841;color:#FFD070" onclick="adminBypassBuy(${credits},this)">⚡ Admin: activate without paying</button>`:''}
     ${(()=>{const rv=((SITE&&SITE.reviews)||[]).filter(r=>r&&r.text).slice(0,2);return rv.length?`<div style="margin-top:10px">${rv.map(r=>`<div style="border:1px solid rgba(245,184,65,.4);background:rgba(245,184,65,.06);border-radius:10px;padding:8px 10px;margin-top:6px"><span style="color:#FFD070">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</span> <span class="sub" style="color:#EAF2FF">${esc(String(r.text).slice(0,80))}</span> <span class="sub">— ${esc(r.name||'Client')}</span></div>`).join('')}</div>`:''})()}
     <div class="sub" style="margin-top:8px;text-align:center">Every opportunity verified on official pages. Your money is safe: unverified payments are simply returned.</div></div>`;
   document.body.appendChild(w);

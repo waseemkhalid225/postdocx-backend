@@ -79,9 +79,15 @@ function pdfSafe(t) {
     .replace(/[ \t]{2,}/g, ' ');
 }
 const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimum
+/* How many scored matches a single search may return. Fifteen was a shortlist ceiling
+   that made a healthy database look empty: a postdoc search returned seven results
+   while dozens of qualifying positions sat unshown. The relevance floor above already
+   guarantees quality, so the count can be generous - everything here is a genuine
+   60%+ fit, and the package still decides how many the buyer may unlock. */
+const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-08-31-R4390';
+const FF_BUILD = '2026-09-01-R4400';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 app.get('/api/version', (req, res) => {
   // The installed app polls this to decide whether to reload, so it must never be cached.
@@ -1486,7 +1492,7 @@ app.get('/api/home', auth, async (req, res) => {
       wantLv = pv.levels || [];
       wantCc = (pv.ctrys || pv.countries || []).map(c => String(c).toUpperCase());
     } catch (e) {}
-    let q = admin().from('opportunities').select('*').eq('status', 'verified').order('created_at', { ascending: false }).limit(60);
+    let q = admin().from('opportunities').select('*').eq('status', 'verified').order('created_at', { ascending: false }).limit(240);
     if (wantCc.length) q = q.in('country_code', wantCc);
     const { data: opps } = await q;
     if (opps && opps.length) {
@@ -1694,7 +1700,9 @@ app.get('/api/payments/quote', auth, async (req, res) => {
 app.post('/api/payments', auth, async (req, res) => {
   try { const cfg = await siteSettings.getConfig(); if (cfg.features && cfg.features.payments === false) return res.status(503).json({ error: 'Payments are temporarily unavailable. Please try again shortly.' }); } catch (e) {}
   const { credits, reference } = req.body || {};
-  const { data: pr } = await admin().from('pricing').select('*').eq('active', true).single();
+  if (!isFinite(Number(credits)) || Number(credits) <= 0) return res.status(400).json({ error: 'Choose a package first.' });
+  let pr = null;
+  try { const r = await admin().from('pricing').select('*').eq('active', true).single(); pr = r.data || null; } catch (e) {}
   /* RESOLVE FIRST, THEN PRICE. The promo check used to run before this fallback, so a
      plan that lived only in the tier config was charged at list price, and the fallback
      itself dropped promo_pkr on the way past. */
@@ -1706,7 +1714,18 @@ app.post('/api/payments', auth, async (req, res) => {
       if (t) pack = { credits: t.credits, pkr: t.pkr, promo_pkr: t.promo_pkr || null, name: t.name };
     } catch (e) {}
   }
-  if (!pack) return res.status(400).json({ error: 'Choose a valid credit pack' });
+  /* LAST RESORT: the shipped ladder. A stale pricing row in the database used to make
+     a perfectly valid plan unrecognisable, and the buyer was told to "choose a valid
+     credit pack" for the plan they had just tapped. A payment attempt must never be
+     refused because OUR configuration drifted. */
+  if (!pack) {
+    try {
+      const t = (((require('./lib/settings').DEFAULTS || {}).packages || {}).tiers || [])
+        .find(x => Number(x.credits) === Number(credits));
+      if (t) pack = { credits: t.credits, pkr: t.pkr, promo_pkr: null, name: t.name };
+    } catch (e) {}
+  }
+  if (!pack) return res.status(400).json({ error: 'That package is no longer available. Please refresh the plans page and try again.' });
   // Charge the promo price whenever the admin has set one below list.
   const listPkr = Number(pack.pkr) || 0;
   if (Number(pack.promo_pkr) > 0 && Number(pack.promo_pkr) < listPkr) {
@@ -1718,11 +1737,21 @@ app.post('/api/payments', auth, async (req, res) => {
     const { data: me } = await admin().from('profiles').select('referral_balance_pkr').eq('id', req.userId).single();
     discount = Math.min(Number(me && me.referral_balance_pkr) || 0, 500 * pack.credits);
   } catch (e) {}
-  const { data, error } = await admin().from('payments').insert({
+  /* The insert is written twice on purpose: the full row first, and a minimal row if the
+     database is missing an optional column (an unrun migration used to turn "I have
+     paid" into a dead button). A customer who has already sent money must never be left
+     with nothing recorded. */
+  const full = {
     user_id: req.userId, amount_pkr: Math.max(0, pack.pkr - discount), credits: pack.credits, discount_pkr: discount,
     reference: String(reference || '').slice(0, 120), pricing_version: (pr && pr.version) || null
-  }).select().single();
-  if (error) return res.status(400).json({ error: error.message });
+  };
+  let { data, error } = await admin().from('payments').insert(full).select().single();
+  if (error) {
+    try { require('./lib/oblog').errlog('payments:insert', new Error(error.message || 'insert failed'), { userId: req.userId }); } catch (e) {}
+    const minimal = { user_id: req.userId, amount_pkr: full.amount_pkr, credits: full.credits, reference: full.reference };
+    ({ data, error } = await admin().from('payments').insert(minimal).select().single());
+  }
+  if (error) return res.status(400).json({ error: 'We could not record your payment just now. Please send your transaction ID on WhatsApp and we will activate it manually.' });
   res.json({ payment: data, amount_pkr: Math.max(0, pack.pkr - discount), list_pkr: pack.list_pkr || pack.pkr,
     promo_applied: !!pack.list_pkr, discount_pkr: discount,
     note: 'Pending. Credits appear after staff confirms your bank transfer.' });
@@ -1777,6 +1806,30 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
   res.json({ ok: true });
 });
 
+/* ADMIN BYPASS ACTIVATION. The owner and staff never pay, and never should have been
+   sent through the customer payment sheet to test or to work. One button grants the
+   entitlement immediately, with no payment row to approve and no waiting, and clears
+   the day's search usage so the account is effectively unlimited. Client-preview mode
+   is refused deliberately: that mode exists to REMOVE admin power, so honouring a
+   bypass inside it would make the preview a lie. */
+app.post('/api/admin/bypass-activate', auth, async (req, res) => {
+  try {
+    const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
+    if (!prof || !require('./lib/rbac').isAdminRole(prof.role) || prof.role === 'user') return res.status(403).json({ error: 'Staff only' });
+    if (simUser(req)) return res.status(400).json({ error: 'You are previewing as a client. Exit the preview, then activate.' });
+    const asked = Number((req.body || {}).credits);
+    const want = isFinite(asked) && asked > 0 ? Math.max(999, Math.round(asked)) : 999;
+    const bal0 = await balance(req.userId).catch(() => 0);
+    const topUp = Math.max(1, want - bal0);
+    const { error } = await admin().from('credit_ledger').insert({ user_id: req.userId, delta: topUp, reason: 'admin_bypass', note: 'Staff activation, no payment' });
+    if (error) return res.status(400).json({ error: error.message });
+    try { await resetSearchAllowance(req.userId); } catch (e) {}
+    try { await admin().from('audit_log').insert({ actor: req.userId, event: 'ADMIN_BYPASS_ACTIVATE', detail: '+' + topUp + ' credits, no payment' }); } catch (e) {}
+    const bal = await balance(req.userId).catch(() => topUp);
+    res.json({ ok: true, granted: topUp, balance: bal, unlimited: bal >= 900 });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 /* ---------- Phase 5: payment gateways (SKELETON - inert until credentials set) ---------- */
 const paymentGateways = require('./lib/payments');
 app.get('/api/payment-gateways', (req, res) => {
@@ -1808,7 +1861,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
   const q = String(req.query.q || '').trim();
   const studyKinds = ['study', 'scholarship', 'postdoc'];
   const multi = v => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
-  let query = admin().from('opportunities').select('*').eq('status', 'verified').limit(80);
+  let query = admin().from('opportunities').select('*').eq('status', 'verified').limit(400);
   query = (String(req.query.sort) === 'recent') ? query.order('verified_at', { ascending: false }) : query.order('deadline', { ascending: true });
   if (kind === 'study') query = query.in('kind', studyKinds);
   else if (kind === 'scholarship') query = query.eq('kind', 'scholarship');
@@ -1886,7 +1939,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
     try { require('./lib/oblog').errlog('opportunities:query', new Error(error.message || 'query failed'), { userId: req.userId }); } catch (e) {}
   }
   if (error) {
-    let q2 = admin().from('opportunities').select('*').eq('status', 'verified').order('deadline', { ascending: true }).limit(80);
+    let q2 = admin().from('opportunities').select('*').eq('status', 'verified').order('deadline', { ascending: true }).limit(400);
     if (kind === 'study') q2 = q2.in('kind', studyKinds); else q2 = q2.eq('kind', kind);
     ({ data } = await q2);
   }
@@ -1927,7 +1980,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
   if (!rows.length) {
     try {
       let q3 = admin().from('opportunities').select('*').eq('status', 'verified')
-        .order('deadline', { ascending: true }).limit(80);
+        .order('deadline', { ascending: true }).limit(400);
       if (kind === 'study') q3 = q3.in('kind', studyKinds);
       else if (kind === 'scholarship') q3 = q3.eq('kind', 'scholarship');
       else q3 = q3.eq('kind', kind);
@@ -1987,7 +2040,7 @@ app.get('/api/opportunities', auth, async (req, res) => {
     // to show an empty page.
     if (kept.length) rows = kept;
   }
-  rows = rows.slice(0, 60);
+  rows = rows.slice(0, 240);
   let opportunities = rows;
   // Phase 4: annotate with match status when requested (?match=1)
   if (String(req.query.match || '') === '1' && opportunities.length) {
@@ -2045,9 +2098,10 @@ app.get('/api/opportunities', auth, async (req, res) => {
       req._relaxNote = relaxNote;
       // Highest match first, always.
       opportunities.sort((a, b) => ((b.match && b.match.pct) || 0) - ((a.match && a.match.pct) || 0));
-      /* Fifteen is the ceiling. Beyond that a list stops being a shortlist and becomes a
-         search engine, which is exactly what the applicant is paying us to avoid. */
-      opportunities = opportunities.slice(0, 15);
+      /* Everything that survives the gate above is a real 60%+ fit at the level, field
+         and countries the user chose, so we hand back the full set. The package tier
+         controls how many are UNLOCKED; it must not also silently shrink the search. */
+      opportunities = opportunities.slice(0, MATCH_MAX);
     } catch (e) { /* matching is best-effort; never blocks the list */ }
   }
   // Mark opportunities this user has already started - one case, one cost, ever.
@@ -3354,7 +3408,10 @@ app.post('/api/run', auth, fairUse, (req,res,next)=>{const f=(require('./lib/set
   await admin().from('app_settings').upsert({ key: 'lastRun:' + req.userId, value: { at: new Date().toISOString() } });
   try {
     const bal = await balance(req.userId);
-    prefs.target = isAdminRun ? 20 : Math.min(20, Math.max(5, bal || 0));
+    /* Depth of the hunt. The old formula tied the target to the credit balance, so a
+       two-case buyer triggered a search for five positions and then wondered why the
+       screen looked thin. Fifteen is now the floor for everyone and staff run wide. */
+    prefs.target = isAdminRun ? 60 : Math.min(60, Math.max(15, (bal || 0) * 3));
   } catch (e) {}
   // Server-side, resumable progress: the run continues even if the phone dies.
   const progressKey = 'discover:' + req.userId;
