@@ -180,8 +180,14 @@ const checks = [
   ['CV analysis is context-aware (job vs study) + classy, with no licensing lane', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     // Two lanes only: study abroad and work abroad. The licensing lane is retired.
+    // CONTRACT CHANGED (R4630): the "documents to prepare in advance" block was removed
+    // from the results page. It was generic, premature, and sat in front of someone still
+    // deciding which position to choose. Requirements are now asked for when a case is
+    // prepared, from that position's own official page.
     return f.includes('Your Job Match Analysis') && !f.includes('Your Licensing Pathway Analysis') &&
-      f.includes('Your CV Analysis & Search Report') && f.includes('CTX.section');
+      f.includes('Your CV Analysis & Search Report') &&
+      !f.includes('${CTX.section}') &&
+      f.includes('DOCUMENTS BELONG TO THE CASE');
   })()],
   ['packages are admin-editable and deploy app-wide (visibility + pricing driven by config)', (() => {
     const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');

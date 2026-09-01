@@ -87,7 +87,7 @@ const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimu
 const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-09-01-R4610';
+const FF_BUILD = '2026-09-01-R4630';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 /* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
    assistant.zip was a file committed by hand, and it had drifted: users were downloading
@@ -1433,8 +1433,15 @@ app.get('/api/me', auth, async (req, res) => {
 /* ---------- journey state for the state-driven post-login home (Stage 2) ----------
    Returns ONE state + the single next action the home should show. */
 async function computeMeState(uid) {
-    const { count: cvCount } = await admin().from('documents').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('kind', 'cv');
-    const hasCV = (cvCount || 0) > 0;
+    /* The NAME of the file, not just whether one exists. A tick beside "Upload CV" left
+       people unsure whether the right file had gone up, and several uploaded again to be
+       safe. Showing the filename settles it at a glance. */
+    const { data: cvRows } = await admin().from('documents').select('name,created_at')
+      .eq('user_id', uid).eq('kind', 'cv').order('created_at', { ascending: false }).limit(1);
+    const cvCount = (cvRows || []).length;
+    const hasCV = cvCount > 0;
+    const cvName = hasCV ? String(cvRows[0].name || '').slice(0, 60) : null;
+    const cvAt = hasCV ? cvRows[0].created_at : null;
     const { data: apps } = await admin().from('applications').select('id,stage,opportunity_id,updated_at').eq('user_id', uid).order('updated_at', { ascending: false }).limit(50);
     const list = apps || [];
     const anyStage = (...s) => list.find(a => s.includes(a.stage));
@@ -1463,7 +1470,7 @@ async function computeMeState(uid) {
       deadlineSoon = ds || 0;
       appsReady = list.filter(a => ['awaiting_authorization', 'prepared', 'portal_apply'].includes(a.stage)).length;
     } catch (e) {}
-    return { state, hasCV, appCount: list.length, matches, deadlineSoon, appsReady };
+    return { state, hasCV, cvName, cvAt, appCount: list.length, matches, deadlineSoon, appsReady };
 }
 app.get('/api/me/state', auth, async (req, res) => {
   try { res.json(await computeMeState(req.userId)); }
@@ -1660,6 +1667,15 @@ function hintLabel(o) {
   /* The subject comes from the stated field, or from the title with the identifying words
      removed - never the institution, never the programme's own name. */
   let subj = String(o.req_field || o.field || '').trim();
+  /* When no field is stated, read the subject out of the description as well as the
+     title. "Verified position" was the old fallback and it is worthless to an applicant
+     trying to decide whether to spend a credit. */
+  if (!subj) {
+    const blob = String(o.description || '') + ' ' + String(o.title || '');
+    const SUBJ = ['pharmacology','pharmacy','pharmacovigilance','regulatory affairs','molecular biology','biomedical','biotechnology','microbiology','biochemistry','genetics','neuroscience','immunology','oncology','cardiology','public health','epidemiology','nursing','medicine','dentistry','physiotherapy','nutrition','chemistry','physics','mathematics','statistics','data science','machine learning','artificial intelligence','computer science','software engineering','cybersecurity','civil engineering','mechanical engineering','electrical engineering','chemical engineering','materials science','environmental science','energy','robotics','economics','finance','accounting','management','marketing','law','education','psychology','sociology','agriculture','food science','architecture','linguistics'];
+    const hit = SUBJ.find(w => new RegExp('\\b' + w.replace(/ /g, '[ -]') + '\\b', 'i').test(blob));
+    if (hit) subj = hit;
+  }
   if (!subj) {
     subj = String(o.title || '')
       .replace(/\b(phd|ph\.d|postdoc(toral)?|doctoral|master'?s?|msc|mphil|bachelor'?s?|bsc|fellowship|position|vacancy|programme|program|scholarship|studentship|opportunity|in|of|the|at|for|a|an)\b/gi, ' ')
@@ -2301,6 +2317,14 @@ app.get('/api/opportunities', auth, async (req, res) => {
      have filled it. We now say plainly how many strong matches exist and how many short of
      fifteen we are; the client asks for a live top-up, which runs in the background and
      streams in. It does not spend a daily search - the user already spent one to get here. */
+  /* THE HINT BELONGS ON EVERY ROW OF THE MAIN LIST. It was added to the saved-list
+     endpoint only, so the discovery table fell back to "Verified position" - a label that
+     tells an applicant nothing at all - for every unlocked row. */
+  opportunities = (opportunities || []).map(o => Object.assign({}, o, {
+    hint: o.hint || hintLabel(o),
+    relevance_line: o.relevance_line || relevanceLine(o),
+    complexity: o.complexity || complexity(o)
+  }));
   const strong = (opportunities || []).filter(o => o.match && o.match.pct != null && o.match.pct >= RELEVANCE_FLOOR).length;
   res.json({ opportunities, strong_count: strong,
     topup_needed: String(req.query.match) === '1' && strong < 15,

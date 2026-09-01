@@ -615,6 +615,14 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
    and the backdrop scrolls only as a fallback. */
 .ff-ack{overflow:auto}
 .ff-ack>div{max-height:calc(100vh - 40px);overflow-y:auto;overscroll-behavior:contain}
+/* The results sheet is a full-screen overlay, so the only scrollbar on screen belonged to
+   it and sat at the very edge of the window, far from the panel it moved. Each panel
+   scrolls inside its own frame now, with its bar against its own right edge. */
+.ffmatches,.ff-appview,.ff-finder{overflow:auto}
+.ffmatches>div,.ff-appview>div,.ff-finder>div{max-height:calc(100vh - 24px);overflow-y:auto;overscroll-behavior:contain}
+.ffmatches>div::-webkit-scrollbar,.ff-appview>div::-webkit-scrollbar,.ff-finder>div::-webkit-scrollbar{width:8px}
+.ffmatches>div::-webkit-scrollbar-thumb,.ff-appview>div::-webkit-scrollbar-thumb,.ff-finder>div::-webkit-scrollbar-thumb{background:rgba(140,178,255,.4);border-radius:8px}
+.ffmatches>div,.ff-appview>div,.ff-finder>div{scrollbar-width:thin;scrollbar-color:rgba(140,178,255,.45) transparent}
 .ff-ack>div::-webkit-scrollbar,.ff-appview>div::-webkit-scrollbar,.ffmatches>div::-webkit-scrollbar{width:8px}
 .ff-ack>div::-webkit-scrollbar-thumb,.ff-appview>div::-webkit-scrollbar-thumb,.ffmatches>div::-webkit-scrollbar-thumb{background:rgba(140,178,255,.38);border-radius:8px}
 .ff-ack>div::-webkit-scrollbar-track,.ff-appview>div::-webkit-scrollbar-track,.ffmatches>div::-webkit-scrollbar-track{background:transparent}
@@ -1598,7 +1606,9 @@ async function vHome(){
        user can upload a newer CV, search again, or reopen prepared cases at any time.
        Nothing in this journey is ever one-way. */
     const steps=[
-    ['Upload CV',S.hasCV,'Upload',"window._uploadKind=null;document.getElementById('doc-files').click()",'Update CV'],
+    /* The uploaded file is named on the step itself, so nobody has to wonder whether the
+       right CV went up, or upload it twice to be sure. */
+    ['Upload CV'+(S.hasCV&&S.cvName?' \u00b7 <span style="color:#9fe8d8;font-weight:600">'+esc(S.cvName)+'</span>':''),S.hasCV,'Upload',"window._uploadKind=null;document.getElementById('doc-files').click()",'Update CV'],
     /* Step 2 wording. A raw running total was misleading: it grew forever and did not
        match what a search returned. We now say what the user can actually act on, and
        respect the package: numbers of unlocked matches only once they have one. */
@@ -2037,6 +2047,23 @@ async function oppPeek(id){
   document.body.appendChild(w);
 }
 /* The review: what they picked, before they pay for anything. */
+/* STAFF DO NOT BUY. From the selection screen this grants the entitlement outright, so
+   every selected position is revealed in full - institution, exact title, supervisor,
+   official link, complete requirements - and there is no limit on how many are applied
+   for. Customers continue to the packages, exactly as before. */
+async function adminSkipAndUnlock(btn){
+  const label=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Unlocking\u2026'}
+  try{
+    if(localStorage.getItem('ffSimUser')==='1')localStorage.setItem('ffSimUser','0');
+    await api('/api/admin/bypass-activate',{method:'POST',body:{credits:999}});
+    document.querySelectorAll('.ff-ack').forEach(x=>x.remove());
+    try{await refreshCredits()}catch(e){}
+    toast('Unlocked. Every selected position now shows in full, and you can apply without limit.');
+    if(window._lastMatches)showMatches(window._lastMatches.kind,window._lastMatches.opts||{});
+    else go('home');
+  }catch(e){toast(e.message);if(btn){btn.disabled=false;btn.textContent=label}}
+}
 function selReview(){
   const list=(window._top15||[]).filter(o=>selHas(o.id));
   const w=document.createElement('div');w.className='ff-ack';
@@ -2654,87 +2681,33 @@ function matchStatsTable(list,opts){
       <div class="sub" style="margin-top:2px">${best>=0?`Best match <b style="color:#2dd4bf">${best}%</b> · `:''}${CTX.sub}</div>
     </div><div id="ffAnalysisRows" style="display:none">${rows}</div>
     <div style="padding:10px 14px"><button class="btn b-line" style="width:100%" onclick="(function(b){const r=document.getElementById('ffAnalysisRows');const on=r.style.display==='none';r.style.display=on?'block':'none';b.textContent=on?'Hide full analysis':'See full analysis and summary';})(this)">See full analysis and summary</button></div>
-    ${(()=>{
-      // Precisely tailored to the exact path selected. Short (max ~4), diplomatic ("may be required"),
-      // so the user is forewarned (protecting us) without being scared off by a long list.
-      const lvls=(opts.levels||[]);
-      const has=x=>lvls.includes(x);
-      let items;
-      /* FIRST, read what the ACTUAL matched opportunities ask for. A generic list is a
-         guess; the requirements printed on the official pages are the truth. We only fall
-         back to the level/exam defaults when the adverts state nothing useful. */
-      const fromAds=(function(){
-        try{
-          const seen=new Map();
-          const add=(k,txt)=>{if(!seen.has(k))seen.set(k,txt)};
-          for(const o of (list||[]).slice(0,12)){
-            const blob=[o.req_docs,o.requirements,o.eligibility,o.req_language,o.req_license,o.req_field,o.req_degree_level]
-              .filter(Boolean).join(' ').toLowerCase();
-            if(!blob)continue;
-            if(/transcript/.test(blob))            add('tr','Academic transcripts for every degree you hold');
-            if(/degree certificate|diploma|attest/.test(blob)) add('dg','Degree certificates, attested where the country requires it');
-            if(/ielts|toefl|english|oet|language/.test(blob))  add('en','A valid English test score (IELTS, TOEFL or OET)');
-            if(/reference|referee|recommendation/.test(blob))  add('rf','Two or three referees who can speak to your work');
-            if(/research (statement|proposal|plan)|statement of purpose|motivation/.test(blob)) add('rs','A research statement or statement of purpose');
-            if(/publication|paper/.test(blob))      add('pb','Your publication list, with PDFs where you have them');
-            if(/licen[cs]e|registration|council|dataflow|prometric/.test(blob)) add('lc','Your professional licence or registration certificate');
-            if(/passport|identity|cnic/.test(blob)) add('pp','Passport, valid for the whole application period');
-            if(/cv|curriculum|resume/.test(blob))   add('cv','A full academic CV including publications');
-            if(/experience (letter|certificate)|employment/.test(blob)) add('ex','Experience or employment letters from each employer');
-            if(/police|clearance|good standing/.test(blob)) add('gs','A good-standing or police clearance certificate');
-          }
-          return [...seen.values()];
-        }catch(e){return []}
-      })();
-      if(fromAds.length>=2){
-        items=fromAds.slice(0,5);
-      } else if(isWork){
-        items = [
-          'An up-to-date professional CV and a valid passport',
-          'Your degree and experience certificates (attestation may be required for some countries or visas)',
-          'Any professional licence your field needs; an English test may be requested for some roles, it is good to have ready'
-        ];
-      } else if(has('bachelors')||has('diploma')||has('short_course')){
-        items = [
-          'Your final school/college certificates and transcripts (marksheets)',
-          'Passport, and an English test (IELTS/TOEFL) is commonly required, a valid score prepared early helps a lot',
-          'A short personal/motivation statement; proof of funds may be needed for the visa stage'
-        ];
-      } else if(has('masters')){
-        items = [
-          'Your bachelor\u2019s degree and transcripts with CGPA',
-          'A statement of purpose and, usually, two references',
-          'An English test (IELTS/TOEFL) is normally required, having a valid score ready is strongly advised'
-        ];
-      } else if(has('phd')){
-        items = [
-          'Your master\u2019s/MPhil degree, transcripts, and an academic CV',
-          'A research proposal or statement aligned to the group, and two to three references',
-          'An English test may be required; a valid IELTS/TOEFL prepared early is a great advantage'
-        ];
-      } else if(has('postdoc')||has('fellowship')){
-        items = [
-          'Your PhD degree/completion evidence and a full academic CV with publications',
-          'A short research statement and referees who can speak to your research',
-          'An English test may be requested by some hosts, worth having ready'
-        ];
-      } else {
-        items = [
-          'Your degrees and transcripts, and an up-to-date CV',
-          'A statement of purpose, and references where the programme asks',
-          'An English test (IELTS/TOEFL) may be required, preparing a valid score early is wise'
-        ];
-      }
-      return `<div style="padding:11px 14px;border-top:1px solid rgba(140,178,255,.16);background:rgba(245,184,65,.05)">
-        <div style="font:700 12.5px Inter;color:#FFD070;margin-bottom:5px">${CTX.section}</div>
-        ${items.slice(0,3).map(t=>`<div class="sub" style="padding:2px 0;line-height:1.5">• ${esc(t)}</div>`).join('')}
-        <div class="sub" style="margin-top:5px;font-size:11px;opacity:.85">A quick heads-up so nothing surprises you later: some items are only needed at a later stage, and we will guide you at each step. We prepare and organise your application, you simply keep authentic documents ready.</div>
-      </div>`;
-    })()}</div>
+    ${''/* DOCUMENTS BELONG TO THE CASE, NOT TO THE SEARCH RESULTS. A list of things to
+        prepare "in advance" sat on the results page for every applicant, generic and
+        premature, at the exact moment they were trying to judge which position to choose.
+        Requirements are now asked for when a case is actually being prepared, taken from
+        that position's own official page, and only what that stage needs. */}</div>
   ${(()=>{const openN=list.filter(o=>!o.locked&&o.institution).length;const cr=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
     window._chk=null;
     return openN&&cr?`<div style="font:700 14px Inter;color:#B4E4FF;margin:2px 0 8px;text-align:center">Search complete. From everything we checked, we selected the ${openN} best opportunit${openN===1?'y':'ies'} for you. Choose any ${Math.min(cr,openN)} to proceed, entirely your decision. Your package covers ${cr} case${cr===1?'':'s'}.</div>`
-    :`<div style="font:600 13.5px Inter;color:#eef4ff;margin:2px 0 8px;text-align:center">Everything is prepared and waiting. Choose your package, and your first case begins today.</div>`})()}
+    /* FACTS, NOT A SALES LINE. "Everything is prepared and waiting" says nothing an
+       applicant can check. The counts below are computed from their own result set and
+       are each verifiable by scrolling the table. */
+    :(()=>{
+      const n=list.length;
+      const fully=list.filter(o=>o.funding_type==='fully').length;
+      const paid=list.filter(o=>String(o.stipend||o.salary_note||'').trim()).length;
+      const noIelts=list.filter(o=>!o.req_language||o.req_language==='none').length;
+      const cs=[...new Set(list.map(o=>o.country_code).filter(Boolean))].length;
+      const soon=list.filter(o=>{const d=daysLeft(o.deadline);return d!=null&&d<=30}).length;
+      const bits=[];
+      if(fully)bits.push('<b style="color:#4ade80">'+fully+'</b> fully funded');
+      if(paid)bits.push('<b style="color:#4ade80">'+paid+'</b> state the pay');
+      if(noIelts)bits.push('<b style="color:#7EE6FF">'+noIelts+'</b> ask for no English test');
+      if(cs>1)bits.push('across <b style="color:#B4E4FF">'+cs+'</b> countries');
+      if(soon)bits.push('<b style="color:#FFD070">'+soon+'</b> close within 30 days');
+      return `<div style="font:600 13px Inter;color:#eef4ff;margin:2px 0 8px;text-align:center;line-height:1.6">
+        <b style="color:#00D4FF">${n}</b> position${n===1?'':'s'} matched to your profile${bits.length?': '+bits.join(' \u00b7 '):''}.</div>`;
+    })()})()}
 `;
 }
 /* ===== Tiered match results: opens automatically when the finder completes ===== */
