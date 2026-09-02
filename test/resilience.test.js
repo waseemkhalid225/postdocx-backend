@@ -486,10 +486,13 @@ const checks = [
   ['dashboard match count agrees with search and respects the package', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
-    // The count must apply the same gates the search applies, not tally raw inventory.
-    return sv.includes('matchMany(uid, opps, wantLv, wantCc)') &&
-      sv.includes('!x.wrongTarget && !x.overqualified && !x.fieldMismatch') &&
-      sv.includes('x.pct >= RELEVANCE_FLOOR');
+    // R4730: the dashboard never displayed that count, so the 240-opportunity scoring
+    // pass is gone from /api/home entirely. The page must not score inventory at all,
+    // and the home payload must be fetched in one parallel batch.
+    return !sv.includes('matchMany(uid, opps, wantLv, wantCc)') &&
+      sv.includes('const [supR, meR, discR, pendR] = await Promise.all([') &&
+      sv.includes('out.pendingPayment') &&
+      !fe.includes('HM.myMatches');
   })()],
   ['case documents: uploaded CV kept, motivation + proposal for research roles', (() => {
     const en = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
@@ -535,7 +538,8 @@ const checks = [
     return st.includes('daily_searches: 3') && !st.includes('monthly_searches') &&
       sv.includes('async function searchCounts') && sv.includes('resetSearchAllowance') &&
       sv.includes("event: 'SEARCH_RUN'") &&
-      sv.includes("reason: 'purchase', payment_id: p.id })") && sv.includes('A purchase restarts the search allowance');
+      sv.includes("reason: 'purchase', payment_id: p.id, note: 'Payment ' + p.id })") &&
+      sv.includes('if (led.error) led = await admin()') && sv.includes('A purchase restarts the search allowance');
   })()],
   ['free users see real preview cards with identity withheld', (() => {
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
@@ -550,10 +554,67 @@ const checks = [
     // A selected filter is a promise. Country, level, funding, language, job type,
     // experience and work mode all run through the same enforce-and-report loop.
     return f.includes('const FILTERS=[') && f.includes('window._filterReport')
-      && f.includes('Every position below matches what you chose')
+      && !f.includes('Every position below matches what you chose')   // receipt removed R4730
       && ['Remote only','Your selected countries','Your selected level','Fully funded only',
           'No language certificate required','Your job type','Your experience level']
          .every(l => f.includes(l));
+  })()],
+  ['R4730: mobile nav on the body, sign out reachable', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes('function placeNav(') && f.includes("window.addEventListener('resize',placeNav)")
+      && f.includes('placeNav();$(\'nav\').style.display=\'flex\'');
+  })()],
+  ['R4730: payment is a screenshot, stored, shown to admin, approve or reject', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const mg = fs.readFileSync(__dirname + '/../ALL_MIGRATIONS_run_in_order.sql', 'utf8');
+    return f.includes('id="payShot" type="file" accept="image/*"') && f.includes('function payShotPicked(')
+      && f.includes('proof_b64:window._payShot.b64') && !f.includes('id="payRef"')
+      && f.includes('function rejectPay(') && f.includes('p.proof_url')
+      && sv.includes('const { credits, reference, proof_b64 } = req.body || {}')
+      && sv.includes("Please attach a screenshot of your payment before sending")
+      && sv.includes("'payments/' + req.userId + '/' + data.id + '.jpg'")
+      && sv.includes('createSignedUrl(path, 3600)')
+      && sv.includes("app.post('/api/payments/:id/reject'")
+      && mg.includes('add column if not exists proof_path text');
+  })()],
+  ['R4730: approval writes credits or rolls back, balance never lies', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return sv.includes("update({ status: 'pending', confirmed_by: null, confirmed_at: null })")
+      && sv.includes('credits_added: creditsN, balance: newBal')
+      && sv.includes("from('credit_ledger').select('delta').eq('user_id', userId)")
+      && sv.includes('credits: bal, pending_payments: pending')
+      && f.includes('CREDITS=Number(d.credits!=null?d.credits:d.balance)||0')
+      && f.includes('function watchPayment(') && f.includes('id="payPendCard"');
+  })()],
+  ['R4730: skip payment is admin/super_admin only and never hides the sheet button', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return sv.includes("if (!prof || !['admin', 'super_admin'].includes(prof.role)) return res.status(403).json({ error: 'Admin only' })")
+      && !sv.includes("Exit the preview, then activate")
+      && f.includes("const isTrueAdmin=()=>") && f.includes("if(document.querySelector('.ff-ack'))return;")
+      && f.includes("document.querySelectorAll('.ffmatches,.ff-sheet,.ff-selbar')")
+      && f.includes('window._analysisOpen')
+      && !f.includes("sv.includes('Staff: you never pay here')");
+  })()],
+  ['R4740: chosen countries are the whole discovery scope, both lanes', (() => {
+    const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return e.includes('const strictScope = priority.length > 0 && !prefs.remote')
+      && e.includes('const ingestScoped = async (items)') && !e.match(/added \+= await ingestOpps\(/)
+      && e.includes('const scopeForCount = priority.length ? priority : null')
+      && e.includes('a position anywhere else will be discarded unread')
+      && sv.includes("prefs.remote = !!(prefs.remote || prefs.workmode === 'remote')");
+  })()],
+  ['R4740: locked cards never carry the institution, funder or scheme name', (() => {
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return sv.includes('function scrubIdentity(text, o, toks)') && sv.includes('const NAMED_FUNDERS')
+      && sv.includes('const S = v => v == null ? null : (scrubIdentity(String(v), o, _tk) || null)')
+      && sv.includes('scheme: null') && sv.includes('funding: S(o.funding)')
+      && sv.includes("subj = scrubIdentity(String(o.title || ''), o)")
+      && f.includes("const tr=o=>o.track==='adjacent'?1:0");
   })()],
   ['remote is a worldwide lane driven by the applicant profile', (() => {
     const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');

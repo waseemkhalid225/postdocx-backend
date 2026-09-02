@@ -89,7 +89,7 @@ textarea{min-height:90px}
 .progbar{height:100%;background:var(--green);border-radius:99px;transition:width .3s}
 @media(max-width:640px){main{padding:12px 10px 84px}.lane{min-width:100%}
 /* Bottom navigation, thumb-friendly */
-#nav{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:40;display:flex!important;justify-content:space-around;background:rgba(6,14,32,.92);backdrop-filter:blur(10px);border-top:1px solid rgba(150,186,255,.25);padding:8px 4px calc(8px + env(safe-area-inset-bottom))}
+#nav{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:40;justify-content:space-around;background:rgba(6,14,32,.92);backdrop-filter:blur(10px);border-top:1px solid rgba(150,186,255,.25);padding:8px 4px calc(8px + env(safe-area-inset-bottom))}
 #nav button{font-size:13px;padding:8px 10px;min-height:42px}
 header #nav{position:fixed}
 /* Modals become bottom sheets */
@@ -762,8 +762,13 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 // Recognize any admin-tier role (mirrors lib/rbac.js). 'user' is the only non-admin role.
 const ADMIN_ROLES=['super_admin','admin','content_admin','support_admin','finance_admin','operations_admin','opportunity_admin','ai_admin','security_admin','staff'];
 const isAdminRole=r=>ADMIN_ROLES.includes(r);
+/* Owner-level powers (skip payment, activate without paying) belong to admin and super
+   admin only. Other staff roles see the customer's path exactly as a customer does. */
+const isTrueAdmin=()=>{try{return !!(window.ME&&['admin','super_admin'].includes(ME.role))}catch(e){return false}};
 async function refreshCredits(){
-  try{const d=await api('/api/credits');CREDITS=d.credits;const p=$('creditPill');if(p)p.textContent=CREDITS+' credit'+(CREDITS===1?'':'s')}catch(e){}
+  /* /api/credits answers with {balance}; this read d.credits and painted "undefined
+     credits" in the header after every purchase. Both keys are accepted now. */
+  try{const d=await api('/api/credits');CREDITS=Number(d.credits!=null?d.credits:d.balance)||0;const p=$('creditPill');if(p)p.textContent=CREDITS+' credit'+(CREDITS===1?'':'s');return CREDITS}catch(e){return CREDITS}
 }
 // escAttr: safe for values placed inside single-quoted JS string args in onclick=""
 const escAttr=s=>String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/[<>]/g,c=>({'<':'&lt;','>':'&gt;'}[c])).replace(/\r?\n/g,' ');
@@ -890,11 +895,14 @@ async function _apiRaw(p,o={}){
     // Token refreshes fire every few minutes; re-rendering on them wiped admin forms mid-typing.
     if(s&&!window._ffBooted&&_e!=='TOKEN_REFRESHED'){window._ffBooted=true;afterLogin();}});
   const q=new URLSearchParams(location.search);
-  if(SESSION)afterLogin();else{document.querySelector('header').style.display='none';renderAuth();}
+  if(SESSION)afterLogin();else{document.querySelector('header').style.display='none';try{$('nav').style.display='none'}catch(e){}renderAuth();}
 })();
 async function afterLogin(){
   document.querySelector('header').style.display='flex';
-  $('nav').style.display='flex';$('outBtn').style.display='inline-block';
+  placeNav();$('nav').style.display='flex';$('outBtn').style.display='inline-block';
+  /* SPEED: the dashboard payload is requested in the same breath as the profile, not
+     after it. One round-trip instead of two before the first real paint. */
+  try{window._homePrefetch=api('/api/home').catch(()=>null)}catch(e){}
   try{const d=await api('/api/me');ME=d.me;CREDITS=d.credits||0;}catch(e){toast(e.message)}
   // The Admin tab must NEVER be hidden by an unrelated failure: it is set on its own,
   // and re-asserted on every render below as a self-healing fallback.
@@ -1071,6 +1079,7 @@ function showAnnouncement(){
    session is cleared locally first - which is what actually signs the person out of this
    device - and the server is told afterwards, on the way out. */
 function signOut(){
+  try{$('nav').style.display='none';$('outBtn').style.display='none';$('creditPill').style.display='none'}catch(e){}
   window._ffBooted=false;
   try{Object.keys(localStorage).forEach(k=>{if(/^sb-|supabase/i.test(k))localStorage.removeItem(k)})}catch(e){}
   try{SESSION=null;ME=null}catch(e){}
@@ -1080,7 +1089,7 @@ function signOut(){
 function go(t){
   /* The matches sheet is a fixed overlay above #view. Navigating without removing it
      re-rendered the destination underneath, so every button inside the sheet looked dead. */
-  try{document.querySelectorAll('.ffmatches,.ff-sheet').forEach(x=>x.remove())}catch(e){}
+  try{document.querySelectorAll('.ffmatches,.ff-sheet,.ff-selbar').forEach(x=>x.remove())}catch(e){}
   // Mark the destination tab active BEFORE rendering, so the tap registers visually
   // even if the view takes a moment to paint.
   TAB=t;
@@ -1095,6 +1104,19 @@ function go(t){
   requestAnimationFrame(()=>render());
 }
 document.addEventListener('click',e=>{const b=e.target.closest('#nav button');if(b){if(b.dataset.t==='browse')window._lane='';go(b.dataset.t)}});
+/* MOBILE NAV LIVES ON THE BODY. The header has backdrop-filter, and a backdrop-filter
+   makes an element the containing block for its fixed descendants: the "bottom:0" nav
+   was pinned to the bottom of the HEADER, painted over the brand and the Sign out button,
+   and the sign-out was unreachable on every phone. On narrow screens the nav is moved
+   out of the header so fixed means the viewport again. */
+function placeNav(){
+  try{
+    const n=$('nav'),h=document.querySelector('header');if(!n||!h)return;
+    if(window.innerWidth<=640){if(n.parentNode!==document.body)document.body.appendChild(n);}
+    else if(n.parentNode!==h){h.insertBefore(n,$('creditPill'));}
+  }catch(e){}
+}
+placeNav();window.addEventListener('resize',placeNav);
 /* PAINT FIRST, DECORATE AFTER. Every navigation used to kick off the 3D world layer and
    its video in the same frame as the view render, so the tap competed with texture and
    video work for the main thread and the button felt dead for a moment. The view paints
@@ -1519,12 +1541,21 @@ async function vHome(){
   if(window._ref===undefined){window._ref=null;loadReferral().then(()=>{if(TAB==='home'&&window._ref)vHome()}).catch(()=>{});}
   // SPEED: on a slow connection, paint instantly from the last dashboard while we refresh.
   let S={state:'new',hasCV:false,appCount:0},HM=null;
+  /* Last known dashboard, persisted on the phone: it paints in the first frame, and the
+     fresh copy replaces it the moment the server answers. */
+  if(!window._homeCache){try{const c=JSON.parse(localStorage.getItem('ffHome')||'null');if(c&&c.data&&c.uid===(SESSION&&SESSION.user&&SESSION.user.id))window._homeCache={data:c.data,at:0}}catch(e){}}
   if(window._homeCache&&Date.now()-window._homeCache.at<60000){HM=window._homeCache.data;if(HM&&HM.state)S=HM.state;}
+  else if(window._homeCache&&window._homeCache.data){HM=window._homeCache.data;if(HM&&HM.state)S=HM.state;window._homeStale=true;}
   else $('view').innerHTML='<div class="home-hero"><div class="home-hero-badge">Loading…</div><h1 class="home-hero-h">Getting your next step ready…</h1></div>';
-  try{HM=await api('/api/home');if(HM){window._homeCache={data:HM,at:Date.now()};if(HM.state)S=HM.state}}catch(e){if(window._homeCache)HM=window._homeCache.data;}
+  try{
+    let fresh=null;
+    if(window._homePrefetch){const pf=window._homePrefetch;window._homePrefetch=null;fresh=await pf;}
+    else if(!(window._homeCache&&Date.now()-window._homeCache.at<60000))fresh=await api('/api/home');
+    if(fresh){HM=fresh;window._homeCache={data:HM,at:Date.now()};if(HM.state)S=HM.state;window._homeStale=false;
+      try{localStorage.setItem('ffHome',JSON.stringify({uid:SESSION&&SESSION.user&&SESSION.user.id,data:HM}))}catch(e){}}
+  }catch(e){if(window._homeCache)HM=window._homeCache.data;}
   try{const rc=localStorage.getItem('ffref');if(rc&&HM){api('/api/referral/claim',{method:'POST',body:{code:rc}}).then(()=>localStorage.removeItem('ffref')).catch(()=>localStorage.removeItem('ffref'))}}catch(e){}
   if(!HM){try{S=await api('/api/me/state')}catch(e){}}
-  const MY=(HM&&HM.myMatches)||{count70:0};
   window._homeState=S.state;
   const heroFor={
     new:{badge:'Welcome',h:'Four steps. You are in control.'},
@@ -1534,6 +1565,7 @@ async function vHome(){
     application_sent:{badge:'✓ Applied',h:'Sent. Find the next one.'}
   };
   const H=heroFor[S.state]||heroFor.new;
+  try{if(HM&&HM.pendingPayment)watchPayment(HM.pendingPayment.id)}catch(e){}
   $('view').innerHTML=`
   <div class="home-hero">
     ${''/* ForiForeign does not run a licensing service, so no licensing tracker lives here. */}
@@ -1642,6 +1674,13 @@ async function vHome(){
     <div class="spread"><b style="font-size:13.5px">Package</b><span class="sub">${c.casesUsed} of ${c.casesTotal} cases · ${c.creditsRemaining} left${c.creditsRemaining<1?` · <a style="cursor:pointer;color:var(--gold);font-weight:600" onclick="openPlans()">View plans</a>`:''}</span></div>
     <div class="ffbar" style="margin-top:8px;height:6px"><div class="ffbar-fill" style="width:${p}%"></div></div>
   </div>`})():''}
+  ${HM&&HM.pendingPayment?`
+  <div class="card" id="payPendCard" style="border-color:#F5B841;margin-top:6px;background:rgba(245,184,65,.06)">
+    <div class="spread"><b style="color:#FFD070">Payment under verification</b><span class="chip c-gold">${HM.pendingPayment.credits} case${HM.pendingPayment.credits===1?'':'s'}</span></div>
+    <div class="sub" style="margin-top:4px;line-height:1.55">Your screenshot reached our finance desk${HM.pendingPayment.amount_pkr?' (Rs '+Number(HM.pendingPayment.amount_pkr).toLocaleString()+')':''}. Cases activate the moment it is approved, usually within 30 minutes. This page updates by itself.</div>
+    <div class="row" style="margin-top:8px;gap:8px"><button class="btn b-line" style="padding:5px 12px;font-size:12px" onclick="openSupport()">Ask us</button>
+    <a class="btn b-line" style="padding:5px 12px;font-size:12px;text-decoration:none" target="_blank" href="https://wa.me/923455216903?text=${encodeURIComponent('Assalam o Alaikum ForiForeign, I sent my payment screenshot for '+HM.pendingPayment.credits+' cases. Please verify.')}">WhatsApp</a></div>
+  </div>`:''}
   ${HM&&HM.discover&&HM.discover.status==='running'?`
   <div class="card" style="border-color:#00D4FF;margin-top:6px">
     <div class="spread"><b>Search in progress</b><span class="sub">${HM.discover.found} of ${HM.discover.target} found</span></div>
@@ -1991,6 +2030,10 @@ function selBar(){
      account block and offered "Continue" to a page the user was already on. It shows only
      while the results sheet is open. */
   if(!document.querySelector('.ffmatches'))return;
+  /* While the review sheet is open the bar is pointless and it covered the sheet's own
+     "Choose a package" button (bar z-index 80, sheet 68): the applicant reviewed their
+     picks and then could not proceed. The sheet restores the bar when it closes. */
+  if(document.querySelector('.ff-ack'))return;
   const b=document.createElement('div');b.className='ff-selbar';
   /* THE RESULTS SHEET SITS AT z-index 65 AND THE LIVE SEARCH BAR AT 69. This bar was at
      64, so it was painted behind both: the applicant selected positions and never saw a
@@ -2004,9 +2047,7 @@ function selBar(){
     <div style="flex:1;min-width:0"><div style="font:700 13px Inter;color:#EAF2FF">MY SELECTION \u00b7 ${window._sel.length}</div>
     <div class="sub" style="font-size:11px">Nothing is charged until you choose a package.</div></div>
     <button class="btn b-line" style="padding:5px 12px;font-size:12px" onclick="selReview()">Review</button>
-    ${(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})()
-      ?`<button class="btn" style="padding:6px 14px;font-size:12.5px;background:#F5B841;color:#0E1F42;font-weight:800" onclick="adminSkipAndUnlock(this)">\u26a1 Skip payment</button>`
-      :`<button class="btn b-gold" style="padding:6px 16px;font-size:13px" onclick="selReview()">Continue \u2192</button>`}</div>`;
+    <button class="btn b-gold" style="padding:6px 16px;font-size:13px" onclick="selReview()">Continue \u2192</button></div>`;
   document.body.appendChild(b);
 }
 /* THE TOP 15. One row each: number, what it is, country, funding, deadline, match. */
@@ -2127,24 +2168,31 @@ async function oppPeek(id){
    official link, complete requirements - and there is no limit on how many are applied
    for. Customers continue to the packages, exactly as before. */
 async function adminSkipAndUnlock(btn){
+  if(!isTrueAdmin()){toast('Admin only.');return}
   const label=btn?btn.textContent:'';
   if(btn){btn.disabled=true;btn.textContent='Unlocking\u2026'}
   try{
+    /* Client preview strips admin power by design; it is switched off so the grant lands
+       on the real account, and the preview banner is cleared with it. */
     if(localStorage.getItem('ffSimUser')==='1')localStorage.setItem('ffSimUser','0');
+    try{const sb=document.getElementById('ffSimBanner');if(sb)sb.remove()}catch(e){}
     await api('/api/admin/bypass-activate',{method:'POST',body:{credits:999}});
-    document.querySelectorAll('.ff-ack').forEach(x=>x.remove());
+    document.querySelectorAll('.ff-ack,.ff-selbar').forEach(x=>x.remove());
+    window._homeCache=null;HM=null;cacheClear();
     try{await refreshCredits()}catch(e){}
     toast('Unlocked. Every selected position now shows in full, and you can apply without limit.');
-    if(window._lastMatches)showMatches(window._lastMatches.kind,window._lastMatches.opts||{});
+    if(window._lastMatches){go('home');setTimeout(()=>showMatches(window._lastMatches.kind,Object.assign({},window._lastMatches.opts||{})),120);}
     else go('home');
   }catch(e){toast(e.message);if(btn){btn.disabled=false;btn.textContent=label}}
 }
 function selReview(){
   const list=selItems();
+  document.querySelectorAll('.ff-ack').forEach(x=>x.remove());
+  document.querySelectorAll('.ff-selbar').forEach(x=>x.remove());
   const w=document.createElement('div');w.className='ff-ack';
-  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:68;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:16px';
-  w.innerHTML=`<div style="position:relative;max-width:460px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);border-radius:16px;padding:18px;color:#eef4ff">
-    <button class="ff-x" onclick="this.closest('.ff-ack').remove()">\u00d7</button>
+  w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:82;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:16px';
+  w.innerHTML=`<div style="position:relative;max-width:460px;width:100%;max-height:calc(100vh - 40px);overflow-y:auto;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);border-radius:16px;padding:18px;color:#eef4ff">
+    <button class="ff-x" onclick="this.closest('.ff-ack').remove();selBar()">\u00d7</button>
     <div style="font:700 12px Inter;letter-spacing:.06em;color:#9db8e8;padding-right:34px">MY SELECTED OPPORTUNITIES</div>
     <div class="sub" style="margin:4px 0 10px">${list.length} selected</div>
     ${list.map((o,i)=>`<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid rgba(140,178,255,.12)">
@@ -2154,13 +2202,13 @@ function selReview(){
       <button class="btn b-line" style="padding:2px 9px;font-size:11.5px" onclick="selToggle('${escAttr(o.id)}');this.closest('.ff-ack').remove();selReview()">Remove</button></div>`).join('')
       ||'<div class="sub">Nothing selected yet.</div>'}
     <div class="sub" style="margin:12px 0 0;line-height:1.55">Unlock complete intelligence and application preparation for the opportunities you selected. Each package covers a set number of cases.</div>
-    <button class="btn b-gold" style="width:100%;margin-top:10px" onclick="this.closest('.ff-ack').remove();go('buy')">Choose a package \u2192</button>
-    ${(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})()?`
-    <button class="btn b-line" style="width:100%;margin-top:8px;border-color:#F5B841;color:#FFD070"
-      onclick="adminSkipAndUnlock(this)">\u26a1 Admin: skip payment and unlock everything</button>
-    <div class="sub" style="margin-top:5px;font-size:11px">Staff only. Reveals every selected position in full and lets you apply without limit.</div>`:''}
+    <button class="btn b-gold" style="width:100%;margin-top:10px;padding:12px;font-size:15px" onclick="this.closest('.ff-ack').remove();go('buy')">Choose a package \u2192</button>
+    ${isTrueAdmin()?`
+    <button class="btn" style="width:100%;margin-top:8px;padding:11px;background:#F5B841;color:#0E1F42;font-weight:800"
+      onclick="adminSkipAndUnlock(this)">\u26a1 Admin: skip payment and proceed</button>
+    <div class="sub" style="margin-top:5px;font-size:11px">Admin only. Reveals every selected position in full and lets you apply without limit.</div>`:''}
   </div>`;
-  w.onclick=e=>{if(e.target===w)w.remove()};
+  w.onclick=e=>{if(e.target===w){w.remove();selBar()}};
   document.body.appendChild(w);
 }
 function oppCard(o,ctaColor){
@@ -2763,8 +2811,11 @@ function matchStatsTable(list,opts){
     <div style="padding:12px 14px;background:linear-gradient(90deg,rgba(22,131,255,.22),rgba(0,212,255,.1));border-bottom:1px solid rgba(0,212,255,.3)">
       <div style="font:800 15px Inter;color:#fff">${CTX.title}</div>
       <div class="sub" style="margin-top:2px">${best>=0?`Best match <b style="color:#2dd4bf">${best}%</b> · `:''}${CTX.sub}</div>
-    </div><div id="ffAnalysisRows" style="display:none">${rows}</div>
-    <div style="padding:10px 14px"><button class="btn b-line" style="width:100%" onclick="(function(b){const r=document.getElementById('ffAnalysisRows');const on=r.style.display==='none';r.style.display=on?'block':'none';b.textContent=on?'Hide full analysis':'See full analysis and summary';})(this)">See full analysis and summary</button></div>
+    </div><div id="ffAnalysisRows" style="display:${window._analysisOpen?'block':'none'}">${rows}</div>
+    ${''/* The rows are already built; this is a plain show/hide. It used to LOOK slow
+         because the live top-up re-rendered the whole sheet every few seconds and put
+         the rows back to hidden. The open state is remembered across re-renders now. */}
+    <div style="padding:10px 14px"><button class="btn b-line" style="width:100%" onclick="(function(b){const r=document.getElementById('ffAnalysisRows');const on=r.style.display==='none';window._analysisOpen=on;r.style.display=on?'block':'none';b.textContent=on?'Hide full analysis':'See full analysis and summary';})(this)">${window._analysisOpen?'Hide full analysis':'See full analysis and summary'}</button></div>
     ${''/* DOCUMENTS BELONG TO THE CASE, NOT TO THE SEARCH RESULTS. A list of things to
         prepare "in advance" sat on the results page for every applicant, generic and
         premature, at the exact moment they were trying to judge which position to choose.
@@ -2776,22 +2827,7 @@ function matchStatsTable(list,opts){
     /* FACTS, NOT A SALES LINE. "Everything is prepared and waiting" says nothing an
        applicant can check. The counts below are computed from their own result set and
        are each verifiable by scrolling the table. */
-    :(()=>{
-      const n=list.length;
-      const fully=list.filter(o=>o.funding_type==='fully').length;
-      const paid=list.filter(o=>String(o.stipend||o.salary_note||'').trim()).length;
-      const noIelts=list.filter(o=>!o.req_language||o.req_language==='none').length;
-      const cs=[...new Set(list.map(o=>o.country_code).filter(Boolean))].length;
-      const soon=list.filter(o=>{const d=daysLeft(o.deadline);return d!=null&&d<=30}).length;
-      const bits=[];
-      if(fully)bits.push('<b style="color:#4ade80">'+fully+'</b> fully funded');
-      if(paid)bits.push('<b style="color:#4ade80">'+paid+'</b> state the pay');
-      if(noIelts)bits.push('<b style="color:#7EE6FF">'+noIelts+'</b> ask for no English test');
-      if(cs>1)bits.push('across <b style="color:#B4E4FF">'+cs+'</b> countries');
-      if(soon)bits.push('<b style="color:#FFD070">'+soon+'</b> close within 30 days');
-      return `<div style="font:600 13px Inter;color:#eef4ff;margin:2px 0 8px;text-align:center;line-height:1.6">
-        <b style="color:#00D4FF">${n}</b> position${n===1?'':'s'} matched to your profile${bits.length?': '+bits.join(' \u00b7 '):''}.</div>`;
-    })()})()}
+    :''})()}
 `;
 }
 /* ===== Tiered match results: opens automatically when the finder completes ===== */
@@ -2911,7 +2947,11 @@ async function showMatches(kind,opts){
   const strip=Object.entries(byC).sort((a,b)=>b[1]-a[1]).slice(0,8)
     .filter(([c,p])=>p>=60).map(([c,p])=>`<span class="chip ${p>=90?'c-green':p>=70?'c-gold':'c-blue'}">${esc(countryName(c))} · ${p}% match</span>`).join('');
   // One clean, confident stream: highest match first, no weak/criteria-pending tiers ever surfaced.
-  let shown=list.slice().sort((a,b)=>pv(b)-pv(a));
+  /* Direct-track positions (the applicant's own field and level) always sit above
+     adjacent ones; only within a track does the score decide. A pure score sort let an
+     adjacent role outrank a direct one into the top fifteen. */
+  const tr=o=>o.track==='adjacent'?1:0;
+  let shown=list.slice().sort((a,b)=>(tr(a)-tr(b))||(pv(b)-pv(a)));
   // Client-side safety net: never render more unlocked cards than the package allows.
   try{
     const cr=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
@@ -2928,8 +2968,9 @@ async function showMatches(kind,opts){
      meaningless to the person reading it. One plain sentence says the same thing. */
   const fr=window._filterReport||[];
   const applied=fr.map(x=>x.label).filter(Boolean);
-  const remoteHtml=applied.length?`<div class="sub" style="margin:10px 0 0;padding:8px 12px;border:1px solid rgba(45,212,191,.35);border-radius:9px;background:rgba(45,212,191,.06);color:#B9F5EA;line-height:1.6">
-    Every position below matches what you chose: ${esc(applied.join(' · ').toLowerCase())}.${(opts.remote||opts.workmode==='remote')?' Each card states its remote status exactly as the official page words it.':''}</div>`:'';
+  /* Removed at the owner's request: the filter receipt and the per-country strip sat
+     between the analysis and the table and said nothing the table does not. */
+  const remoteHtml='';
   const relaxHtml=remoteHtml+(window._relaxNote?`<div class="sub" style="margin:12px 0 0;padding:8px 12px;border:1px solid rgba(245,184,65,.4);border-radius:9px;background:rgba(245,184,65,.07);color:#FFD070">${esc(window._relaxNote)} We keep searching for closer matches in the background.</div>`:'');
   const sec=relaxHtml+`<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(140,178,255,.35),transparent);margin:20px 0 4px"></div>
   ${cta}
@@ -2957,19 +2998,21 @@ async function showMatches(kind,opts){
      body rather than inside the sheet, but a blanket overlay cleanup elsewhere can take
      it with them, so it is restored on every render rather than only when toggled. */
   try{selBar()}catch(e){}
+  let keepTop=0;try{const prev=document.querySelector('.ffmatches>div');if(prev)keepTop=prev.scrollTop||0}catch(e){}
   const wrap=document.createElement('div');wrap.className='ffmatches';
   wrap.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:65;overflow:hidden;padding:20px 10px';
   wrap.innerHTML=`<div style="max-width:680px;margin:0 auto;background:rgba(8,18,40,.95);backdrop-filter:blur(12px);border:1px solid rgba(140,178,255,.36);color:#eef4ff;border-radius:16px;padding:20px">
   <div class="spread"><h2 style="margin:0">Your matches are ready</h2><span><button class="btn b-line" style="padding:4px 10px;margin-right:6px" onclick="document.querySelectorAll('.ffmatches').forEach(x=>x.remove());openFinder(true)">New search</button><button class="btn b-line" style="padding:4px 10px" onclick="this.closest('div[style*=fixed]').remove()" aria-label="Close">✕</button></span></div>
-  ${list.length?`${matchStatsTable(list,opts)}
-  ${strip?`<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:2px">${strip}</div>`:''}
-  ${(opts.countries||[]).length&&list.some(o=>!sel.has(o.country_code))?`<div class="sub" style="margin-top:6px">Your selected countries are listed first, with a few strong nearby matches to widen your options.</div>`:''}${sec}`
+  ${list.length?`${matchStatsTable(list,opts)}${sec}`
   :`<div class="empty" style="margin-top:12px">The agent searched official sources, but nothing passed the quality bar this round.<br><span class="sub">Only positions confirmed on official university and employer pages enter ForiForeign, never filler. The agent keeps searching in the background; new verified matches appear on your dashboard automatically.</span><br><br><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();openFinder(true)">Adjust filters &amp; search again</button>
   <button class="btn b-line" style="margin-left:8px" onclick="this.closest('div[style*=fixed]').remove();const f=window._finder||{};f.ctrys=[];f.fundings=[];f.langs=[];f.intake='';runSearch('${kind}')">Widen my search, my choice</button>
   <div class="sub" style="margin-top:10px">We only show opportunities that genuinely match what you selected: your level, your field and your countries. We never pad the list with positions you cannot apply for.</div>
   <div class="sub" style="margin-top:6px">Searching never uses your cases. Your package is spent only when YOU choose an opportunity and confirm.</div></div>`}
   </div>`;
+  try{document.querySelectorAll('.ffmatches').forEach(x=>{if(x!==wrap)x.remove()})}catch(e){}
   document.body.appendChild(wrap);
+  try{if(keepTop){const inner=wrap.querySelector(':scope>div');if(inner)inner.scrollTop=keepTop}}catch(e){}
+  try{selBar()}catch(e){}
   /* Plan names and prices live on the plans page, never inside the analysis. */
   // Collapse locked overflow into ONE elegant summary card - never a messy wall.
   try{
@@ -4119,7 +4162,7 @@ function simBanner(){
   if(localStorage.getItem('ffSimUser')!=='1'){if(ex)ex.remove();return}
   if(ex)return;
   const b=document.createElement('div');b.id='ffSimBanner';
-  b.style.cssText='position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:80;background:#7C2D12;border:1px solid #F5B841;color:#FFE9C7;border-radius:99px;padding:8px 18px;font:700 12.5px Inter;box-shadow:0 8px 24px rgba(0,0,0,.5);cursor:pointer;white-space:nowrap';
+  b.style.cssText='position:fixed;bottom:'+(window.innerWidth<=640?'74px':'14px')+';left:50%;transform:translateX(-50%);z-index:80;background:#7C2D12;border:1px solid #F5B841;color:#FFE9C7;border-radius:99px;padding:8px 18px;font:700 12.5px Inter;box-shadow:0 8px 24px rgba(0,0,0,.5);cursor:pointer;white-space:nowrap';
   b.textContent='Viewing as '+simTierName(parseInt(localStorage.getItem('ffSimTier')||'0',10))+' - tap to exit';
   b.onclick=toggleSimUser;
   document.body.appendChild(b);
@@ -4991,14 +5034,27 @@ async function adminPayments(){
   let d;try{d=await api('/api/admin/payments'+(st?'?status='+st:''))}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   const chip=s=>({pending:'c-gold',paid:'c-green',confirmed:'c-green',failed:'c-red'}[s]||'c-gray');
   $('adminBody').innerHTML=`<div class="row seg" style="margin-bottom:10px">${['','pending','paid','failed'].map(s=>`<button class="segbtn ${st===s?'on':''}" onclick="window._payStatus='${s}';vAdmin()">${s||'All'}</button>`).join('')}</div>
-  ${(d.payments||[]).map(p=>`<div class="card"><div class="spread"><div><b>PKR ${Number(p.amount_pkr||0).toLocaleString()}</b> · ${esc(String(p.credits))} credit${p.credits===1?'':'s'}
-  <div class="sub">${esc(p.user_name||String(p.user_id).slice(0,8))} · ref: ${esc(p.reference||'-')} · ${esc((p.created_at||'').slice(0,16).replace('T',' '))}</div></div>
-  <div class="row"><span class="chip ${chip(p.status)}">${esc(p.status)}</span>
-  ${p.status==='pending'?`<button class="btn b-green" style="padding:4px 12px" onclick="confirmPay('${p.id}',this)">Confirm</button>`:''}</div></div></div>`).join('')||'<div class="empty">No payments.</div>'}`;
+  ${(d.payments||[]).map(p=>`<div class="card" style="${p.status==='pending'?'border-color:rgba(245,184,65,.6)':''}"><div class="spread"><div><b>PKR ${Number(p.amount_pkr||0).toLocaleString()}</b> · ${esc(String(p.credits))} credit${p.credits===1?'':'s'}
+  <div class="sub">${esc(p.user_name||String(p.user_id).slice(0,8))} · ${esc((p.created_at||'').slice(0,16).replace('T',' '))}${p.reference&&p.reference!=='SCREENSHOT'&&!String(p.reference).startsWith('PROOF:')?' · ref: '+esc(p.reference):''}</div>
+  ${p.rejected_reason?`<div class="sub" style="color:#fb7185">Rejected: ${esc(p.rejected_reason)}</div>`:''}</div>
+  <div class="row"><span class="chip ${chip(p.status)}">${esc(p.status)}</span></div></div>
+  ${p.proof_url?`<a href="${esc(p.proof_url)}" target="_blank" style="display:block;margin-top:8px"><img src="${esc(p.proof_url)}" alt="Payment screenshot" style="max-height:260px;max-width:100%;border-radius:8px;border:1px solid rgba(140,178,255,.3)"><div class="sub" style="font-size:11px;margin-top:3px">Tap to open the screenshot full size</div></a>`
+    :`<div class="sub" style="margin-top:6px;color:#F5B841">No screenshot attached${p.status==='pending'?' - ask the customer for one on WhatsApp before approving':''}.</div>`}
+  ${p.status==='pending'?`<div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+    <button class="btn b-green" style="padding:7px 16px;font-weight:800" onclick="confirmPay('${p.id}',this)">\u2713 Verified, approve and add ${esc(String(p.credits))} case${p.credits===1?'':'s'}</button>
+    <button class="btn b-line" style="padding:7px 12px;border-color:#fb7185;color:#fb7185" onclick="rejectPay('${p.id}',this)">Reject</button>
+    ${p.user_whatsapp?`<button class="btn b-line" style="padding:7px 12px" onclick="waOpen('${escAttr(p.user_whatsapp)}','Assalam o Alaikum ${escAttr(p.user_name||'')}, ForiForeign here regarding your payment of Rs ${Number(p.amount_pkr||0).toLocaleString()}. ')">WhatsApp</button>`:''}</div>`:''}</div>`).join('')||'<div class="empty">No payments.</div>'}`;
 }
 async function confirmPay(id,btn){
+  btn.disabled=true;const was=btn.textContent;btn.textContent='Adding credits\u2026';
+  try{const d=await api('/api/payments/'+id+'/confirm',{method:'POST'});toast('Approved. '+(d.credits_added||'')+' case'+(d.credits_added===1?'':'s')+' added'+(d.balance!=null?', balance now '+d.balance:'')+'. The customer\u2019s app updates itself.');refreshCredits();vAdmin();}
+  catch(e){toast(e.message);btn.disabled=false;btn.textContent=was}
+}
+async function rejectPay(id,btn){
+  const reason=prompt('Reason the customer will see (optional):','Amount or account did not match a transfer we received');
+  if(reason===null)return;
   btn.disabled=true;
-  try{await api('/api/payments/'+id+'/confirm',{method:'POST'});toast('Payment confirmed, credits added.');refreshCredits();vAdmin();}
+  try{await api('/api/payments/'+id+'/reject',{method:'POST',body:{reason}});toast('Rejected. The customer has been told under Ask us.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}
 }
 async function adminUniversities(){
@@ -5080,9 +5136,6 @@ async function adminAudit(){
   <span class="chip c-blue">${esc(a.event||'')}</span> <span class="sub">${esc((a.created_at||'').slice(0,16).replace('T',' '))} · ${esc((a.actor||'system').slice(0,8))}…</span>
   <div class="sub" style="margin-top:2px;word-break:break-all">${esc(a.detail||'')}</div></div>`).join('')||'<div class="sub">No entries.</div>'}</div>`;
 }
-async function confirmPay(id,btn){btn.disabled=true;
-  try{await api('/api/payments/'+id+'/confirm',{method:'POST'});toast('Confirmed, credits granted.');vAdmin();}
-  catch(e){toast(e.message);btn.disabled=false}}
 /* ---------- buy credits ---------- */
 async function loadRefBox(){
   try{const d=await api('/api/home');const r=d&&d.referral;if(!r)return;const el=$('refBox');if(!el)return;
@@ -5152,18 +5205,19 @@ async function vBuyRender(){
     </div>`;};
   setTimeout(promoTicker,300);
   const _staff=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
+  const _admin=isTrueAdmin();
   $('view').innerHTML=`<div class="spread" style="margin-bottom:6px">
     <button class="btn b-line" style="padding:5px 12px;font-size:12.5px" onclick="if(window._lastMatches){go('home');setTimeout(()=>showMatches(window._lastMatches.kind,Object.assign({},window._lastMatches.opts||{},{_fromCache:true})),80)}else go('home')">\u2190 Back to my matches</button>
     <h2 style="margin:0">Choose your package</h2><button class="btn b-line" style="padding:4px 12px" onclick="go('home')" aria-label="Close">✕</button></div>
-  ${_staff?`<div style="position:sticky;top:6px;z-index:5;margin-bottom:10px;padding:9px 12px;border-radius:12px;background:#F5B841;color:#0E1F42;display:flex;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(2,8,20,.4)">
-    <div style="flex:1;font:700 13px Inter">Staff: you never pay here.</div>
-    <button class="btn" style="padding:6px 14px;font-size:12.5px;background:#0E1F42;color:#FFD070;font-weight:800" onclick="adminSkipAndUnlock(this)">\u26a1 Skip payment and proceed</button></div>`:''}
+  ${_admin?`<div style="position:sticky;top:6px;z-index:5;margin-bottom:10px;padding:9px 12px;border-radius:12px;background:#F5B841;color:#0E1F42;display:flex;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(2,8,20,.4);flex-wrap:wrap">
+    <div style="flex:1;min-width:140px;font:700 13px Inter">Admin: you never pay here.</div>
+    <button class="btn" style="padding:8px 14px;font-size:13px;background:#0E1F42;color:#FFD070;font-weight:800;flex:none" onclick="adminSkipAndUnlock(this)">\u26a1 Skip payment and proceed</button></div>`:''}
   ${_staff?`<div class="card" style="border-color:rgba(245,184,65,.6);background:rgba(245,184,65,.07);margin-bottom:12px">
     <b style="color:#FFD070">\u2699 Staff view</b>
     <div class="sub" style="margin-top:4px;line-height:1.6">This is the page exactly as a customer sees it, including the payment account block below. Nothing here is hidden from you and nothing extra is shown to them. Use it to check the plan numbers, the prices and the payment details before a client does.</div>
     <div class="sub" style="margin-top:4px">You can start any case without paying from the <b>Admin: open and apply</b> button on any opportunity card.</div>
-    <button class="btn b-gold" style="width:100%;margin-top:8px;padding:11px;font-size:14px" onclick="adminBypassBuy(0,this)">⚡ Activate me without payment — unlimited searches and cases</button>
-    <div class="sub" style="margin-top:4px;font-size:11.5px">Staff only, never rendered for a customer. Grants the entitlement instantly: no payment, no approval, no limit on searching or applying.</div>
+    ${_admin?`<button class="btn b-gold" style="width:100%;margin-top:8px;padding:11px;font-size:14px" onclick="adminBypassBuy(0,this)">⚡ Activate me without payment — unlimited searches and cases</button>
+    <div class="sub" style="margin-top:4px;font-size:11.5px">Admin only, never rendered for a customer. Grants the entitlement instantly: no payment, no approval, no limit on searching or applying.</div>`:''}
     <div class="row" style="margin-top:8px"><button class="btn b-line" style="padding:4px 12px;font-size:12px" onclick="go('adminx')">Open admin panel</button>
     <button class="btn b-line" style="padding:4px 12px;font-size:12px" onclick="toggleSimUser(0)">Preview as a brand-new user</button></div></div>`:''}
   <div id="refBox"></div>
@@ -5207,7 +5261,7 @@ async function vBuyRender(){
     <div style="padding:3px 0">• Any package clears what you have used and gives <b>${(((SITE||{}).fair_use||{}).paid_daily_searches)||5} searches a day</b>.</div>
     <div style="padding:3px 0">• Searching never costs a case. A case is spent only when YOU pick a position and confirm.</div>
     <div style="padding:3px 0">• Prepared cases stay editable and re-openable at no extra cost.</div>
-    <div style="padding:3px 0">• <b>To pay:</b> send the amount to any account below, tap your package, tap I HAVE PAID.</div>
+    <div style="padding:3px 0">• <b>To pay:</b> send the amount to any account below, tap your package, attach your payment screenshot and send it.</div>
     <div style="padding:3px 0">• Cases activate once we confirm the transfer, usually within 30 minutes.</div>
     <div style="padding:3px 0">• Unused cases are refundable within 14 days. Work already delivered is not.</div>
   </div>
@@ -5232,20 +5286,73 @@ function copyTxt(t,btn){navigator.clipboard.writeText(t).then(()=>{btn.textConte
    exist in the global scope where an onclick actually runs. Every tap threw a reference
    error, was swallowed by the catch, and surfaced as a meaningless toast: the button had
    never once recorded a payment. It is a named function now, with the amount passed in. */
+/* The screenshot is read on the phone, shrunk to a size the network forgives, and shown
+   back so the customer knows the right picture is attached before they send it. */
+window._payShot=null;
+function payShotPicked(inp){
+  const f=inp&&inp.files&&inp.files[0];if(!f)return;
+  const box=document.getElementById('payShotBox'),send=document.getElementById('payShotSend');
+  if(box)box.innerHTML='<div class="sub">Reading your screenshot\u2026</div>';
+  const rd=new FileReader();
+  rd.onload=()=>{
+    const img=new Image();
+    img.onload=()=>{
+      try{
+        const MAX=1280;let w=img.width,h=img.height;const sc=Math.min(1,MAX/Math.max(w,h));w=Math.round(w*sc);h=Math.round(h*sc);
+        const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);
+        let q=0.84,out=c.toDataURL('image/jpeg',q);
+        while(out.length>1500000&&q>0.4){q-=0.12;out=c.toDataURL('image/jpeg',q)}
+        window._payShot={b64:out,name:f.name||'screenshot.jpg'};
+        if(box)box.innerHTML='<img src="'+out+'" style="max-height:220px;max-width:100%;border-radius:8px;border:1px solid rgba(140,178,255,.3)"><div class="sub" style="margin-top:6px;font-size:11.5px;color:#4ade80">\u2713 Attached \u00b7 tap to change</div>';
+        if(send){send.disabled=false;send.style.opacity='1'}
+      }catch(e){window._payShot=null;if(box)box.innerHTML='<div class="sub" style="color:#fb7185">That image could not be read. Tap to try another.</div>'}
+    };
+    img.onerror=()=>{window._payShot=null;if(box)box.innerHTML='<div class="sub" style="color:#fb7185">That file is not an image. Tap to choose a screenshot.</div>'};
+    img.src=rd.result;
+  };
+  rd.readAsDataURL(f);
+}
 async function payDeclare(credits,btn){
-  const el=document.getElementById('payRef');
-  const reference=((el&&el.value)||'').trim()||'PENDING';
+  if(!window._payShot||!window._payShot.b64){toast('Attach your payment screenshot first.');return}
   const label=btn?btn.textContent:'';
-  if(btn){btn.disabled=true;btn.textContent='Sending\u2026'}
+  if(btn){btn.disabled=true;btn.textContent='Sending your screenshot\u2026'}
   try{
-    const d=await api('/api/payments',{method:'POST',body:{credits:Number(credits),reference}});
+    const d=await api('/api/payments',{method:'POST',body:{credits:Number(credits),reference:'SCREENSHOT',proof_b64:window._payShot.b64,proof_name:window._payShot.name}});
+    window._payShot=null;
     document.querySelectorAll('.ff-ack').forEach(x=>x.remove());
+    window._homeCache=null;HM=null;cacheClear();
     try{await refreshCredits()}catch(e){}
     payPending(d);
   }catch(e){
-    toast(e.message||'We could not record that. Please try again or send your transaction ID on WhatsApp.');
+    toast(e.message||'We could not send that. Please try again or send your screenshot on WhatsApp.');
     if(btn){btn.disabled=false;btn.textContent=label}
   }
+}
+/* Once a screenshot is in, the phone checks quietly for the approval and opens the way
+   forward by itself: no refresh, no guessing whether the credits have landed. */
+function watchPayment(paymentId){
+  if(window._payWatch)return;
+  const base=Number(CREDITS)||0;let n=0;
+  window._payWatch=setInterval(async()=>{
+    n++;if(n>240){clearInterval(window._payWatch);window._payWatch=null;return}
+    if(!SESSION){clearInterval(window._payWatch);window._payWatch=null;return}
+    try{
+      const d=await api('/api/credits');
+      const bal=Number(d.credits!=null?d.credits:d.balance)||0;
+      const p=$('creditPill');if(p){CREDITS=bal;p.textContent=bal+' credit'+(bal===1?'':'s')}
+      if(bal>base){
+        clearInterval(window._payWatch);window._payWatch=null;
+        window._homeCache=null;HM=null;cacheClear();
+        document.querySelectorAll('.ff-ack').forEach(x=>x.remove());
+        toast('\u2713 Payment approved. '+bal+' case'+(bal===1?'':'s')+' active. Opening your matches\u2026');
+        if(window._lastMatches){go('home');setTimeout(()=>showMatches(window._lastMatches.kind,Object.assign({},window._lastMatches.opts||{})),150)}
+        else go('home');
+      }else if(Number(d.pending_payments)===0){
+        // Closed without credits: rejected. The dashboard shows the reason in Ask us.
+        clearInterval(window._payWatch);window._payWatch=null;window._homeCache=null;HM=null;if(TAB==='home')vHome();
+      }
+    }catch(e){}
+  },8000);
 }
 /* A pending payment is a real state, so it gets a real screen: what was recorded, what
    happens next, and a direct way to reach a human. A toast that vanishes in four seconds
@@ -5257,16 +5364,22 @@ function payPending(d){
   const w=document.createElement('div');w.className='ff-ack';
   w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.85);z-index:78;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:18px';
   w.innerHTML=`<div style="max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(45,212,191,.5);border-radius:16px;padding:20px;color:#eef4ff">
-    <h3 style="margin:0 0 8px;color:#2dd4bf">Recorded \u2713</h3>
+    <h3 style="margin:0 0 8px;color:#2dd4bf">Screenshot received \u2713</h3>
     <div class="sub" style="line-height:1.65">
       <div style="padding:3px 0">\u2022 Your reference: <b style="color:#EAF2FF">${esc(ref)}</b></div>
-      ${amt?`<div style="padding:3px 0">\u2022 Amount to send: <b style="color:#EAF2FF">Rs ${amt.toLocaleString()}</b></div>`:''}
-      <div style="padding:3px 0">\u2022 We verify the transfer and activate your cases, usually within 30 minutes.</div>
-      <div style="padding:3px 0">\u2022 If we cannot confirm it, the payment is simply returned.</div>
+      ${amt?`<div style="padding:3px 0">\u2022 Amount: <b style="color:#EAF2FF">Rs ${amt.toLocaleString()}</b></div>`:''}
+      <div style="padding:3px 0">\u2022 Our finance desk verifies it and your cases activate, usually within 30 minutes.</div>
+      <div style="padding:3px 0">\u2022 <b style="color:#EAF2FF">Keep this open or come back any time</b>: the app updates by itself the moment it is approved.</div>
+      <div style="padding:3px 0">\u2022 If it cannot be matched to a transfer, we tell you why under Ask us.</div>
     </div>
-    <a class="btn b-gold" style="width:100%;margin-top:12px;text-decoration:none;display:block;text-align:center" target="_blank" href="https://wa.me/923455216903?text=${encodeURIComponent('Assalam o Alaikum ForiForeign, my payment reference is '+ref+'. ')}">Send my transaction ID on WhatsApp</a>
-    <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-ack').remove()">Close</button></div>`;
+    <div class="row" style="margin-top:10px;gap:8px;align-items:center"><div class="ff-pulse" style="width:9px;height:9px;border-radius:50%;background:#2dd4bf;flex:none"></div><span class="sub" id="payWaitTxt">Waiting for approval\u2026</span></div>
+    <a class="btn b-line" style="width:100%;margin-top:12px;text-decoration:none;display:block;text-align:center" target="_blank" href="https://wa.me/923455216903?text=${encodeURIComponent('Assalam o Alaikum ForiForeign, I sent my payment screenshot, reference '+ref+'. Please verify.')}">Message us on WhatsApp</a>
+    <button class="btn b-line" style="width:100%;margin-top:8px" onclick="this.closest('.ff-ack').remove();go('home')">Back to dashboard</button></div>`;
   document.body.appendChild(w);
+  if(!document.getElementById('ffPulseCss')){const s=document.createElement('style');s.id='ffPulseCss';
+    s.textContent='@keyframes ffp{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}.ff-pulse{animation:ffp 1.3s ease-in-out infinite}';
+    document.head.appendChild(s)}
+  try{watchPayment(p.id)}catch(e){}
 }
 /* STAFF NEVER PAY. This grants the entitlement directly, so the owner can search and
    apply without limit and without a payment row waiting for his own approval. Client
@@ -5297,9 +5410,14 @@ async function buyPack(credits){
       return 'Pay for '+(t?esc(t.name):(credits+' case'+(credits===1?'':'s')))+', one step';})()}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-ack').remove()" aria-label="Close">✕</button></div>
     <div class="sub" style="margin:6px 0 8px" id="payQuote">Checking your exact amount&hellip;</div>
     ${row('JazzCash',P.jazzcash_number)}${row('Easypaisa',P.easypaisa_number)}${row('Bank',P.bank_name)}${row('Title',P.account_title)}${row('Account #',P.account_number)}${row('IBAN',P.iban)}
-    <input id="payRef" placeholder="Transaction ID / reference (optional now)" style="margin-top:10px">
-    <button class="btn b-gold" style="width:100%;margin-top:10px;padding:12px;font-size:15px" onclick="payDeclare(${credits},this)">I HAVE PAID, activate my cases</button>
-    ${(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})()?`<button class="btn b-line" style="width:100%;margin-top:8px;padding:11px;font-size:14px;border-color:#F5B841;color:#FFD070" onclick="adminBypassBuy(${credits},this)">⚡ Admin: activate without paying</button>`:''}
+    <input id="payShot" type="file" accept="image/*" style="display:none" onchange="payShotPicked(this)">
+    <div id="payShotBox" onclick="document.getElementById('payShot').click()" style="margin-top:12px;border:2px dashed rgba(0,212,255,.55);border-radius:12px;padding:16px 12px;text-align:center;cursor:pointer;background:rgba(0,212,255,.05)">
+      <div style="font:700 14px Inter;color:#7EE6FF">\ud83d\udcf7 Tap to attach your payment screenshot</div>
+      <div class="sub" style="margin-top:4px;font-size:11.5px">From your bank, JazzCash or Easypaisa app. This is what we verify.</div>
+    </div>
+    <button id="payShotSend" class="btn b-gold" style="width:100%;margin-top:10px;padding:12px;font-size:15px;opacity:.55" disabled onclick="payDeclare(${credits},this)">Send screenshot, activate my cases</button>
+    <div class="sub" style="margin-top:6px;text-align:center;font-size:11.5px">Cannot upload right now? <a style="color:#7EE6FF;cursor:pointer" target="_blank" href="https://wa.me/923455216903?text=${encodeURIComponent('Assalam o Alaikum ForiForeign, I have paid for the '+credits+'-case package. Here is my payment screenshot: ')}">Send it on WhatsApp</a></div>
+    ${isTrueAdmin()?`<button class="btn b-line" style="width:100%;margin-top:8px;padding:11px;font-size:14px;border-color:#F5B841;color:#FFD070" onclick="adminBypassBuy(${credits},this)">⚡ Admin: activate without paying</button>`:''}
     ${(()=>{const rv=((SITE&&SITE.reviews)||[]).filter(r=>r&&r.text).slice(0,2);return rv.length?`<div style="margin-top:10px">${rv.map(r=>`<div style="border:1px solid rgba(245,184,65,.4);background:rgba(245,184,65,.06);border-radius:10px;padding:8px 10px;margin-top:6px"><span style="color:#FFD070">${'★'.repeat(Math.max(1,Math.min(5,r.stars||5)))}</span> <span class="sub" style="color:#EAF2FF">${esc(String(r.text).slice(0,80))}</span> <span class="sub">— ${esc(r.name||'Client')}</span></div>`).join('')}</div>`:''})()}
     <div class="sub" style="margin-top:8px;text-align:center">Every opportunity verified on official pages. Your money is safe: unverified payments are simply returned.</div></div>`;
   document.body.appendChild(w);
@@ -5316,9 +5434,9 @@ async function buyPack(credits){
       if(q.discount_pkr>0)bits.push('<span class="chip c-green" style="font-size:10.5px">Referral credit &minus;Rs '+Number(q.discount_pkr).toLocaleString()+'</span>');
       box.innerHTML='1. Send exactly <b style="color:#2dd4bf;font-size:15px">Rs '+Number(q.amount_pkr).toLocaleString()+'</b> '
         +(bits.length?bits.join(' ')+' ':'')
-        +'to ANY account below. 2. Tap I HAVE PAID. Done, we verify and your cases activate, usually under 30 minutes.';
+        +'to ANY account below. 2. Attach the payment screenshot and tap Send. Done, we verify and your cases activate, usually under 30 minutes.';
     }catch(e){
-      box.textContent='1. Send the package amount to ANY account below. 2. Tap I HAVE PAID. Done, we verify and your cases activate, usually under 30 minutes.';
+      box.textContent='1. Send the package amount to ANY account below. 2. Attach the payment screenshot and tap Send. Done, we verify and your cases activate, usually under 30 minutes.';
     }
   })();
 }

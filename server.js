@@ -121,7 +121,7 @@ const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimu
 const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-09-02-R4720';
+const FF_BUILD = '2026-09-02-R4740';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 /* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
    assistant.zip was a file committed by hand, and it had drifted: users were downloading
@@ -947,7 +947,17 @@ app.get('/api/admin/payments', auth, perm('payments.read'), async (req, res) => 
   const ids = [...new Set((data || []).map(p => p.user_id))];
   const { data: profs } = ids.length ? await admin().from('profiles').select('id,full_name').in('id', ids) : { data: [] };
   const nameOf = Object.fromEntries((profs || []).map(p => [p.id, p.full_name]));
-  res.json({ payments: (data || []).map(p => ({ ...p, user_name: nameOf[p.user_id] || '' })) });
+  const { data: profs2 } = ids.length ? await admin().from('profiles').select('id,whatsapp,phone').in('id', ids).then(r => r, () => ({ data: [] })) : { data: [] };
+  const waOf = Object.fromEntries((profs2 || []).map(p => [p.id, p.whatsapp || p.phone || '']));
+  const { BUCKET } = require('./lib/docs');
+  const list = [];
+  for (const p of (data || [])) {
+    const path = p.proof_path || (String(p.reference || '').startsWith('PROOF:') ? String(p.reference).slice(6) : null);
+    let proof_url = null;
+    if (path) { try { const { data: su } = await admin().storage.from(BUCKET).createSignedUrl(path, 3600); proof_url = su && su.signedUrl; } catch (e) {} }
+    list.push({ ...p, user_name: nameOf[p.user_id] || '', user_whatsapp: waOf[p.user_id] || '', proof_url });
+  }
+  res.json({ payments: list });
 });
 app.get('/api/admin/me', auth, staffOnly, async (req, res) => {
   const { permissionsFor, ROLE_PERMISSIONS } = require('./lib/rbac');
@@ -1455,7 +1465,7 @@ app.get('/api/me', auth, async (req, res) => {
   try {
     const isFounder2 = OWNER_EMAILS.includes((req.userEmail || '').toLowerCase());
     if (isFounder2) {
-      if (data.role !== 'admin') { await admin().from('profiles').update({ role: 'admin' }).eq('id', req.userId); data.role = 'admin'; }
+      if (!['admin', 'super_admin'].includes(data.role)) { await admin().from('profiles').update({ role: 'admin' }).eq('id', req.userId); data.role = 'admin'; }
       const bal2 = await balance(req.userId);
       if (bal2 < 100) {
         const { data: prior } = await admin().from('credit_ledger').select('id').eq('user_id', req.userId).eq('reason', 'founder_restore').limit(1);
@@ -1549,54 +1559,31 @@ app.get('/api/home', auth, async (req, res) => {
     out.credits = simP ? { balance: simP.tier, creditsRemaining: simP.tier, casesUsed: 0, casesTotal: simP.tier }
       : { balance: bal, creditsRemaining: bal, casesUsed: casesUsed || 0, casesTotal: purchased };
   } catch (e) {}
-  try {
-    // Personalized: how many CURRENT verified opportunities score >=70% for THIS user.
-    const { matchMany } = require('./lib/match');
-    // Cached for 5 minutes per user: scoring 60 opportunities on every dashboard load was
-    // the single slowest step. The number changes rarely, so a short cache is safe.
-    const mcKey = 'mm:' + uid;
-    const cachedMM = _homeMatchCache.get(mcKey);
-    if (cachedMM && Date.now() - cachedMM.at < 300000) { out.myMatches = cachedMM.val; throw { _skip: true }; }
-    /* The dashboard count must agree with what a search actually returns. Counting the
-       whole inventory ignored the user's chosen level, field and countries, so the
-       dashboard could claim 52 matches while a search correctly returned none. We now
-       apply the SAME gates the search uses. */
-    let wantLv = [], wantCc = [];
-    try {
-      const { data: pf } = await admin().from('app_settings').select('value').eq('key', 'prefs:' + uid).single();
-      const pv = (pf && pf.value) || {};
-      wantLv = pv.levels || [];
-      wantCc = (pv.ctrys || pv.countries || []).map(c => String(c).toUpperCase());
-    } catch (e) {}
-    let q = admin().from('opportunities').select('*').eq('status', 'verified').order('created_at', { ascending: false }).limit(240);
-    if (wantCc.length) q = q.in('country_code', wantCc);
-    const { data: opps } = await q;
-    if (opps && opps.length) {
-      const m = await matchMany(uid, opps, wantLv, wantCc);
-      const usable = (m || []).filter(x =>
-        !x.wrongTarget && !x.overqualified && !x.fieldMismatch &&
-        x.status !== 'not_eligible' && x.pct != null && x.pct >= RELEVANCE_FLOOR);
-      const pcts = usable.map(x => x.pct);
-      out.myMatches = { count70: usable.length, best: pcts.length ? Math.max(...pcts) : null, scored: pcts.length, live: opps.length };
-    } else out.myMatches = { count70: 0, best: null, scored: 0, live: 0 };
-    try { _homeMatchCache.set('mm:' + uid, { val: out.myMatches, at: Date.now() }); if (_homeMatchCache.size > 3000) _homeMatchCache.clear(); } catch (e) {}
-  } catch (e) { if (!(e && e._skip)) { /* non-fatal */ } }
-  try {
-    const { count: ans } = await admin().from('support_tickets').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('status', 'answered').then(r => r, () => ({ count: 0 }));
-    out.support = { answered: ans || 0 };
-  } catch (e) {}
+  /* The per-user scoring of 240 opportunities that used to run here fed a number the
+     dashboard never displayed. It was the slowest step of the page. Gone. Everything
+     that remains is fetched in one parallel batch. */
+  const [supR, meR, discR, pendR] = await Promise.all([
+    admin().from('support_tickets').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('status', 'answered').then(r => r, () => ({ count: 0 })),
+    admin().from('profiles').select('referral_code,referral_balance_pkr').eq('id', uid).single().then(r => r, () => ({ data: null })),
+    admin().from('app_settings').select('value').eq('key', 'discover:' + uid).single().then(r => r, () => ({ data: null })),
+    admin().from('payments').select('id,credits,amount_pkr,created_at').eq('user_id', uid).eq('status', 'pending').order('created_at', { ascending: false }).limit(1).then(r => r, () => ({ data: [] }))
+  ]);
+  try { out.support = { answered: (supR && supR.count) || 0 }; } catch (e) {}
   try {
     // Referral identity: every user gets a permanent code; balance rides along.
-    const { data: me } = await admin().from('profiles').select('referral_code,referral_balance_pkr').eq('id', uid).single();
+    const me = meR && meR.data;
     let code = me && me.referral_code;
-    if (!code) { code = 'FF' + uid.replace(/-/g, '').slice(0, 8).toUpperCase(); await admin().from('profiles').update({ referral_code: code }).eq('id', uid); }
+    if (!code) { code = 'FF' + uid.replace(/-/g, '').slice(0, 8).toUpperCase(); admin().from('profiles').update({ referral_code: code }).eq('id', uid).then(() => {}, () => {}); }
     out.referral = { code, balance_pkr: Number(me && me.referral_balance_pkr) || 0 };
   } catch (e) {}
   try {
-    const { data: st } = await admin().from('app_settings').select('value').eq('key', 'discover:' + uid).single();
-    const v = st && st.value;
+    const v = discR && discR.data && discR.data.value;
     if (v && v.status === 'running' && Date.now() - new Date(v.startedAt || 0).getTime() < 12 * 60000)
       out.discover = { status: 'running', found: Number(v.found) || 0, target: Number(v.target) || 5, kind: v.kind || null };
+  } catch (e) {}
+  try {
+    const pp = pendR && pendR.data && pendR.data[0];
+    if (pp) out.pendingPayment = { id: pp.id, credits: Number(pp.credits) || 0, amount_pkr: Number(pp.amount_pkr) || 0, at: pp.created_at };
   } catch (e) {}
   res.json(out);
 });
@@ -1632,8 +1619,18 @@ app.put('/api/me', auth, async (req, res) => {
 
 /* ---------- credits ---------- */
 async function balance(userId) {
-  const { data } = await admin().rpc('credit_balance', { uid: userId });
-  return typeof data === 'number' ? data : 0;
+  /* If the credit_balance() SQL function is missing or errors, the old code returned 0
+     for everyone: a confirmed payment landed in the ledger and the customer still saw
+     "0 credits". The ledger itself is the source of truth, so it is summed directly
+     whenever the RPC cannot answer. */
+  try {
+    const { data, error } = await admin().rpc('credit_balance', { uid: userId });
+    if (!error && typeof data === 'number') return data;
+  } catch (e) {}
+  try {
+    const { data: rows } = await admin().from('credit_ledger').select('delta').eq('user_id', userId);
+    return (rows || []).reduce((sm, r) => sm + (Number(r.delta) || 0), 0);
+  } catch (e) { return 0; }
 }
 /* Simulation: an admin can request the exact experience of a brand-new user.
    The header only ever REDUCES privileges (never grants), so it is safe by design. */
@@ -1657,9 +1654,40 @@ async function entitled(userId, sim) {
    judge whether it is worth paying for, without identifying the institution.
    "Postdoctoral position in thrombosis and haemostasis" is useful and safe.
    "Postdoctoral opportunity" is neither. */
+/* IDENTITY SCRUB. Before a package is bought the institution, the programme's own name
+   and the official link never leave the server - but they were leaking sideways: an
+   institution named inside the title ("SBW Berlin International"), a funder named as the
+   subject ("Humboldt Research Fellowship"), a funding line that says who pays, a scheme
+   name in the money block. Anything a search engine would resolve to one page is an
+   identity. This scrubs every free-text field on a locked card against the row's own
+   institution, its web domain and a list of named funders and schemes. */
+const GENERIC_ORG_WORDS = new Set(['university','universitat','universite','universidad','universita','college','institute','institut','institution','hospital','centre','center','school','faculty','department','dept','clinic','trust','foundation','laboratory','lab','academy','research','international','national','federal','state','technology','technical','medical','medicine','health','sciences','science','applied','graduate','the','of','for','and','de','la','le','der','die','das','fur','für','du','des','di','at','in'].map(w => w.toLowerCase()));
+const NAMED_FUNDERS = /\b(humboldt|alexander von humboldt|daad|marie (sk[lł]odowska[- ])?curie|msca|fulbright|erasmus(\+| mundus)?|chevening|commonwealth|wellcome|leverhulme|horizon europe|erc\b|nih\b|nsf\b|dfg\b|max[- ]planck|helmholtz|fraunhofer|leibniz|cnrs|inserm|kaust|kfupm|qatar foundation|khalifa|nyu abu dhabi|tubitak|t[üu]b[iı]tak|yok\b|fct\b|fcs\b|nwo\b|fwo\b|fnrs|snsf|snf\b|vetenskapsr[aå]det|academy of finland|research council|ukri|epsrc|bbsrc|mrc\b|nihr|cihr|nserc|sshrc|vanier|banting|mitacs|arc\b|nhmrc|jsps|kakenhi|nrf\b|csc\b|china scholarship council|sbw berlin|swedish institute|stipendium hungaricum|turkiye burslari|t[üu]rkiye scholarships|gates cambridge|rhodes|clarendon|schwarzman|knight[- ]hennessy|hertz|ford foundation|rockefeller|carnegie|sloan|simons|hhmi|howard hughes|mit\b|harvard|stanford|oxford|cambridge|imperial|ucl\b|eth\b|epfl|tu delft|tum\b|lmu\b|kth\b|karolinska|charit[eé]|sorbonne|heidelberg|utrecht|leiden|groningen|toronto|mcgill|ubc\b|monash|melbourne|sydney|unsw|anu\b|nus\b|ntu\b|kaist|snu\b|tokyo|kyoto|purdue|johns hopkins|mayo|cleveland clinic|yale|princeton|columbia|cornell|berkeley|ucla|ucsf|michigan|duke|emory|vanderbilt|pittsburgh|penn\b|upenn|northwestern|uab\b|utsw|md anderson)\b/gi;
+function identityTokens(o) {
+  const toks = new Set();
+  const add = str => String(str || '').toLowerCase().split(/[^a-z0-9]+/).forEach(w => { if (w.length >= 4 && !GENERIC_ORG_WORDS.has(w)) toks.add(w); });
+  add(o.institution);
+  try { const host = new URL(String(o.url || '')).hostname.replace(/^www\./, ''); host.split('.').slice(0, -1).forEach(add); } catch (e) {}
+  return toks;
+}
+function scrubIdentity(text, o, toks) {
+  let t = String(text || '');
+  if (!t.trim()) return t;
+  toks = toks || identityTokens(o);
+  const inst = String((o && o.institution) || '').trim();
+  if (inst.length >= 4) t = t.replace(new RegExp(inst.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), 'the institution');
+  for (const w of toks) t = t.replace(new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[a-z]*\\b', 'gi'), ' ');
+  t = t.replace(NAMED_FUNDERS, ' ');
+  t = t.replace(/https?:\/\/\S+|www\.\S+|\b[a-z0-9.-]+\.(edu|ac\.[a-z]{2}|org|com|de|uk|fr|nl|se|ch|it|es|pt|pl|tr|jp|kr|cn|ca|au|nz|ie|be|at|fi|no|dk|hu|cz)\b/gi, ' ');
+  t = t.replace(/\S+@\S+/g, ' ');
+  t = t.replace(/\b(and|or|with|by|from|at)\s*(?=[,.;:]|$)/gi, ' ').replace(/,\s*,/g, ',');
+  t = t.replace(/\s{2,}/g, ' ').replace(/\s+([,.;:])/g, '$1').replace(/^[\s,;:\-\u2013|]+|[\s,;:\-\u2013|]+$/g, '').trim();
+  return t;
+}
 function generalTitle(o) {
   let t = String(o.title || '').trim();
   if (!t) return null;
+  t = scrubIdentity(t, o);
   // Drop reference numbers and bracketed asides first.
   t = t.replace(/\b(ref|reference|vacancy|requisition|position id|no)\.?\s*[:#]?\s*[A-Z0-9][A-Z0-9\-\/]{2,}\b/gi, ' ');
   t = t.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' ');
@@ -1679,6 +1707,8 @@ function generalTitle(o) {
   const topic = (o.req_field || o.field || '').trim();
   if (t.length < 12 && topic) t = t + ' in ' + topic;
   if (!t) return null;
+  t = scrubIdentity(t, o);
+  if (t.replace(/[^a-z]/gi, '').length < 4) return null;
   return t.length > 90 ? t.slice(0, 88).replace(/\s+\S*$/, '') + '…' : t;
 }
 /* Remote is not one thing. "Remote within the USA" is closed to a Pakistan-based
@@ -1735,12 +1765,18 @@ function hintLabel(o) {
     if (hit) subj = hit;
   }
   if (!subj) {
-    subj = String(o.title || '')
-      .replace(/\b(phd|ph\.d|postdoc(toral)?|doctoral|master'?s?|msc|mphil|bachelor'?s?|bsc|fellowship|position|vacancy|programme|program|scholarship|studentship|opportunity|in|of|the|at|for|a|an)\b/gi, ' ')
+    /* The title, with the level words, the employer, the funder and the programme's own
+       name removed. If what is left is not a discipline, no subject is shown at all:
+       "Postdoctoral research" alone is honest, "Postdoctoral research · Humboldt" is a
+       search query. */
+    subj = scrubIdentity(String(o.title || ''), o)
+      .replace(/\b(phd|ph\.d|postdocs?(toral)?|doctoral|master'?s?|msc|mphil|bachelor'?s?|bsc|fellows?(hips?)?|positions?|vacanc(y|ies)|programmes?|programs?|scholarships?|studentships?|opportunit(y|ies)|researchers?|research|associates?|assistants?|scientists?|officers?|senior|junior|lead|principal|group leader|institution|in|of|the|at|for|a|an|and|with|on|to)\b/gi, ' ')
       .replace(/\([^)]*\)/g, ' ').replace(/[^A-Za-z &-]/g, ' ').replace(/\s+/g, ' ').trim();
-    subj = subj.split(' ').slice(0, 3).join(' ');
+    subj = subj.split(' ').filter(w => w.length > 1).slice(0, 3).join(' ');
+    if (subj.length < 4) subj = '';
   }
-  subj = subj.replace(/\b\w/g, c => c.toUpperCase()).slice(0, 42);
+  subj = scrubIdentity(subj, o).replace(/\bthe institution\b/gi, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase()).slice(0, 42);
+  if (subj.replace(/[^a-z]/gi, '').length < 3) subj = '';
   return subj ? lead + ' \u00b7 ' + subj : lead;
 }
 /* One line, built from the dimensions the matcher actually scored, so it differs between
@@ -1771,6 +1807,8 @@ function complexity(o) {
   return n >= 3 ? 'High' : n >= 1 ? 'Moderate' : 'Low';
 }
 function lockTease(o) {
+  const _tk = identityTokens(o);
+  const S = v => v == null ? null : (scrubIdentity(String(v), o, _tk) || null);
   return {
     id: o.id, kind: o.kind, country_code: o.country_code, deadline: o.deadline,
     // City and country are given: an applicant must know where in the world this is.
@@ -1778,15 +1816,15 @@ function lockTease(o) {
     general_title: generalTitle(o),
     hint: hintLabel(o), relevance_line: relevanceLine(o), complexity: complexity(o),
     remote_scope: remoteScope(o), remote: (o.remote === true || o.remote === false) ? o.remote : null,
-    field: o.req_field || o.field || null,
-    funding: o.funding || null, funding_type: o.funding_type || null, level: o.level || null,
+    field: S(o.req_field || o.field),
+    funding: S(o.funding), funding_type: o.funding_type || null, level: o.level || null,
     /* MONEY IS THE FIRST QUESTION EVERY APPLICANT ASKS, and the locked payload was
        answering only part of it. None of this identifies the position: a stipend figure,
        a tuition line, a fee, work rights or a residence route are true of thousands of
        adverts. Withholding them made the preview feel evasive for no security gain. */
-    stipend: o.stipend || null, tuition: o.tuition || null, salary_note: o.salary_note || null,
-    application_fee: o.application_fee || null, fee_structure: o.fee_structure || null,
-    duration: o.duration || null,
+    stipend: S(o.stipend), tuition: S(o.tuition), salary_note: S(o.salary_note),
+    application_fee: S(o.application_fee), fee_structure: S(o.fee_structure),
+    duration: S(o.duration),
     /* PAY, DECODED AND IN RUPEES. A line like "TV-L E13, 65%" is a precise salary to
        someone who knows the German system and a code to everyone else, and "fully funded"
        with no figure answers nothing. We explain the scale in plain words, give the figure
@@ -1810,11 +1848,12 @@ function lockTease(o) {
         /* Deliberately absent: a living-cost figure. The rule predates this build and it
            is a good one - a cost estimate is a guess about the applicant's future
            spending and it discourages strong candidates for no benefit. */
-        housing: x.housing_support || null,
-        work_rights: x.work_rights || null,
-        pr_pathway: x.pr_pathway_note || null,
-        scholarship_stack: x.scholarship_stack || null,
-        scheme: x.scheme_name || null
+        housing: S(x.housing_support),
+        work_rights: S(x.work_rights),
+        pr_pathway: S(x.pr_pathway_note),
+        scholarship_stack: S(x.scholarship_stack),
+        /* The scheme name IS the identity for a fellowship; it is withheld until unlock. */
+        scheme: null
       };
     })(),
     req_language: o.req_language || null, req_language_min: o.req_language_min || null,
@@ -1824,7 +1863,10 @@ function lockTease(o) {
 }
 app.get('/api/credits', auth, async (req, res) => {
   const { data } = await admin().from('credit_ledger').select('*').eq('user_id', req.userId).order('created_at', { ascending: false }).limit(50);
-  res.json({ balance: await balance(req.userId), ledger: data || [] });
+  const bal = await balance(req.userId);
+  let pending = 0;
+  try { const { count } = await admin().from('payments').select('id', { count: 'exact', head: true }).eq('user_id', req.userId).eq('status', 'pending'); pending = count || 0; } catch (e) {}
+  res.json({ balance: bal, credits: bal, pending_payments: pending, ledger: data || [] });
 });
 
 /* ---------- pricing & payments (server-confirmed rule) ---------- */
@@ -1889,8 +1931,20 @@ app.get('/api/payments/quote', auth, async (req, res) => {
 });
 app.post('/api/payments', auth, async (req, res) => {
   try { const cfg = await siteSettings.getConfig(); if (cfg.features && cfg.features.payments === false) return res.status(503).json({ error: 'Payments are temporarily unavailable. Please try again shortly.' }); } catch (e) {}
-  const { credits, reference } = req.body || {};
+  const { credits, reference, proof_b64 } = req.body || {};
   if (!isFinite(Number(credits)) || Number(credits) <= 0) return res.status(400).json({ error: 'Choose a package first.' });
+  /* THE SCREENSHOT IS THE RECEIPT. A typed transaction number told us nothing we could
+     check; the customer's own payment screenshot is what the finance desk actually
+     verifies. It is required, decoded here, and stored privately for the admin queue. */
+  let proofBuf = null;
+  if (proof_b64) {
+    try {
+      const m = String(proof_b64).match(/^data:image\/[a-z+]+;base64,(.+)$/i);
+      proofBuf = Buffer.from(m ? m[1] : String(proof_b64), 'base64');
+      if (proofBuf.length < 1024) proofBuf = null;
+    } catch (e) { proofBuf = null; }
+  }
+  if (!proofBuf) return res.status(400).json({ error: 'Please attach a screenshot of your payment before sending.' });
   let pr = null;
   try { const r = await admin().from('pricing').select('*').eq('active', true).single(); pr = r.data || null; } catch (e) {}
   /* RESOLVE FIRST, THEN PRICE. The promo check used to run before this fallback, so a
@@ -1941,7 +1995,24 @@ app.post('/api/payments', auth, async (req, res) => {
     const minimal = { user_id: req.userId, amount_pkr: full.amount_pkr, credits: full.credits, reference: full.reference };
     ({ data, error } = await admin().from('payments').insert(minimal).select().single());
   }
-  if (error) return res.status(400).json({ error: 'We could not record your payment just now. Please send your transaction ID on WhatsApp and we will activate it manually.' });
+  if (error) return res.status(400).json({ error: 'We could not record your payment just now. Please send your payment screenshot on WhatsApp and we will activate it manually.' });
+  // Store the screenshot privately, then attach its path to the payment row.
+  try {
+    const { BUCKET, ensureBucket } = require('./lib/docs');
+    try { if (typeof ensureBucket === 'function') await ensureBucket(); } catch (e) {}
+    let img = proofBuf, ct = 'image/jpeg';
+    try { img = await require('sharp')(proofBuf).rotate().resize({ width: 1400, height: 1400, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch (e) { ct = 'application/octet-stream'; }
+    const path = 'payments/' + req.userId + '/' + data.id + '.jpg';
+    const up = await admin().storage.from(BUCKET).upload(path, img, { contentType: ct, upsert: true });
+    if (!up.error) {
+      const { error: e1 } = await admin().from('payments').update({ proof_path: path, proof_uploaded_at: new Date().toISOString() }).eq('id', data.id);
+      if (e1) await admin().from('payments').update({ reference: ('PROOF:' + path).slice(0, 120) }).eq('id', data.id);
+      data.proof_path = path;
+    } else {
+      try { require('./lib/oblog').errlog('payments:proof-upload', new Error(up.error.message || 'upload failed'), { userId: req.userId }); } catch (e) {}
+    }
+  } catch (e) {}
+  try { await admin().from('audit_log').insert({ actor: req.userId, event: 'PAYMENT_DECLARED', detail: data.id + ' ' + pack.credits + 'cr Rs' + Math.max(0, pack.pkr - discount) + (data.proof_path ? ' screenshot attached' : ' NO screenshot') }); } catch (e) {}
   res.json({ payment: data, amount_pkr: Math.max(0, pack.pkr - discount), list_pkr: pack.list_pkr || pack.pkr,
     promo_applied: !!pack.list_pkr, discount_pkr: discount,
     note: 'Pending. Credits appear after staff confirms your bank transfer.' });
@@ -1951,9 +2022,22 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
   if (!p) return res.status(404).json({ error: 'Not found' });
   if (p.status !== 'pending') return res.status(400).json({ error: 'Already ' + p.status });
   // Atomic: only the request that flips pending->confirmed may write the credits.
-  const { data: flipped } = await admin().from('payments').update({ status: 'confirmed', confirmed_by: req.userId, confirmed_at: new Date().toISOString() }).eq('id', p.id).eq('status', 'pending').select('id');
+  let { data: flipped, error: flipErr } = await admin().from('payments').update({ status: 'confirmed', confirmed_by: req.userId, confirmed_at: new Date().toISOString() }).eq('id', p.id).eq('status', 'pending').select('id');
+  if (flipErr) ({ data: flipped } = await admin().from('payments').update({ status: 'confirmed' }).eq('id', p.id).eq('status', 'pending').select('id'));
   if (!flipped || !flipped.length) return res.status(400).json({ error: 'Already confirmed' });
-  await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: p.credits, reason: 'purchase', payment_id: p.id });
+  /* THE CREDITS ARE THE POINT. The ledger insert used to run unchecked: if the row failed
+     (a missing column, a constraint), the payment still read "confirmed", the customer
+     still had nothing, and nobody was told. It is verified now, retried with a minimal
+     row, and if it still fails the confirmation is rolled back so it can be retried. */
+  const creditsN = Math.max(1, Math.round(Number(p.credits) || 0));
+  let led = await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: creditsN, reason: 'purchase', payment_id: p.id, note: 'Payment ' + p.id });
+  if (led.error) led = await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: creditsN, reason: 'purchase' });
+  if (led.error) led = await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: creditsN });
+  if (led.error) {
+    await admin().from('payments').update({ status: 'pending', confirmed_by: null, confirmed_at: null }).eq('id', p.id).then(() => {}, () => admin().from('payments').update({ status: 'pending' }).eq('id', p.id));
+    try { require('./lib/oblog').errlog('payments:confirm-ledger', new Error(led.error.message || 'ledger insert failed'), { paymentId: p.id }); } catch (e) {}
+    return res.status(500).json({ error: 'Credits could not be written (' + String(led.error.message || 'ledger error').slice(0, 120) + '). The payment is still pending; run the latest SQL migration and confirm again.' });
+  }
   // A purchase restarts the search allowance: previous usage no longer counts.
   try { await resetSearchAllowance(p.user_id); } catch (e) {}
   // Referral settlement: consume the buyer's applied discount; reward the referrer
@@ -1993,7 +2077,29 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
     status: 'answered'
   }).then(() => {}, () => {});
   await admin().from('audit_log').insert({ actor: req.userId, event: 'PAYMENT_CONFIRMED', detail: p.id + ' +' + p.credits + 'cr' });
-  res.json({ ok: true });
+  const newBal = await balance(p.user_id).catch(() => null);
+  res.json({ ok: true, credits_added: creditsN, balance: newBal });
+});
+/* Rejecting is a decision too. A payment that cannot be matched to a transfer used to sit
+   in the queue forever; now it is closed with a reason the customer can act on. */
+app.post('/api/payments/:id/reject', auth, perm('payments.write'), async (req, res) => {
+  try {
+    const { data: p } = await admin().from('payments').select('*').eq('id', req.params.id).single();
+    if (!p) return res.status(404).json({ error: 'Not found' });
+    if (p.status !== 'pending') return res.status(400).json({ error: 'Already ' + p.status });
+    const reason = String((req.body || {}).reason || '').trim().slice(0, 300);
+    let { error } = await admin().from('payments').update({ status: 'failed', rejected_reason: reason || null, confirmed_by: req.userId, confirmed_at: new Date().toISOString() }).eq('id', p.id).eq('status', 'pending');
+    if (error) ({ error } = await admin().from('payments').update({ status: 'failed' }).eq('id', p.id).eq('status', 'pending'));
+    if (error) return res.status(400).json({ error: error.message });
+    admin().from('support_tickets').insert({
+      user_id: p.user_id, subject: 'Payment could not be verified',
+      message: 'Package purchase - ' + p.credits + ' case credit' + (p.credits === 1 ? '' : 's'),
+      reply: 'We could not match your payment screenshot to a transfer received.' + (reason ? ' Reason: ' + reason : '') + ' Please check the amount and account, then send a clear screenshot again from the plans page, or message us on WhatsApp.',
+      status: 'answered'
+    }).then(() => {}, () => {});
+    try { await admin().from('audit_log').insert({ actor: req.userId, event: 'PAYMENT_REJECTED', detail: p.id + (reason ? ' ' + reason : '') }); } catch (e) {}
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 /* ADMIN BYPASS ACTIVATION. The owner and staff never pay, and never should have been
@@ -2005,8 +2111,10 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
 app.post('/api/admin/bypass-activate', auth, async (req, res) => {
   try {
     const { data: prof } = await admin().from('profiles').select('role').eq('id', req.userId).single();
-    if (!prof || !require('./lib/rbac').isAdminRole(prof.role) || prof.role === 'user') return res.status(403).json({ error: 'Staff only' });
-    if (simUser(req)) return res.status(400).json({ error: 'You are previewing as a client. Exit the preview, then activate.' });
+    /* Admin and super admin only. Other staff roles walk the customer's path like a
+       customer; the payment bypass is an owner-level power. The client preview header
+       does not matter here: the real profile role is what is checked. */
+    if (!prof || !['admin', 'super_admin'].includes(prof.role)) return res.status(403).json({ error: 'Admin only' });
     const asked = Number((req.body || {}).credits);
     const want = isFinite(asked) && asked > 0 ? Math.max(999, Math.round(asked)) : 999;
     const bal0 = await balance(req.userId).catch(() => 0);
@@ -2952,6 +3060,8 @@ app.post('/api/run/topup', auth, async (req, res) => {
     const short = Math.min(15, Math.max(1, parseInt((req.body || {}).short_by, 10) || 15));
     prefs.target = Math.max(15, short * 2);
     prefs.countries = Array.isArray(prefs.ctrys) ? prefs.ctrys : (prefs.countries || []);
+    // The top-up must honour the same remote flag as the search it is completing.
+    prefs.remote = !!(prefs.remote || prefs.workmode === 'remote');
     prefs.progressKey = 'discover:' + req.userId;
     prefs.startedAt = new Date().toISOString();
     const kind = String((req.body || {}).kind || prefs.kind || '') || undefined;

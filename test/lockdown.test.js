@@ -5,7 +5,9 @@ let passed=0;
 const t=(n,f)=>{try{f();passed++}catch(e){console.error('FAIL: '+n+' -> '+e.message);process.exitCode=1}};
 
 // Rebuild lockTease in isolation from the source, then prove what it emits.
-const src=sv.slice(sv.indexOf('function hintLabel(o)'), sv.indexOf('app.get(\'/api/credits\''));
+// R4740: the identity scrub lives just above generalTitle; the slice starts there so the
+// real scrub (not a stand-in) is what the assertions below exercise.
+const src=sv.slice(sv.indexOf('const GENERIC_ORG_WORDS'), sv.indexOf('app.get(\'/api/credits\''));
 const generalTitle=o=>String(o.title||'').split(',')[0];
 const remoteScope=()=>null;
 const mod={};(new Function('generalTitle','remoteScope','module',src+';module.exports={hintLabel,relevanceLine,complexity,lockTease};'))(generalTitle,remoteScope,mod);
@@ -113,3 +115,19 @@ t('a case cannot start on a closed or dead position and no credit is spent',()=>
   assert.ok(sv.includes('RE-VERIFY BEFORE A CREDIT IS SPENT')&&sv.includes("OPP_DEAD_ON_OPEN")&&sv.includes('No credit was spent'));
 });
 console.log('lockdown: '+passed+' assertions passed'+(process.exitCode?' WITH FAILURES':''));
+
+/* R4740: sideways leaks. Institution named inside the title, a funder as the subject, a
+   scheme name in the money block, a funding line that says who pays. */
+{
+  const leakers=[
+    {id:'a',title:'Research position - SBW Berlin International Fellowship',institution:'SBW Berlin International',url:'https://sbw-berlin.de/x',kind:'postdoc',funding:'Funded by SBW Berlin International',intelligence:{scheme_name:'SBW Berlin Scholarship'}},
+    {id:'b',title:'Humboldt Research Fellowship for Postdoctoral Researchers',institution:'Alexander von Humboldt Foundation',url:'https://humboldt-foundation.de',level:'postdoc',kind:'postdoc',stipend:'EUR 2,670 per month from the Humboldt Foundation'},
+    {id:'c',title:'Postdoctoral position in Cardiovascular Research, Mayo Clinic',institution:'Mayo Clinic',url:'https://jobs.mayoclinic.org/1',level:'postdoc',kind:'postdoc',salary_note:'Mayo Clinic pays USD 61,000'}
+  ];
+  for(const o of leakers){
+    const out=JSON.stringify(lockTease(o)).toLowerCase();
+    for(const w of ['sbw','humboldt','mayo','mayoclinic','sbw-berlin']) assert.ok(!out.includes(w),'leak "'+w+'" in '+out);
+    assert.strictEqual(lockTease(o).money.scheme,null);
+  }
+  console.log('PASS  locked cards carry no institution, funder or scheme name, even inside titles and money lines');
+}
