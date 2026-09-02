@@ -616,6 +616,20 @@ const checks = [
       && sv.includes("subj = scrubIdentity(String(o.title || ''), o)")
       && f.includes("const tr=o=>o.track==='adjacent'?1:0");
   })()],
+  ['R4750: plans page cannot throw on HM, admin checks read the real ME, payment details are live', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    const st = fs.readFileSync(__dirname + '/../lib/settings.js', 'utf8');
+    const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    // `let ME` never lands on window, so every `window.ME&&` guard was permanently false
+    // and no staff/admin bar ever rendered. `HM` was never declared globally, so the plans
+    // page threw ReferenceError and fell back to the plain renderer.
+    return !f.includes('window.ME&&') && f.includes('var HM=null;')
+      && f.includes("let S={state:'new',hasCV:false,appCount:0};HM=null;")
+      && f.includes('async function refreshSiteConfig(') && f.includes('await refreshSiteConfig();')
+      && st.includes("easypaisa_number: '03455216903'") && st.includes("account_title: 'Waseem Khalid Malik'")
+      && st.includes('an empty saved field never blanks a shipped default')
+      && sv.includes("res.set('Cache-Control', 'no-store');\n  try {\n    const cfg = await siteSettings.getConfig();\n    const pub = siteSettings.publicView(cfg);");
+  })()],
   ['remote is a worldwide lane driven by the applicant profile', (() => {
     const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');

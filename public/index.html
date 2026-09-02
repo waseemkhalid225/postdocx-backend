@@ -757,6 +757,7 @@ header a.on::after,header button.on::after,#nav button.on::after{
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 let SB=null, SESSION=null, ME=null, TAB='home', CREDITS=0;
+var HM=null;   /* the dashboard payload; a real global so window.HM checks elsewhere actually see it */
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Recognize any admin-tier role (mirrors lib/rbac.js). 'user' is the only non-admin role.
@@ -764,7 +765,7 @@ const ADMIN_ROLES=['super_admin','admin','content_admin','support_admin','financ
 const isAdminRole=r=>ADMIN_ROLES.includes(r);
 /* Owner-level powers (skip payment, activate without paying) belong to admin and super
    admin only. Other staff roles see the customer's path exactly as a customer does. */
-const isTrueAdmin=()=>{try{return !!(window.ME&&['admin','super_admin'].includes(ME.role))}catch(e){return false}};
+const isTrueAdmin=()=>{try{return !!(ME&&['admin','super_admin'].includes(ME.role))}catch(e){return false}};
 async function refreshCredits(){
   /* /api/credits answers with {balance}; this read d.credits and painted "undefined
      credits" in the header after every purchase. Both keys are accepted now. */
@@ -1044,6 +1045,13 @@ function ffUpdateWatch(){
   window.addEventListener('pageshow',e=>{ if(e.persisted)wake(); });
   setInterval(()=>{ if(!document.hidden)check() },5*60*1000);
   check();
+}
+/* Payment details must be current the moment the admin saves them: the plans page and
+   the pay sheet re-read the public config with the cache bypassed. */
+async function refreshSiteConfig(){
+  try{const c=new AbortController();const t=setTimeout(()=>c.abort(),4000);
+    const r=await fetch('/api/site-config?t='+Date.now(),{cache:'no-store',signal:c.signal});clearTimeout(t);
+    const j=await r.json();if(j&&j.config)SITE=j.config;}catch(e){}
 }
 async function loadSiteConfig(){
   try{const rq=new URLSearchParams(location.search).get('ref');if(rq)localStorage.setItem('ffref',rq.toUpperCase())}catch(e){}
@@ -1540,7 +1548,7 @@ async function vHome(){
   setTimeout(promoTicker,300);
   if(window._ref===undefined){window._ref=null;loadReferral().then(()=>{if(TAB==='home'&&window._ref)vHome()}).catch(()=>{});}
   // SPEED: on a slow connection, paint instantly from the last dashboard while we refresh.
-  let S={state:'new',hasCV:false,appCount:0},HM=null;
+  let S={state:'new',hasCV:false,appCount:0};HM=null;
   /* Last known dashboard, persisted on the phone: it paints in the first frame, and the
      fresh copy replaces it the moment the server answers. */
   if(!window._homeCache){try{const c=JSON.parse(localStorage.getItem('ffHome')||'null');if(c&&c.data&&c.uid===(SESSION&&SESSION.user&&SESSION.user.id))window._homeCache={data:c.data,at:0}}catch(e){}}
@@ -2224,7 +2232,7 @@ function oppCard(o,ctaColor){
      could never see what a customer sees, so paywall bugs stayed invisible. Staff now get
      the identical locked card and the identical Apply button, plus one override that is
      rendered for staff only and clearly labelled as an override. */
-  const _isStaff=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
+  const _isStaff=(()=>{try{return !!(ME&&isAdminRole(ME.role))}catch(e){return false}})();
   if(o.locked){
     const lp=o.match&&o.match.pct!=null?o.match.pct:null;
     const consider=lp!=null?(lp>=85?'High chance of consideration for your profile':lp>=70?'Strong consideration likelihood for your profile':'Matched against your profile'):'Verified against the official source';
@@ -2310,7 +2318,7 @@ function openPlans(){
    the case the way a paid user's Start button does, from the same locked card, and says
    plainly that it skipped payment. Staff only; nothing renders it for a customer. */
 async function adminOpenCase(id,btn){
-  try{if(!(window.ME&&isAdminRole(ME.role))){toast('Staff only.');return}}catch(e){return}
+  try{if(!(ME&&isAdminRole(ME.role))){toast('Staff only.');return}}catch(e){return}
   btn.disabled=true;const was=btn.textContent;btn.textContent='Opening\u2026';
   try{
     const d=await api('/api/opportunities/'+id+'/report');
@@ -2432,7 +2440,7 @@ async function whyMatch(id){
   ${d.status==='criteria_not_published'?'<div class="card" style="background:var(--soft)"><div class="sub">This opportunity did not publish structured eligibility criteria, so we cannot compute a match. Check the official page for requirements.</div></div>':''}
   ${(d.reasons||[]).map(r=>`<div class="checkrow"><div style="flex:none;width:20px">${icon(r.ok)}</div><div style="flex:1" class="sub">${esc(r.text)}</div></div>`).join('')}
   <div class="sub" style="margin-top:10px;font-size:11px">Unknown items (?) mean the requirement is stated but your profile does not yet have the data, or the requirement was not published. They are never counted as met.</div>
-  <div class="row" style="margin-top:12px"><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();startApp('${id}','${escAttr((d.opportunity||{}).institution||'')}')">Start application${(()=>{try{return (window.ME&&isAdminRole(ME.role))?' (staff, no credit)':' (1 credit)'}catch(e){return ' (1 credit)'}})()}</button></div></div>`;
+  <div class="row" style="margin-top:12px"><button class="btn b-gold" onclick="this.closest('div[style*=fixed]').remove();startApp('${id}','${escAttr((d.opportunity||{}).institution||'')}')">Start application${(()=>{try{return (ME&&isAdminRole(ME.role))?' (staff, no credit)':' (1 credit)'}catch(e){return ' (1 credit)'}})()}</button></div></div>`;
   document.body.appendChild(wrap);
 }
 
@@ -2957,7 +2965,7 @@ async function showMatches(kind,opts){
     const cr=(window.HM&&HM.credits&&HM.credits.creditsRemaining)||0;
     const tiers=((SITE&&SITE.packages&&SITE.packages.tiers)||[]).slice().sort((a,b)=>(a.credits||0)-(b.credits||0));
     let cap=null;for(const t of tiers){if(cr>=(t.credits||0))cap=t.view||null}
-    const staff=!!(window.ME&&isAdminRole(ME.role));
+    const staff=!!(ME&&isAdminRole(ME.role));
     if(cap&&!staff){let seenOpen=0;shown=shown.filter(o=>{if(o.locked)return true;seenOpen++;return seenOpen<=cap})}
   }catch(e){}
   const noneOpen=shown.length&&shown.every(o=>o.locked);
@@ -3690,7 +3698,7 @@ function startApp(id,inst,reqs){
   document.querySelectorAll('.ff-ack').forEach(x=>x.remove());
   /* The server never debits staff, so promising staff that a credit will be spent is
      simply false. The confirmation says what will actually happen to whoever is looking. */
-  const _st=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
+  const _st=(()=>{try{return !!(ME&&isAdminRole(ME.role))}catch(e){return false}})();
   const w=document.createElement('div');w.className='ff-ack';
   w.style.cssText='position:fixed;inset:0;background:rgba(4,10,24,.8);z-index:66;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:18px';
   w.innerHTML=`<div style="position:relative;max-width:420px;width:100%;background:rgba(8,18,40,.97);border:1px solid rgba(140,178,255,.4);color:#eef4ff;border-radius:16px;padding:20px">
@@ -5166,6 +5174,7 @@ async function vBuy(){
 }
 async function vBuyRender(){
   let d;
+  await refreshSiteConfig();
   if(!cacheGet('/api/pricing',300000))$('view').innerHTML='<div class="empty">Loading packages…</div>';
   try{const r=await apiFast('/api/pricing',300000);d=r.cached}
   catch(e){$('view').innerHTML='<div class="empty">'+esc(e.message)+'<br><br><button class="btn b-line" onclick="vBuy()">Try again</button></div>';return}
@@ -5204,7 +5213,7 @@ async function vBuyRender(){
       <button class="btn ${feat?'b-gold':'b-line'}" style="width:100%;margin-top:12px;font-size:15px;padding:12px" onclick="buyPack(${p.credits})">Choose ${esc(m.name)}</button>
     </div>`;};
   setTimeout(promoTicker,300);
-  const _staff=(()=>{try{return !!(window.ME&&isAdminRole(ME.role))}catch(e){return false}})();
+  const _staff=(()=>{try{return !!(ME&&isAdminRole(ME.role))}catch(e){return false}})();
   const _admin=isTrueAdmin();
   $('view').innerHTML=`<div class="spread" style="margin-bottom:6px">
     <button class="btn b-line" style="padding:5px 12px;font-size:12.5px" onclick="if(window._lastMatches){go('home');setTimeout(()=>showMatches(window._lastMatches.kind,Object.assign({},window._lastMatches.opts||{},{_fromCache:true})),80)}else go('home')">\u2190 Back to my matches</button>
@@ -5401,6 +5410,7 @@ async function adminBypassBuy(credits,btn){
   }
 }
 async function buyPack(credits){
+  await refreshSiteConfig();
   const P=(SITE&&SITE.payment)||{};
   const row=(l,v)=>v?`<div class="row" style="justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(140,178,255,.14)"><span class="sub" style="font-weight:700">${l}</span><span style="display:flex;gap:8px;align-items:center"><b style="font-size:13.5px">${esc(v)}</b><button class="btn b-line" style="padding:3px 10px;font-size:11px" onclick="copyTxt('${escAttr(v)}',this)">Copy</button></span></div>`:'';
   const w=document.createElement('div');w.className='ff-ack';
@@ -5409,7 +5419,8 @@ async function buyPack(credits){
     <div class="spread"><h3 style="margin:0">${(()=>{const t=pkgByCredits(credits);
       return 'Pay for '+(t?esc(t.name):(credits+' case'+(credits===1?'':'s')))+', one step';})()}</h3><button class="btn b-line" style="padding:3px 10px" onclick="this.closest('.ff-ack').remove()" aria-label="Close">✕</button></div>
     <div class="sub" style="margin:6px 0 8px" id="payQuote">Checking your exact amount&hellip;</div>
-    ${row('JazzCash',P.jazzcash_number)}${row('Easypaisa',P.easypaisa_number)}${row('Bank',P.bank_name)}${row('Title',P.account_title)}${row('Account #',P.account_number)}${row('IBAN',P.iban)}
+    ${row('Easypaisa',P.easypaisa_number)}${row('JazzCash',P.jazzcash_number)}${row('Bank',P.bank_name)}${row('Title',P.account_title)}${row('Account #',P.account_number)}${row('IBAN',P.iban)}
+    ${!(P.easypaisa_number||P.jazzcash_number||P.account_number||P.iban)?`<div class="sub" style="padding:8px 0;color:#FFD070">Payment account details are being updated. Tap Ask us and we will send them to you right away.</div>`:''}
     <input id="payShot" type="file" accept="image/*" style="display:none" onchange="payShotPicked(this)">
     <div id="payShotBox" onclick="document.getElementById('payShot').click()" style="margin-top:12px;border:2px dashed rgba(0,212,255,.55);border-radius:12px;padding:16px 12px;text-align:center;cursor:pointer;background:rgba(0,212,255,.05)">
       <div style="font:700 14px Inter;color:#7EE6FF">\ud83d\udcf7 Tap to attach your payment screenshot</div>

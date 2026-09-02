@@ -121,7 +121,7 @@ const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimu
 const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-09-02-R4740';
+const FF_BUILD = '2026-09-02-R4750';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 /* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
    assistant.zip was a file committed by hand, and it had drifted: users were downloading
@@ -413,6 +413,7 @@ app.get('/api/config', (req, res) => {
 /* ---------- Phase 1: central site configuration ---------- */
 const siteSettings = require('./lib/settings');
 app.get('/api/site-config', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
     const cfg = await siteSettings.getConfig();
     const pub = siteSettings.publicView(cfg);
