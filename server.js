@@ -121,7 +121,9 @@ const RELEVANCE_FLOOR = 60; // single source of truth for match relevance minimu
 const MATCH_MAX = 60;
 
 /* Build stamp: proves WHICH code is actually running in production. */
-const FF_BUILD = '2026-09-02-R4750';
+const DQ = require('./lib/discovery_quality');
+const { callAI } = require('./lib/router');   // QA R5950: employer outreach and support triage call this at module scope
+const FF_BUILD = '2026-09-05-R8300';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 /* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
    assistant.zip was a file committed by hand, and it had drifted: users were downloading
@@ -148,6 +150,16 @@ try {
     console.log('[boot] apply assistant zip rebuilt from source, v' + mf.version);
   }
 } catch (e) { console.log('[boot] extension zip rebuild skipped: ' + e.message); }
+/* /api/health is the documented, uncached build probe used by the runbook, the smoke test and the morning PDF. */
+/* Serve the minified front end when it exists (built by npm run build:web / prestart). */
+/* The landing is a 40 KB standalone page at /; the app (600 KB) loads at /app, or at / with ?app=1 for old links. The landing
+   redirects signed-in visitors to /app by itself. */
+try { const fsx = require('fs'); const pth = require('path'); const minPath = pth.join(__dirname, 'public', 'index.min.html'); const appPath = fsx.existsSync(minPath) && process.env.FF_SERVE_MIN !== 'off' ? minPath : pth.join(__dirname, 'public', 'index.html'); const landPath = pth.join(__dirname, 'public', 'landing.html');
+  /* White-label hosts: a consultancy's domain never shows the platform's landing, SEO pages, pricing, trust or partner pages. */
+  app.use(async (req, res, next) => { try { const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(':')[0].toLowerCase(); if (!host || /foriforeign\.com$|localhost|127\.0\.0\.1|railway\.app$/.test(host)) return next(); const o = await orgForHost(host); if (!o) return next(); req.whitelabelOrg = o; const p = req.path; if (p === '/' || p === '/landing.html') { res.set('Cache-Control', 'no-cache'); return res.sendFile(appPath); } if (/^\/(study-in|work-in|for-(applicants|consultancies|institutions)|updates|s|guide|sitemap\.xml|robots\.txt|pricing\.html|trust\.html|partners\.html|help\.html)(\/|$)/.test(p)) return res.redirect(302, '/app'); if (/^\/api\/(trust|offering|preview|prospects|brief)/.test(p)) return res.status(404).json({ error: 'Not available on this domain' }); } catch (e) {} next(); });
+  app.get('/', (req, res, next) => { if (req.query.app === '1' || req.query.raw === '1' || req.query.paid || req.query.session || req.query.partner || req.query.go) { res.set('Cache-Control', 'no-cache'); return res.sendFile(req.query.raw === '1' ? pth.join(__dirname, 'public', 'index.html') : appPath); } if (fsx.existsSync(landPath)) { res.set('Cache-Control', 'public, max-age=300'); return res.sendFile(landPath); } next(); });
+  app.get(['/app', '/index.html'], (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(req.query.raw === '1' ? pth.join(__dirname, 'public', 'index.html') : appPath); }); } catch (e) {}
+app.get('/api/health', (req, res) => { res.set('Cache-Control', 'no-store, no-cache, must-revalidate'); res.json({ build: FF_BUILD, ok: true, up: process.uptime() | 0 }); });
 app.get('/api/version', (req, res) => {
   // The installed app polls this to decide whether to reload, so it must never be cached.
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -221,6 +233,8 @@ app.post('/api/auth/confirmed', async (req, res) => {
 });
 /* Self-diagnosing health: shows WHICH link is broken without exposing any secret. */
 app.get('/api/health/full', async (req, res) => {
+  res.set('x-ff-field-encryption', require('./lib/crypto').enabled() ? 'on' : 'off');
+  res.set('x-ff-features', ['card:' + (process.env.STRIPE_SECRET_KEY ? 'on' : 'off'), 'encryption:' + (require('./lib/crypto').enabled() ? 'on' : 'off'), 'queue:' + (process.env.FF_QUEUE === 'off' ? 'off' : 'on')].join(','));
   const has = k => !!process.env[k];
   const out = {
     build: FF_BUILD,
@@ -246,6 +260,55 @@ app.get('/api/health/full', async (req, res) => {
     else out.auth_layer = 'no token sent (open this page while logged in via the app to test)';
   } catch (e) { out.auth_layer = 'ERROR: ' + String(e.message).slice(0, 160); }
   res.json(out);
+});
+/* Stripe webhook: raw body for signature verification, mounted before the JSON parser. */
+/* Day 27 · hardening: security headers on every response, response-time header, and a light
+   per-IP limiter on unauthenticated endpoints so a scraper cannot make the public config,
+   whitelabel or i18n endpoints expensive. */
+app.use((req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff'); res.set('X-Frame-Options', 'SAMEORIGIN'); res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()'); res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  const t0 = Date.now(); const end = res.end; res.end = function () { try { res.set('x-ff-ms', String(Date.now() - t0)); } catch (e) {} return end.apply(this, arguments); }; next();
+});
+const _ipHits = new Map(); const LIMITER = require('./lib/limiter');
+app.use(async (req, res, next) => {
+  if (!/^\/api\/(config|site-config|i18n|whitelabel|leads\/|intake\/|pay\/(stripe|lemon|safepay)\/webhook|health|ask|faqs)/.test(req.path)) return next();
+  const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || 'x';
+  const n = await LIMITER.hit('ip:' + ip, 60);
+  if (n > 240) return res.status(429).json({ error: 'Too many requests, slow down.' }); next();
+});
+/* Security headers beyond the basics: referrer, permissions, and a Content-Security-Policy in report-only mode first
+   (the single-file app uses inline scripts; the report tells us what to tighten before enforcing). */
+app.use((req, res, next) => { res.set('Referrer-Policy', 'strict-origin-when-cross-origin'); res.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=(self)'); res.set('Content-Security-Policy-Report-Only', "default-src 'self' https:; script-src 'self' 'unsafe-inline' https://translate.google.com https://translate.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; connect-src 'self' https:; frame-src https://translate.google.com https://checkout.stripe.com https://*.lemonsqueezy.com; report-uri /api/csp-report"); next(); });
+app.post('/api/csp-report', express.json({ type: ['application/csp-report', 'application/json'], limit: '50kb' }), async (req, res) => { try { const r = (req.body || {})['csp-report'] || req.body || {}; await admin().from('audit_log').insert({ event: 'CSP_REPORT', detail: String(JSON.stringify(r)).slice(0, 400) }).then(() => {}, () => {}); } catch (e) {} res.status(204).end(); });
+app.post('/api/pay/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const GW = require('./lib/gateway');
+    const raw = req.body instanceof Buffer ? req.body.toString('utf8') : String(req.body || '');
+    if (!GW.verifySignature(raw, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET)) return res.status(400).send('bad signature');
+    const evt = JSON.parse(raw);
+    if (evt.type === 'checkout.session.completed' || evt.type === 'checkout.session.async_payment_succeeded') {
+      const so = evt.data.object; const md = so.metadata || {};
+      const r = (md.org_id && md.credits === '0') ? await settleAgencySubscription(so) : await settleCardPayment(so, 'webhook');
+      return res.json(r);
+    }
+    res.json({ ignored: evt.type });
+  } catch (e) { res.status(400).send(e.message); }
+});
+app.post('/api/pay/safepay/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try { const SP = require('./lib/gateway_safepay'); const raw = req.body instanceof Buffer ? req.body.toString('utf8') : String(req.body || '');
+    if (!SP.verifySignature(raw, req.headers['x-sfpy-signature'], process.env.SAFEPAY_SECRET)) return res.status(400).send('bad signature');
+    const evt = JSON.parse(raw); const sess = SP.sessionFromEvent(evt); if (sess.payment_status !== 'paid') return res.json({ ignored: sess.payment_status });
+    return res.json(await settleCardPayment(sess, 'safepay')); }
+  catch (e) { res.status(400).send(e.message); }
+});
+app.post('/api/pay/lemon/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try { const L = require('./lib/gateway_lemon'); const raw = req.body instanceof Buffer ? req.body.toString('utf8') : String(req.body || '');
+    if (!L.verifySignature(raw, req.headers['x-signature'], process.env.LEMON_WEBHOOK_SECRET)) return res.status(400).send('bad signature');
+    const evt = JSON.parse(raw); const name = evt.meta && evt.meta.event_name;
+    if (name === 'order_created') return res.json(await settleCardPayment(L.sessionFromEvent(evt), 'lemon'));
+    res.json({ ignored: name }); }
+  catch (e) { res.status(400).send(e.message); }
 });
 app.use(express.json({ limit: '2mb' }));
 const multer = require('multer');
@@ -303,10 +366,13 @@ const _allowanceChecked = new Set();
 const OWNER_EMAILS = ['waseemkhalid225@gmail.com', 'admin@foriforeign.com'];
 const _ownerChecked = new Set();
 async function auth(req, res, next) {
-  const t = (req.headers.authorization || '').replace(/^Bearer /, '');
+  /* Browser-opened files (invoice PDFs) cannot send a header; they carry the token as ?t=. */
+  const t = ((req.headers.authorization || '').replace(/^Bearer /, '')) || (req.method === 'GET' && (/^\/api\/org\/[^/]+\/invoice\//.test(req.path) || req.path === '/api/me/export' || req.path === '/api/events' || /^\/api\/admin\/documents\/[^/]+\/pdf$/.test(req.path)) ? String(req.query.t || '') : '');
   const u = await userFromToken(t);
   if (!u) return res.status(401).json({ error: 'Please sign in again' });
   req.userId = u.id; req.userEmail = u.email;
+  // Gap 16 · a token issued before the last role change is no longer valid.
+  try { const iat = (() => { try { return JSON.parse(Buffer.from(t.split('.')[1], 'base64').toString()).iat; } catch (e) { return null; } })(); if (iat) { const { data: pr } = await admin().from('profiles').select('role_changed_at').eq('id', u.id).maybeSingle(); if (pr && pr.role_changed_at && new Date(pr.role_changed_at).getTime() / 1000 > iat + 5) return res.status(401).json({ error: 'Your access changed. Please sign in again.' }); } } catch (e) {}
   /* THE OWNER'S OWN ACCOUNT WAS THE SLOWEST IN THE SYSTEM. This block ran a database
      read on EVERY request from the owner email - a round trip to Supabase before each
      button could answer, for exactly one person: the one testing the app. Once the role
@@ -339,7 +405,8 @@ async function staffOnly(req, res, next) {
 }
 // Permission-scoped middleware (RBAC). Falls back to staffOnly behavior for legacy roles.
 const { requirePermission } = require('./lib/rbac');
-const perm = (p) => requirePermission(p, admin);
+const TOTP = require('./lib/totp');
+const perm = (p) => { const inner = requirePermission(p, admin); return async (req, res, next) => { try { const ok = await TOTP.sessionOk(req.userId, String(req.headers['x-ff-totp'] || req.query.totp || '')); if (!ok) return res.status(428).json({ error: 'Second factor required', totp_required: true }); } catch (e) {} return inner(req, res, next); }; };
 
 
 /* ---------- future-client compatibility (Android app, browser agent) ---------- */
@@ -406,6 +473,1374 @@ app.get('/api/public/opportunity-counts', async (req, res) => {
 });
 
 /* ---------- public config for the frontend ---------- */
+/* ================= PHASE 0 · GLOBAL MOBILITY OS FOUNDATIONS =================
+   Organisations (personal / agency / institution / employer / partner), org membership,
+   consultant-owned clients, and a Postgres job queue. Purely additive: the B2C journey is
+   untouched; every user owns a personal organisation created on first touch. */
+const ORGS = require('./lib/orgs');
+const QUEUE = require('./lib/queue');
+const orgErr = (res, e) => res.status(e && e.status || 400).json({ error: (e && e.message) || 'Organisation error' });
+
+app.get('/api/org', auth, async (req, res) => {
+  try {
+    const { data: me } = await admin().from('profiles').select('full_name').eq('id', req.userId).maybeSingle();
+    const personal = await ORGS.ensurePersonalOrg(req.userId, (me && me.full_name ? me.full_name + "'s workspace" : null));
+    const orgs = await ORGS.myOrgs(req.userId);
+    res.json({ personal, orgs, roles: ORGS.ORG_ROLES });
+  } catch (e) { orgErr(res, e); }
+});
+app.post('/api/org', auth, async (req, res) => {
+  try { const org = await ORGS.createOrg(req.userId, req.body || {}); await orgAudit(org.id, req.userId, 'ORG_CREATED', org.kind + ' ' + org.name); res.json({ org }); }
+  catch (e) { orgErr(res, e); }
+});
+app.get('/api/org/:id/clients', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); const m = await ORGS.membership(req.params.id, req.userId); res.json({ clients: await ORGS.listClients(req.params.id, Object.assign({}, req.query || {}, { scope: ORGS.scopeFor(m, req.userId) })), my_role: m && m.role, my_branch: m && m.branch }); }
+  catch (e) { orgErr(res, e); }
+});
+app.post('/api/org/:id/clients', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'clients.write');
+    const client = await ORGS.createClient(req.params.id, req.userId, req.body || {}); CACHE.bust('board:' + req.params.id); WEBHOOKS.emit(req.params.id, 'client.created', { client_id: client.id, full_name: client.full_name, lane: client.lane, stage: client.stage });
+    await orgAudit(req.params.id, req.userId, 'CLIENT_CREATED', client.full_name + ' (' + client.id.slice(0, 8) + ')');
+    res.json({ client });
+  } catch (e) { orgErr(res, e); }
+});
+app.patch('/api/org/:id/clients/:cid', auth, async (req, res) => {
+  try { const before = await orgClient(req, res, 'clients.write'); CACHE.bust('board:' + req.params.id); const client = await ORGS.updateClient(req.params.id, req.params.cid, req.body || {}); if ((req.body || {}).stage && (req.body || {}).stage !== before.stage) WEBHOOKS.emit(req.params.id, 'client.stage_changed', { client_id: client.id, from: before.stage, to: client.stage }); res.json({ client }); }
+  catch (e) { orgErr(res, e); }
+});
+app.post('/api/org/:id/members', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'members.write'); const b = req.body || {}; const r = await ORGS.addMember(req.params.id, b.email, b.role, b.branch, req.userId); await orgAudit(req.params.id, req.userId, 'MEMBER_INVITED', b.email + ' as ' + (b.role || 'consultant') + (b.branch ? ' / ' + b.branch : '')); res.json(r); }
+  catch (e) { orgErr(res, e); }
+});
+app.get('/api/org/:id/members', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); res.json(await ORGS.listMembers(req.params.id)); }
+  catch (e) { orgErr(res, e); }
+});
+app.patch('/api/org/:id/members/:uid', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'members.write'); const r = await ORGS.updateMember(req.params.id, req.userId, req.params.uid, req.body || {}); await orgAudit(req.params.id, req.userId, 'MEMBER_UPDATED', req.params.uid.slice(0, 8) + ' ' + JSON.stringify(req.body || {}).slice(0, 120)); res.json(r); }
+  catch (e) { orgErr(res, e); }
+});
+app.delete('/api/org/:id/members/:uid', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'members.write'); const r = await ORGS.removeMember(req.params.id, req.userId, req.params.uid); await orgAudit(req.params.id, req.userId, 'MEMBER_REMOVED', req.params.uid.slice(0, 8)); res.json(r); }
+  catch (e) { orgErr(res, e); }
+});
+app.delete('/api/org/:id/invites/:iid', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'members.write'); await admin().from('org_invites').delete().eq('id', req.params.iid).eq('org_id', req.params.id); res.json({ ok: true }); }
+  catch (e) { orgErr(res, e); }
+});
+app.patch('/api/org/:id', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); res.json({ settings: await ORGS.updateOrgSettings(req.params.id, req.body || {}) }); }
+  catch (e) { orgErr(res, e); }
+});
+app.get('/api/org/:id', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); const { data } = await admin().from('organisations').select('id,name,kind,plan,country_code,slug,settings,created_at').eq('id', req.params.id).maybeSingle(); res.json({ org: data, me: await ORGS.membership(req.params.id, req.userId) }); }
+  catch (e) { orgErr(res, e); }
+});
+/* A consultant asks the platform to search for a client who already has a ForiForeign login.
+   The work runs on the queue, never inside the request. */
+app.post('/api/org/:id/clients/:cid/discover', auth, async (req, res) => {
+  try {
+    { const me = await ORGS.membership(req.params.id, req.userId); const chk = await QUOTA.check(req.params.id, me, 'org_search', 1); if (!chk.ok) return res.status(402).json({ error: chk.reason, code: chk.code }); await QUOTA.consume(req.params.id, me, 'org_search', 1); }
+    await ORGS.requireOrg(req, req.params.id, 'clients.write');
+    const { data: c } = await admin().from('clients').select('id,user_id,lane,profile').eq('id', req.params.cid).eq('org_id', req.params.id).maybeSingle();
+    if (!c) return res.status(404).json({ error: 'Client not found' });
+    if (!c.user_id) return res.status(400).json({ error: 'This client has no ForiForeign login yet. Invite them to sign up and upload a CV; search runs on their profile.' });
+    const kind = (req.body || {}).kind || (c.lane === 'work' ? 'work' : 'postdoc');
+    const jobId = await QUEUE.enqueue('client_discover', { clientId: c.id, userId: c.user_id, kind, prefs: (req.body || {}).prefs || {} }, { orgId: req.params.id, userId: req.userId });
+    res.json({ ok: true, job_id: jobId });
+  } catch (e) { orgErr(res, e); }
+});
+app.get('/api/admin/queue', auth, perm('settings.read'), async (req, res) => { try { res.json(await QUEUE.status()); } catch (e) { res.status(400).json({ error: e.message }); } });
+QUEUE.register('client_discover', async (p) => {
+  const { discoverForUser } = require('./lib/engine');
+  const prefs = Object.assign({ countries: [], ctrys: [] }, p.prefs || {});
+  prefs.countries = Array.isArray(prefs.ctrys) && prefs.ctrys.length ? prefs.ctrys : (prefs.countries || []);
+  prefs.progressKey = 'discover:' + p.userId;
+  const r = await discoverForUser(p.userId, p.kind || 'postdoc', prefs);
+  try { await admin().from('clients').update({ stage: 'match', updated_at: new Date().toISOString() }).eq('id', p.clientId).eq('stage', 'discover'); } catch (e) {}
+  return { found: (r && (r.added != null ? r.added : r)) };
+});
+try { if (process.env.FF_QUEUE !== 'off') QUEUE.start(5000, 2); } catch (e) {}
+/* =================================================================================== */
+/* ================= PHASE 1 · DOCUMENT INTELLIGENCE + GLOBAL MOBILITY PROFILE ================= */
+const VAULT = require('./lib/vault');
+const MOBILITY = require('./lib/mobility');
+app.get('/api/vault', auth, async (req, res) => { try { res.json({ documents: await VAULT.vaultFor(req.userId), types: VAULT.DOC_TYPES, labels: VAULT.LABEL }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/vault/checklist', auth, async (req, res) => {
+  try { const extra = String(req.query.extra || '').split(',').map(s => s.trim()).filter(Boolean); res.json(await VAULT.checklist(req.userId, String(req.query.for || 'study'), extra)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/vault/:id/read', auth, async (req, res) => {
+  try { const jobId = await QUEUE.enqueue('vault_read', { docId: req.params.id, userId: req.userId }, { userId: req.userId, maxAttempts: 2 }); res.json({ ok: true, job_id: jobId }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.patch('/api/vault/:id', auth, async (req, res) => {
+  try {
+    const b = req.body || {}; const patch = {};
+    if (VAULT.DOC_TYPES.includes(b.doc_type)) { patch.doc_type = b.doc_type; patch.sensitive = VAULT.SENSITIVE.has(b.doc_type); }
+    if (b.expiry_date === null || /^\d{4}-\d{2}-\d{2}$/.test(String(b.expiry_date || ''))) patch.expiry_date = b.expiry_date;
+    if (b.confirm === true) { patch.doc_status = 'read'; patch.issues = []; }
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to change' });
+    const { data, error } = await admin().from('documents').update(patch).eq('id', req.params.id).eq('user_id', req.userId).select('id,doc_type,doc_status,expiry_date').single();
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ document: data });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/me/mobility', auth, async (req, res) => { try { res.json(await MOBILITY.get(req.userId)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.put('/api/me/mobility', auth, async (req, res) => { try { res.json(await MOBILITY.update(req.userId, (req.body || {}).profile || req.body || {}, 'user')); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Consultants read and complete a linked client's profile; every edit is marked "consultant". */
+app.get('/api/org/:id/clients/:cid/mobility', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'clients.read');
+    const { data: c } = await admin().from('clients').select('user_id').eq('id', req.params.cid).eq('org_id', req.params.id).maybeSingle();
+    if (!c || !c.user_id) return res.status(400).json({ error: 'Client has no ForiForeign login yet.' });
+    res.json(await MOBILITY.get(c.user_id));
+  } catch (e) { orgErr(res, e); }
+});
+app.put('/api/org/:id/clients/:cid/mobility', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'clients.write');
+    const { data: c } = await admin().from('clients').select('user_id').eq('id', req.params.cid).eq('org_id', req.params.id).maybeSingle();
+    if (!c || !c.user_id) return res.status(400).json({ error: 'Client has no ForiForeign login yet.' });
+    res.json(await MOBILITY.update(c.user_id, (req.body || {}).profile || {}, 'consultant'));
+  } catch (e) { orgErr(res, e); }
+});
+QUEUE.register('vault_read', async (p) => { await meter(p.userId, 'doc_read'); const r = await VAULT.readDocument(p.docId, p.userId); JE.recompute(p.userId); return r; });
+QUEUE.register('profile_extract', async (p) => require('./lib/jobs').runJob('prepare', 'autofill:' + p.userId + ':' + Date.now(), p.userId, () => extractProfile(p.userId), { retries: 0, timeoutMs: 300000 }));
+/* =========================================================================================== */
+/* ================= PHASE 2 · CONSULTANT COMMAND CENTER (API) ================= */
+async function orgClient(req, res, permission) {
+  await ORGS.requireOrg(req, req.params.id, permission);
+  const m = await ORGS.membership(req.params.id, req.userId);
+  const { data: c } = await ORGS.applyScope(admin().from('clients').select('*').eq('id', req.params.cid).eq('org_id', req.params.id), ORGS.scopeFor(m, req.userId)).maybeSingle();
+  if (!c) { const e = new Error('Client not found or outside your branch'); e.status = 404; throw e; }
+  return c;
+}
+/* One call gives the consultant everything about a client: the command-center screen. */
+app.get('/api/org/:id/clients/:cid/overview', auth, async (req, res) => {
+  try {
+    const c = await orgClient(req, res, 'clients.read');
+    const [tasks, notes, comm] = await Promise.all([
+      admin().from('client_tasks').select('*').eq('client_id', c.id).order('status').order('due_date', { ascending: true, nullsFirst: false }).limit(100).then(r => r.data || [], () => []),
+      admin().from('client_notes').select('*').eq('client_id', c.id).order('created_at', { ascending: false }).limit(50).then(r => r.data || [], () => []),
+      admin().from('commission_ledger').select('amount_pkr,status').eq('client_id', c.id).then(r => r.data || [], () => [])
+    ]);
+    let mobility = null, checklist = null, credits = null, cases = [], matches = null, pendingPayment = null;
+    if (c.user_id) {
+      try { mobility = await MOBILITY.get(c.user_id); } catch (e) {}
+      try { checklist = await VAULT.checklist(c.user_id, c.lane === 'work' ? 'work' : 'study'); } catch (e) {}
+      try { credits = await balance(c.user_id); } catch (e) {}
+      try { const { data } = await admin().from('applications').select('id,opportunity_id,status,created_at,updated_at').eq('user_id', c.user_id).order('created_at', { ascending: false }).limit(20); cases = data || []; } catch (e) {}
+      try { const { data } = await admin().from('app_settings').select('value').eq('key', 'discover:' + c.user_id).maybeSingle(); matches = data && data.value; } catch (e) {}
+      try { const { data } = await admin().from('payments').select('id,credits,amount_pkr,status,created_at').eq('user_id', c.user_id).order('created_at', { ascending: false }).limit(1); pendingPayment = data && data[0] && data[0].status === 'pending' ? data[0] : null; } catch (e) {}
+    }
+    const open = tasks.filter(t => t.status === 'open');
+    const next = open.find(t => t.owner === 'us') || open[0] || null;
+    const risks = [];
+    if (mobility && mobility.missing_for_match && mobility.missing_for_match.length) risks.push('Profile incomplete for matching: ' + mobility.missing_for_match.join(', '));
+    if (checklist && checklist.expired.length) risks.push('Expired documents: ' + checklist.expired.join(', '));
+    if (checklist && checklist.missing.length) risks.push('Missing documents: ' + checklist.missing.join(', '));
+    if (mobility && mobility.profile && mobility.profile.visa_refusals) risks.push('Previous visa refusal declared: ' + String(mobility.profile.visa_refusals).slice(0, 80));
+    if (!c.user_id) risks.push('Client has no ForiForeign login yet: search and preparation run on their own profile. Invite them.');
+    res.json({ client: c, tasks, notes, mobility, checklist, credits, cases, discover: matches, pendingPayment, next_action: next, risks,
+      commission_pkr: comm.filter(x => x.status !== 'void').reduce((a, x) => a + (x.amount_pkr || 0), 0) });
+  } catch (e) { orgErr(res, e); }
+});
+app.post('/api/org/:id/clients/:cid/tasks', auth, async (req, res) => {
+  try {
+    const c = await orgClient(req, res, 'clients.write'); const b = req.body || {};
+    if (!String(b.title || '').trim()) return res.status(400).json({ error: 'Task title required' });
+    const { data, error } = await admin().from('client_tasks').insert({ org_id: c.org_id, client_id: c.id, title: String(b.title).slice(0, 200), owner: ['us', 'client', 'them'].includes(b.owner) ? b.owner : 'us', due_date: /^\d{4}-\d{2}-\d{2}$/.test(String(b.due_date || '')) ? b.due_date : null, assignee_user_id: b.assignee_user_id || req.userId, created_by: req.userId }).select('*').single();
+    if (error) return res.status(400).json({ error: error.message });
+    WEBHOOKS.emit(c.org_id, 'task.created', { client_id: c.id, task_id: data.id, title: data.title, owner: data.owner, due_date: data.due_date });
+    res.json({ task: data });
+  } catch (e) { orgErr(res, e); }
+});
+app.patch('/api/org/:id/tasks/:tid', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'clients.write'); const b = req.body || {}; const patch = {};
+    if (['open', 'done', 'cancelled'].includes(b.status)) { patch.status = b.status; patch.done_at = b.status === 'done' ? new Date().toISOString() : null; }
+    if (b.title) patch.title = String(b.title).slice(0, 200);
+    if (b.due_date === null || /^\d{4}-\d{2}-\d{2}$/.test(String(b.due_date || ''))) patch.due_date = b.due_date;
+    const { data, error } = await admin().from('client_tasks').update(patch).eq('id', req.params.tid).eq('org_id', req.params.id).select('*').single();
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ task: data });
+  } catch (e) { orgErr(res, e); }
+});
+app.post('/api/org/:id/clients/:cid/notes', auth, async (req, res) => {
+  try {
+    const c = await orgClient(req, res, 'clients.write'); const b = req.body || {};
+    if (!String(b.body || '').trim()) return res.status(400).json({ error: 'Note text required' });
+    const { data, error } = await admin().from('client_notes').insert({ org_id: c.org_id, client_id: c.id, author_user_id: req.userId, channel: ['note', 'whatsapp', 'email', 'call', 'meeting'].includes(b.channel) ? b.channel : 'note', body: String(b.body).slice(0, 4000) }).select('*').single();
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ note: data });
+  } catch (e) { orgErr(res, e); }
+});
+/* Board: every client of the organisation by journey stage, with the one thing that is due. */
+app.get('/api/org/:id/board', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'clients.read');
+    const ck = 'board:' + req.params.id + ':' + req.userId; const hit = CACHE.get(ck); if (hit) return res.json(hit);
+    const m = await ORGS.membership(req.params.id, req.userId);
+    const clients = await ORGS.listClients(req.params.id, { limit: 200, scope: ORGS.scopeFor(m, req.userId) });
+    const { data: tasks } = await admin().from('client_tasks').select('client_id,title,owner,due_date').eq('org_id', req.params.id).eq('status', 'open').order('due_date', { ascending: true, nullsFirst: false });
+    const dueOf = {}; for (const t of (tasks || [])) if (!dueOf[t.client_id]) dueOf[t.client_id] = t;
+    const today = new Date().toISOString().slice(0, 10);
+    const stages = ['lead', 'discover', 'qualify', 'match', 'decide', 'prepare', 'apply', 'offer', 'visa', 'travel', 'arrive', 'settle', 'pr', 'closed'];
+    const cols = stages.map(s => ({ stage: s, clients: clients.filter(c => c.stage === s).map(c => ({ ...c, next: dueOf[c.id] || null, overdue: !!(dueOf[c.id] && dueOf[c.id].due_date && dueOf[c.id].due_date < today) })) }));
+    const cfg = await siteSettings.getConfig();
+    res.json(CACHE.set(ck, { stages, columns: cols, total: clients.length, overdue: (tasks || []).filter(t => t.due_date && t.due_date < today).length, agency: cfg.agency || {} }, 10000));
+  } catch (e) { orgErr(res, e); }
+});
+app.get('/api/org/:id/commissions', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'finance.read');
+    const { data } = await admin().from('commission_ledger').select('*').eq('org_id', req.params.id).order('created_at', { ascending: false }).limit(200);
+    const rows = data || [];
+    res.json({ rows, accrued_pkr: rows.filter(r => r.status === 'accrued').reduce((a, r) => a + r.amount_pkr, 0), payable_pkr: rows.filter(r => r.status === 'payable').reduce((a, r) => a + r.amount_pkr, 0), paid_pkr: rows.filter(r => r.status === 'paid').reduce((a, r) => a + r.amount_pkr, 0) });
+  } catch (e) { orgErr(res, e); }
+});
+/* Commission accrual: when a payment is confirmed for a user who is somebody's client, the
+   owning organisation earns its share. Idempotent per payment. */
+async function accrueCommission(payment) {
+  try {
+    const { data: cl } = await admin().from('clients').select('id,org_id,owner_user_id').eq('user_id', payment.user_id).eq('status', 'active').limit(1);
+    const c = cl && cl[0]; if (!c) return;
+    const { data: org } = await admin().from('organisations').select('kind').eq('id', c.org_id).maybeSingle();
+    if (!org || org.kind === 'personal') return;
+    const { data: dup } = await admin().from('commission_ledger').select('id').eq('payment_id', payment.id).limit(1);
+    if (dup && dup.length) return;
+    const cfg = await siteSettings.getConfig(); const pct = Number((cfg.agency || {}).commission_pct_agency) || 0;
+    const amt = Math.round((Number(payment.amount_pkr) || 0) * pct / 100);
+    if (amt > 0) { await admin().from('commission_ledger').insert({ org_id: c.org_id, client_id: c.id, payment_id: payment.id, amount_pkr: amt, rate_pct: pct, note: payment.credits + ' case package' }); WEBHOOKS.emit(c.org_id, 'commission.accrued', { client_id: c.id, payment_id: payment.id, amount_pkr: amt, rate_pct: pct }); }
+    await admin().from('payments').update({ org_id: c.org_id, client_id: c.id }).eq('id', payment.id).then(() => {}, () => {});
+  } catch (e) {}
+}
+/* ============================================================================= */
+/* ================= INTERNATIONAL CARD PAYMENTS (USD) ================= */
+const GATEWAY = require('./lib/gateway');
+const { perUsd } = require('./lib/pay');
+/* One quote in two currencies: USD is what the card is charged; local is a display estimate. */
+async function usdQuote(userId, credits) {
+  const cfg = await siteSettings.getConfig();
+  const t = ((cfg.packages && cfg.packages.tiers) || []).find(x => Number(x.credits) === Number(credits));
+  if (!t) return null;
+  const list = Number(t.usd) || 0;
+  const promo = (Number(t.promo_usd) > 0 && Number(t.promo_usd) < list) ? Number(t.promo_usd) : null;
+  let discountUsd = 0;
+  try {
+    const { data: me } = await admin().from('profiles').select('referral_balance_pkr,country_code,nationality').eq('id', userId).single();
+    const fx = await perUsd('PKR'); const disc = Math.min(Number(me && me.referral_balance_pkr) || 0, 500 * (t.credits || 1));
+    discountUsd = Math.round((disc / (fx.rate || 278)) * 100) / 100;
+    const { data: me2 } = await admin().from('profiles').select('origin_country').eq('id', userId).maybeSingle();
+    const origin = String((me2 && me2.origin_country) || (me && (me.country_code || me.nationality)) || 'PK').toUpperCase();
+    const cur = (require('./lib/i18n').ORIGINS[origin] || {}).currency || 'USD'; const lf = await perUsd(cur);
+    const amountUsd = Math.max(0, (promo != null ? promo : list) - discountUsd);
+    return { name: t.name, credits: t.credits, list_usd: list, promo_usd: promo, discount_usd: discountUsd, amount_usd: Math.round(amountUsd * 100) / 100,
+      local_currency: cur, local_rate: lf.rate || null, local_live: !!lf.live, amount_local: lf.rate ? Math.round(amountUsd * lf.rate) : null, origin, bank_transfer: !!(require('./lib/i18n').ORIGINS[origin] || {}).bank_transfer };
+  } catch (e) {
+    const amountUsd = Math.max(0, (promo != null ? promo : list));
+    return { name: t.name, credits: t.credits, list_usd: list, promo_usd: promo, discount_usd: 0, amount_usd: amountUsd, local_currency: 'PKR', local_rate: null, local_live: false, amount_local: null };
+  }
+}
+app.get('/api/pay/quote', auth, async (req, res) => {
+  try { const q = await usdQuote(req.userId, req.query.credits); if (!q) return res.status(404).json({ error: 'Choose a valid package' });
+    let local = null; try { const { data: p } = await admin().from('profiles').select('origin_country').eq('id', req.userId).maybeSingle(); const cur = require('./lib/world').origin((p && p.origin_country) || 'PK').currency; if (cur && cur !== 'USD') { const fx = await require('./lib/pay').liveRates().catch(() => null); const r = fx && fx.rates && fx.rates[cur]; if (r) local = { currency: cur, amount: Math.round(q.amount_usd * r), rate: r, as_of: new Date().toISOString().slice(0, 10), note: 'Indicative, at today\'s rate; you are charged in USD and your bank converts.' }; } } catch (e) {}
+    res.json({ ...q, card: GATEWAY.enabled(), local, tax: 'Sales tax or VAT is added at checkout only where the law of your country requires it; the payment provider (merchant of record) calculates and remits it. The price shown is before tax.', fees: { non_refundable: 'ForiForeign service fee for prepared cases and used add-ons', refundable: 'unused case credits within 14 days by the original method', not_ours: 'application fees, visa fees, medicals, attestation, tests, tuition and any official charge are paid by you directly to the authority or institution; we or your consultancy can assist you with the payment steps' } }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Start a card checkout: a pending payment row is created first so the webhook and the
+   return page both have something to confirm, exactly like the screenshot flow. */
+app.post('/api/pay/checkout', auth, async (req, res) => {
+  try {
+    if (!GATEWAY.enabled()) return res.status(400).json({ error: 'Card payments are not switched on yet. Use bank transfer with a screenshot.' });
+    const credits = Number((req.body || {}).credits);
+    const q = await usdQuote(req.userId, credits);
+    if (!q) return res.status(400).json({ error: 'Choose a package first.' });
+    const { data: prof } = await admin().from('profiles').select('email').eq('id', req.userId).maybeSingle();
+    const { data: pay, error } = await admin().from('payments').insert({ user_id: req.userId, credits: q.credits, amount_pkr: q.amount_local && q.local_currency === 'PKR' ? q.amount_local : 0, status: 'pending', reference: 'CARD', discount_pkr: 0 }).select('id').single();
+    if (error) return res.status(400).json({ error: error.message });
+    const origin = (req.headers.origin || ('https://' + req.headers.host));
+    await CONSENT.record(req, req.userId, 'package_purchase', { name: q.name, amount: q.amount_usd, credits: q.credits }, { payment_id: pay.id, provider: 'stripe' }); await CONSENT.record(req, req.userId, 'refund_policy', {}, { payment_id: pay.id });
+    const s = await GATEWAY.createCheckout({ userId: req.userId, email: prof && prof.email, credits: q.credits, usd: q.amount_usd, name: q.name, paymentId: pay.id,
+      successUrl: origin + '/?paid=1&session={CHECKOUT_SESSION_ID}', cancelUrl: origin + '/?paid=0' });
+    await admin().from('payments').update({ reference: ('CARD:' + s.id).slice(0, 120) }).eq('id', pay.id).then(() => {}, () => {});
+    try { await admin().from('audit_log').insert({ actor: req.userId, event: 'CARD_CHECKOUT_STARTED', detail: pay.id + ' $' + q.amount_usd }); } catch (e) {}
+    res.json({ url: s.url, payment_id: pay.id, amount_usd: q.amount_usd });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Grant credits for a paid session exactly once; used by the webhook and the return page. */
+async function settleCardPayment(session, source) {
+  const paymentId = (session.metadata && session.metadata.payment_id) || session.client_reference_id;
+  if (!paymentId || session.payment_status !== 'paid') return { ok: false, reason: 'not paid' };
+  const { data: p } = await admin().from('payments').select('*').eq('id', paymentId).maybeSingle();
+  if (!p) return { ok: false, reason: 'unknown payment' };
+  if (p.status === 'confirmed') return { ok: true, already: true };
+  const { data: flipped } = await admin().from('payments').update({ status: 'confirmed', confirmed_at: new Date().toISOString() }).eq('id', p.id).eq('status', 'pending').select('id');
+  if (!flipped || !flipped.length) return { ok: true, already: true };
+  const creditsN = Math.max(1, Math.round(Number(p.credits) || 0));
+  const led = await ledgerWrite({ user_id: p.user_id, delta: creditsN, reason: 'purchase', payment_id: p.id, note: 'Card ' + (session.id || '') });
+  if (led.error) { await admin().from('payments').update({ status: 'pending' }).eq('id', p.id); return { ok: false, reason: 'ledger' }; }
+  try { await admin().from('audit_log').insert({ actor: p.user_id, event: 'PAYMENT_CONFIRMED', detail: p.id + ' +' + creditsN + 'cr card/' + source }); } catch (e) {}
+  accrueCommission(p).catch(() => {});
+  return { ok: true, credits: creditsN };
+}
+/* Return page confirmation: the customer is back; verify with the gateway, never trust the URL. */
+app.post('/api/pay/confirm', auth, async (req, res) => {
+  try {
+    const sid = String((req.body || {}).session || '');
+    if (!sid) return res.status(400).json({ error: 'session required' });
+    const s = await GATEWAY.retrieveSession(sid);
+    if ((s.metadata || {}).user_id && s.metadata.user_id !== req.userId) return res.status(403).json({ error: 'Not your payment' });
+    const r = await settleCardPayment(s, 'return');
+    res.json({ ...r, balance: await balance(req.userId) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* =================================================================== */
+/* ================= DAY 3 · AGENCY BILLING · OFFERS · INTERVIEW PREP ================= */
+const OFFERS = require('./lib/offers');
+async function agencyTier(key) { const cfg = await siteSettings.getConfig(); return ((cfg.agency && (cfg.agency.tiers || cfg.agency.plans)) || []).find(t => t.key === key) || null; }
+async function activeSub(orgId) {
+  const { data } = await admin().from('org_subscriptions').select('*').eq('org_id', orgId).eq('status', 'active').gt('period_end', new Date().toISOString()).order('period_end', { ascending: false }).limit(1);
+  return data && data[0] || null;
+}
+app.get('/api/org/:id/billing', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'finance.read');
+    const cfg = await siteSettings.getConfig(); const sub = await activeSub(req.params.id);
+    const { data: hist } = await admin().from('org_subscriptions').select('id,tier_name,usd_month,cases_month,cases_used,status,period_start,period_end,created_at').eq('org_id', req.params.id).order('created_at', { ascending: false }).limit(24);
+    res.json({ tiers: (cfg.agency && (cfg.agency.tiers || cfg.agency.plans)) || [], overage_usd: (cfg.agency || {}).overage_usd_per_case || 0, subscription: sub, remaining_cases: sub ? Math.max(0, sub.cases_month - sub.cases_used) : 0, history: hist || [], card: GATEWAY.enabled() });
+  } catch (e) { orgErr(res, e); }
+});
+/* Start a monthly plan payment on the card gateway; the webhook / return activates it. */
+app.post('/api/org/:id/subscribe', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'org.settings');
+    if (!GATEWAY.enabled()) return res.status(400).json({ error: 'Card payments are not switched on yet.' });
+    const t = await agencyTier(String((req.body || {}).tier || '')); if (!t) return res.status(400).json({ error: 'Choose a plan' });
+    const yearly = String((req.body || {}).period || 'month') === 'year' && t.usd_year; const price = yearly ? t.usd_year : t.usd_month;
+    const { data: sub, error } = await admin().from('org_subscriptions').insert({ org_id: req.params.id, tier_key: t.key, tier_name: t.name, usd_month: price, cases_month: t.cases_month, searches_day: t.searches_day || null, searches_month: t.searches_month || null, billing_period: yearly ? 'year' : 'month', status: 'pending' }).select('id').single();
+    if (error) return res.status(400).json({ error: error.message });
+    const { data: pay } = await admin().from('payments').insert({ user_id: req.userId, credits: 0, amount_pkr: 0, status: 'pending', reference: 'AGENCY', kind: 'agency_subscription', subscription_id: sub.id, org_id: req.params.id }).select('id').single().then(r => r, () => ({ data: null }));
+    try { const { data: og } = await admin().from('organisations').select('name').eq('id', req.params.id).maybeSingle(); await CONSENT.record(req, req.userId, 'agency_plan', { org: (og && og.name) || req.params.id, name: t.name, amount: t.usd_month, cases: t.cases_month }, { subscription_id: sub.id, org_id: req.params.id }); } catch (e) {}
+    const { data: prof } = await admin().from('profiles').select('email').eq('id', req.userId).maybeSingle();
+    const origin = (req.headers.origin || ('https://' + req.headers.host));
+    const s = await GATEWAY.createCheckout({ userId: req.userId, email: prof && prof.email, credits: 0, usd: price, name: t.name + ' agency plan (' + (yearly ? '12 months' : '1 month') + ')', paymentId: pay ? pay.id : sub.id, orgId: req.params.id, successUrl: origin + '/?paid=1&kind=agency&session={CHECKOUT_SESSION_ID}', cancelUrl: origin + '/?paid=0' });
+    await admin().from('org_subscriptions').update({ gateway_ref: s.id, payment_id: pay ? pay.id : null }).eq('id', sub.id);
+    res.json({ url: s.url, subscription_id: sub.id, amount_usd: t.usd_month });
+  } catch (e) { orgErr(res, e); }
+});
+/* Activation shared by webhook and return page; idempotent per subscription. */
+async function settleAgencySubscription(session) {
+  const sid = session.id; if (!sid || session.payment_status !== 'paid') return { ok: false };
+  const { data: sub } = await admin().from('org_subscriptions').select('*').eq('gateway_ref', sid).maybeSingle();
+  if (!sub) return { ok: false, reason: 'unknown subscription' };
+  if (sub.status === 'active') return { ok: true, already: true };
+  const start = new Date(), end = new Date(); end.setDate(end.getDate() + (sub.billing_period === 'year' ? 365 : 30));
+  await admin().from('org_subscriptions').update({ status: 'active', period_start: start.toISOString(), period_end: end.toISOString(), updated_at: start.toISOString() }).eq('id', sub.id).eq('status', 'pending');
+  await admin().from('organisations').update({ plan: sub.tier_key }).eq('id', sub.org_id);
+  if (sub.payment_id) await admin().from('payments').update({ status: 'confirmed', confirmed_at: start.toISOString() }).eq('id', sub.payment_id).then(() => {}, () => {});
+  try { await admin().from('audit_log').insert({ actor: sub.org_id, event: 'AGENCY_PLAN_ACTIVE', detail: sub.tier_key + ' $' + sub.usd_month }); } catch (e) {}
+  return { ok: true, tier: sub.tier_key, period_end: end.toISOString() };
+}
+app.post('/api/org/:id/subscription/confirm', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const s = await GATEWAY.retrieveSession(String((req.body || {}).session || '')); res.json(await settleAgencySubscription(s)); }
+  catch (e) { orgErr(res, e); }
+});
+/* Plan limits enforced here: a consultant activates a client's cases from the agency pool. */
+app.post('/api/org/:id/clients/:cid/grant', auth, async (req, res) => {
+  try {
+    const c = await orgClient(req, res, 'clients.write');
+    if (!c.user_id) return res.status(400).json({ error: 'Client has no ForiForeign login yet.' });
+    const n = Math.max(1, Math.min(50, Math.round(Number((req.body || {}).credits) || 1)));
+    const me = await ORGS.membership(req.params.id, req.userId); const chk = await QUOTA.check(req.params.id, me, 'org_case', n); if (!chk.ok) return res.status(402).json({ error: chk.reason, code: chk.code });
+    const sub = await activeSub(req.params.id); const remaining = sub.cases_month - sub.cases_used;
+    const { data: upd } = await admin().from('org_subscriptions').update({ cases_used: sub.cases_used + n, updated_at: new Date().toISOString() }).eq('id', sub.id).eq('cases_used', sub.cases_used).select('id');
+    if (!upd || !upd.length) return res.status(409).json({ error: 'Try again' });
+    await QUOTA.consume(req.params.id, me, 'org_case', n);
+    const led = await ledgerWrite({ user_id: c.user_id, delta: n, reason: 'grant', note: 'Agency plan ' + sub.tier_name + ' via ' + req.params.id });
+    if (led.error) { await admin().from('org_subscriptions').update({ cases_used: sub.cases_used }).eq('id', sub.id); return res.status(500).json({ error: 'Could not add credits' }); }
+    await orgAudit(req.params.id, req.userId, 'AGENCY_GRANT', c.full_name + ' +' + n + ' case(s)');
+    res.json({ ok: true, granted: n, remaining: remaining - n, balance: await balance(c.user_id) });
+  } catch (e) { orgErr(res, e); }
+});
+/* Invoice: a simple, printable PDF for the accountant. */
+app.get('/api/org/:id/invoice/:sid', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'finance.read');
+    const { data: sub } = await admin().from('org_subscriptions').select('*').eq('id', req.params.sid).eq('org_id', req.params.id).maybeSingle();
+    if (!sub) return res.status(404).json({ error: 'Not found' });
+    const { data: org } = await admin().from('organisations').select('name,country_code,settings').eq('id', req.params.id).maybeSingle();
+    const PDFDocument = require('pdfkit'); const doc = new PDFDocument({ margin: 54 }); const chunks = [];
+    doc.on('data', c => chunks.push(c)); doc.on('end', () => { res.setHeader('content-type', 'application/pdf'); res.setHeader('content-disposition', 'inline; filename="foriforeign-invoice-' + sub.id.slice(0, 8) + '.pdf"'); res.send(Buffer.concat(chunks)); });
+    doc.fontSize(20).text('ForiForeign', { continued: true }).fontSize(10).text('   foriforeign.com · admin@foriforeign.com'); doc.moveDown();
+    doc.fontSize(14).text('INVOICE ' + sub.id.slice(0, 8).toUpperCase()); doc.fontSize(10).text('Date: ' + String(sub.created_at).slice(0, 10)); doc.text('Status: ' + sub.status.toUpperCase()); doc.moveDown();
+    const cfgL = await siteSettings.getConfig(); const legal = cfgL.legal || {}; doc.text('From: ' + (legal.company_name || 'ForiForeign (Private) Limited') + (legal.ntn ? ' · NTN ' + legal.ntn : '') + (legal.address ? ' · ' + legal.address : ''));
+    doc.text('Billed to: ' + (org && org.name || '') + (org && org.settings && org.settings.city ? ', ' + org.settings.city : '') + ' (' + (org && org.country_code || '') + ')' + (org && org.settings && org.settings.tax_id ? ' · Tax ID ' + org.settings.tax_id : '')); doc.moveDown();
+    doc.text('Description: ' + sub.tier_name + ' agency plan, 1 month (' + sub.cases_month + ' prepared cases)');
+    doc.text('Period: ' + (sub.period_start ? String(sub.period_start).slice(0, 10) : '-') + ' to ' + (sub.period_end ? String(sub.period_end).slice(0, 10) : '-'));
+    doc.moveDown(); doc.fontSize(13).text('Total: USD ' + Number(sub.usd_month).toFixed(2)); doc.fontSize(9).moveDown().text('Paid by card via secure checkout. Cases used this period: ' + sub.cases_used + ' of ' + sub.cases_month + '.');
+    doc.end();
+  } catch (e) { orgErr(res, e); }
+});
+/* Offers & conditions: the applicant's own, and the consultant's view of a client's. */
+app.get('/api/offers', auth, async (req, res) => { try { res.json({ offers: await OFFERS.list(req.userId) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/offers', auth, async (req, res) => { try { const o = await OFFERS.create(req.userId, req.body || {}); JE.recompute(req.userId); res.json({ offer: OFFERS.enrich(o) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/offers/:id', auth, async (req, res) => { try { const o = await OFFERS.update(req.userId, req.params.id, req.body || {}); JE.recompute(req.userId); res.json({ offer: OFFERS.enrich(o) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/org/:id/clients/:cid/offers', auth, async (req, res) => { try { const c = await orgClient(req, res, 'clients.read'); res.json({ offers: c.user_id ? await OFFERS.list(c.user_id) : [] }); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/clients/:cid/offers', auth, async (req, res) => {
+  try { const c = await orgClient(req, res, 'clients.write'); if (!c.user_id) return res.status(400).json({ error: 'Client has no ForiForeign login yet.' });
+    const o = await OFFERS.create(c.user_id, req.body || {}, { clientId: c.id, orgId: c.org_id }); WEBHOOKS.emit(c.org_id, 'offer.recorded', { client_id: c.id, offer_id: o.id, issuer: o.issuer, title: o.title, kind: o.kind });
+    await admin().from('clients').update({ stage: 'offer', updated_at: new Date().toISOString() }).eq('id', c.id).in('stage', ['apply', 'prepare', 'match', 'decide']).then(() => {}, () => {});
+    res.json({ offer: OFFERS.enrich(o) }); } catch (e) { orgErr(res, e); }
+});
+/* Interview preparation runs on the queue; the pack is ready in about a minute. */
+app.post('/api/interview/prep', auth, async (req, res) => {
+  try { const cap = await overCap(req.userId, 'interview_prep'); if (cap) return res.status(402).json({ error: 'You have used ' + cap + ' interview packs this month. Add an interview add-on or wait for the monthly reset.' }); await meter(req.userId, 'interview_prep'); const jobId = await QUEUE.enqueue('interview_prep', Object.assign({}, req.body || {}, { userId: req.userId }), { userId: req.userId, maxAttempts: 2 }); res.json({ ok: true, job_id: jobId }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/interview/preps', auth, async (req, res) => { try { res.json({ preps: await OFFERS.listPreps(req.userId) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/interview/preps/:id', auth, async (req, res) => { try { const p = await OFFERS.getPrep(req.userId, req.params.id); if (!p) return res.status(404).json({ error: 'Not found' }); res.json({ prep: p }); } catch (e) { res.status(400).json({ error: e.message }); } });
+QUEUE.register('interview_prep', async (p) => { const r = await OFFERS.prepareInterview(p.userId, p); return { id: r.id }; });
+/* ====================================================================================== */
+/* ================= DAY 4 · VISA INTELLIGENCE ================= */
+const VISA = require('./lib/visa');
+app.get('/api/visa/countries', auth, async (req, res) => { try { res.json({ countries: await VISA.countries() }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/visa/routes', auth, async (req, res) => { try { res.json({ routes: await VISA.routes(req.query.cc, req.query.lane) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/visa/assess', auth, async (req, res) => { try { res.json(await VISA.assess(req.userId, String(req.query.cc || '').toUpperCase(), String(req.query.route || ''))); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/visa/cases', auth, async (req, res) => {
+  try {
+    const b = req.body || {}; const cc = String(b.cc || '').toUpperCase(), route = String(b.route || '');
+    const { count: used } = await admin().from('visa_cases').select('id', { count: 'exact', head: true }).eq('user_id', req.userId); const g = await addonGate(req.userId, 'visa_desk', used || 0); if (!g.ok) return res.status(402).json({ error: 'Your first visa desk file comes with a package; further files are a $' + g.price_usd + ' add-on.', addon: 'visa_desk', price_usd: g.price_usd });
+    const a = await VISA.assess(req.userId, cc, route);
+    const { data, error } = await admin().from('visa_cases').insert({ user_id: req.userId, country_code: cc, route_key: route, offer_id: b.offer_id || null, status: a.ready ? 'ready' : 'preparing', prefill: a.prefill, checklist: { required: a.required, flags: a.flags } }).select('*').single();
+    if (error) return res.status(400).json({ error: error.message }); JE.recompute(req.userId);
+    res.json({ case: data, assessment: a });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/visa/cases', auth, async (req, res) => { try { const { data } = await admin().from('visa_cases').select('id,country_code,route_key,status,submitted_on,decision_on,created_at,updated_at').eq('user_id', req.userId).order('created_at', { ascending: false }); res.json({ cases: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/visa/cases/:id', auth, async (req, res) => {
+  try {
+    const b = req.body || {}; const patch = { updated_at: new Date().toISOString() };
+    if (['draft', 'preparing', 'ready', 'submitted', 'decision_pending', 'granted', 'refused', 'withdrawn'].includes(b.status)) patch.status = b.status;
+    for (const k of ['submitted_on', 'decision_on']) if (/^\d{4}-\d{2}-\d{2}$/.test(String(b[k] || ''))) patch[k] = b[k];
+    if (b.notes !== undefined) patch.notes = String(b.notes || '').slice(0, 4000);
+    const { data, error } = await admin().from('visa_cases').update(patch).eq('id', req.params.id).eq('user_id', req.userId).select('*').single();
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ case: data });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/visa/cases/:id/refusal', auth, async (req, res) => {
+  try {
+    const { data: c } = await admin().from('visa_cases').select('*').eq('id', req.params.id).eq('user_id', req.userId).maybeSingle();
+    if (!c) return res.status(404).json({ error: 'Not found' });
+    const cap = await overCap(req.userId, 'refusal_analysis'); if (cap) return res.status(402).json({ error: 'Refusal analysis limit reached for this month (' + cap + ').' }); await meter(req.userId, 'refusal_analysis');
+    const jobId = await QUEUE.enqueue('visa_refusal', { caseId: c.id, userId: req.userId, cc: c.country_code, route: c.route_key, text: String((req.body || {}).text || ''), extra: (req.body || {}).extra || '' }, { userId: req.userId, maxAttempts: 2 });
+    await admin().from('visa_cases').update({ status: 'refused', updated_at: new Date().toISOString() }).eq('id', c.id);
+    res.json({ ok: true, job_id: jobId });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/visa/cases/:id', auth, async (req, res) => { try { const { data } = await admin().from('visa_cases').select('*').eq('id', req.params.id).eq('user_id', req.userId).maybeSingle(); if (!data) return res.status(404).json({ error: 'Not found' }); res.json({ case: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+QUEUE.register('visa_refusal', async (p) => { const r = await VISA.analyseRefusal(p.userId, p.cc, p.route, p.text, p.extra); await admin().from('visa_cases').update({ refusal: r, updated_at: new Date().toISOString() }).eq('id', p.caseId); return { ok: true }; });
+/* Consultant view of a client's visa readiness. */
+app.get('/api/org/:id/clients/:cid/visa', auth, async (req, res) => {
+  try { const c = await orgClient(req, res, 'clients.read'); if (!c.user_id) return res.status(400).json({ error: 'Client has no login yet.' }); res.json(await VISA.assess(c.user_id, String(req.query.cc || '').toUpperCase(), String(req.query.route || ''))); }
+  catch (e) { orgErr(res, e); }
+});
+/* Admin: seed once, list, verify against the source (records verifier, date, version). */
+app.post('/api/admin/visa/seed', auth, perm('settings.write'), async (req, res) => { try { res.json(await VISA.seedIfEmpty()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/visa/rules', auth, perm('settings.read'), async (req, res) => { try { const { data } = await admin().from('visa_rules').select('*').neq('status', 'superseded').order('country_code').order('route_key').order('rule_type'); res.json({ rules: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/admin/visa/rules/:rid', auth, perm('settings.write'), async (req, res) => { try { res.json({ rule: await VISA.verifyRule(req.userId, req.params.rid, req.body || {}) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/visa/rules', auth, perm('settings.write'), async (req, res) => {
+  try { const b = req.body || {}; const row = { country_code: String(b.country_code || '').toUpperCase().slice(0, 2), route_key: String(b.route_key || '').slice(0, 60), route_name: String(b.route_name || '').slice(0, 120), lane: ['study', 'work', 'both'].includes(b.lane) ? b.lane : 'both', rule_type: b.rule_type, text: String(b.text || '').slice(0, 1000), value: b.value && typeof b.value === 'object' ? b.value : {}, source_url: String(b.source_url || '').slice(0, 500) || null, source_title: String(b.source_title || '').slice(0, 200) || null, status: 'unverified' };
+    if (!row.country_code || !row.route_key || !row.text || !row.rule_type) return res.status(400).json({ error: 'country, route, type and text are required' });
+    const { data, error } = await admin().from('visa_rules').insert(row).select('*').single(); if (error) return res.status(400).json({ error: error.message }); res.json({ rule: data }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* ============================================================== */
+/* ================= DAY 5 · AFTER THE VISA ================= */
+const JOURNEY = require('./lib/journey');
+app.post('/api/journey/plan', auth, async (req, res) => { try { res.json(await JOURNEY.plan(req.userId, (req.body || {}).cc, (req.body || {}).lane)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/journey', auth, async (req, res) => { try { res.json(await JOURNEY.list(req.userId, req.query.cc)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/journey/:id', auth, async (req, res) => { try { res.json({ task: await JOURNEY.setDone(req.userId, req.params.id, !!(req.body || {}).done) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/org/:id/clients/:cid/journey', auth, async (req, res) => { try { const c = await orgClient(req, res, 'clients.write'); if (!c.user_id) return res.status(400).json({ error: 'Client has no login yet.' }); res.json(await JOURNEY.plan(c.user_id, (req.body || {}).cc, c.lane === 'work' ? 'work' : 'study', c.id)); } catch (e) { orgErr(res, e); } });
+app.get('/api/org/:id/clients/:cid/journey', auth, async (req, res) => { try { const c = await orgClient(req, res, 'clients.read'); res.json(c.user_id ? await JOURNEY.list(c.user_id, req.query.cc) : { tasks: [], phases: {}, progress: {} }); } catch (e) { orgErr(res, e); } });
+/* ============================================================ */
+/* ================= DAY 6 · LEARNING LOOP · AGENCY ANALYTICS ================= */
+const LEARNING = require('./lib/learning');
+app.get('/api/admin/learning', auth, perm('overview.read'), async (req, res) => { try { res.json({ learning: await LEARNING.current(), max_nudge: LEARNING.MAX_NUDGE }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/learning/rebuild', auth, perm('settings.write'), async (req, res) => { try { res.json(await LEARNING.rebuild()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/org/:id/analytics', auth, async (req, res) => {
+  try {
+    await ORGS.requireOrg(req, req.params.id, 'finance.read');
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const [cl, tk, cm, sub, mem] = await Promise.all([
+      admin().from('clients').select('id,stage,owner_user_id,branch,lane,created_at,updated_at').eq('org_id', req.params.id).then(r => r.data || [], () => []),
+      admin().from('client_tasks').select('id,status,due_date,assignee_user_id').eq('org_id', req.params.id).then(r => r.data || [], () => []),
+      admin().from('commission_ledger').select('amount_pkr,status,created_at').eq('org_id', req.params.id).then(r => r.data || [], () => []),
+      admin().from('org_subscriptions').select('tier_name,cases_month,cases_used,period_end').eq('org_id', req.params.id).eq('status', 'active').order('period_end', { ascending: false }).limit(1).then(r => r.data && r.data[0], () => null),
+      admin().from('org_members').select('user_id,role,branch').eq('org_id', req.params.id).then(r => r.data || [], () => [])
+    ]);
+    const ids = [...new Set(mem.map(m => m.user_id))];
+    const { data: profs } = ids.length ? await admin().from('profiles').select('id,full_name').in('id', ids) : { data: [] };
+    const nameOf = Object.fromEntries((profs || []).map(p => [p.id, p.full_name]));
+    const today = new Date().toISOString().slice(0, 10);
+    const stages = ['lead', 'discover', 'qualify', 'match', 'decide', 'prepare', 'apply', 'offer', 'visa', 'travel', 'arrive', 'settle', 'pr', 'closed'];
+    const byStage = Object.fromEntries(stages.map(s => [s, cl.filter(c => c.stage === s).length]));
+    const reached = s => cl.filter(c => stages.indexOf(c.stage) >= stages.indexOf(s)).length;
+    const funnel = ['lead', 'apply', 'offer', 'visa', 'arrive'].map(s => ({ stage: s, clients: reached(s) }));
+    const perConsultant = ids.map(u => ({ user_id: u, name: nameOf[u] || u.slice(0, 8), role: (mem.find(m => m.user_id === u) || {}).role, clients: cl.filter(c => c.owner_user_id === u).length, open_tasks: tk.filter(t => t.assignee_user_id === u && t.status === 'open').length, overdue: tk.filter(t => t.assignee_user_id === u && t.status === 'open' && t.due_date && t.due_date < today).length }));
+    const byBranch = {}; for (const c of cl) { const b = c.branch || 'No branch'; byBranch[b] = (byBranch[b] || 0) + 1; }
+    res.json({ clients_total: cl.length, new_30d: cl.filter(c => c.created_at >= since).length, by_stage: byStage, funnel, by_lane: { study: cl.filter(c => c.lane === 'study').length, work: cl.filter(c => c.lane === 'work').length, both: cl.filter(c => c.lane === 'both').length }, by_branch: byBranch,
+      tasks: { open: tk.filter(t => t.status === 'open').length, overdue: tk.filter(t => t.status === 'open' && t.due_date && t.due_date < today).length, done_30d: tk.filter(t => t.status === 'done').length },
+      commissions: { accrued_pkr: cm.filter(x => x.status === 'accrued').reduce((a, x) => a + x.amount_pkr, 0), paid_pkr: cm.filter(x => x.status === 'paid').reduce((a, x) => a + x.amount_pkr, 0), last_30d_pkr: cm.filter(x => x.created_at >= since && x.status !== 'void').reduce((a, x) => a + x.amount_pkr, 0) },
+      plan: sub ? { tier: sub.tier_name, used: sub.cases_used, of: sub.cases_month, renews: sub.period_end } : null, per_consultant: perConsultant });
+  } catch (e) { orgErr(res, e); }
+});
+/* ============================================================================ */
+/* ================= DAY 7 · PARTNER PORTAL ================= */
+const PARTNERS = require('./lib/partners');
+app.get('/api/org/:id/openings', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); res.json({ openings: await PARTNERS.list(req.params.id) }); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/openings', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.write'); res.json({ opening: await PARTNERS.create(req.params.id, req.userId, req.body || {}) }); } catch (e) { orgErr(res, e); } });
+app.patch('/api/org/:id/openings/:oid', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.write'); const b = req.body || {}; res.json({ opening: b.status ? await PARTNERS.setStatus(req.params.id, req.params.oid, b.status) : await PARTNERS.update(req.params.id, req.params.oid, b) }); } catch (e) { orgErr(res, e); } });
+app.get('/api/org/:id/applicants', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); res.json({ applicants: await PARTNERS.applicants(req.params.id) }); } catch (e) { orgErr(res, e); } });
+app.patch('/api/org/:id/applicants/:aid', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.write'); const r = await PARTNERS.setPartnerStatus(req.params.id, req.params.aid, (req.body || {}).status, (req.body || {}).note); WEBHOOKS.emit(req.params.id, 'applicant.status_changed', { application_id: req.params.aid, status: (req.body || {}).status }); res.json(r); } catch (e) { orgErr(res, e); } });
+app.post('/api/applications/:id/consent', auth, async (req, res) => { try { const r = await PARTNERS.consent(req.userId, req.params.id, !!(req.body || {}).consent); if (r.consent) { try { const { data: a } = await admin().from('applications').select('opportunity_id').eq('id', req.params.id).maybeSingle(); const { data: op } = a ? await admin().from('partner_openings').select('org_id').eq('opportunity_id', a.opportunity_id).maybeSingle() : { data: null }; const { data: og } = op ? await admin().from('organisations').select('name').eq('id', op.org_id).maybeSingle() : { data: null }; await CONSENT.record(req, req.userId, 'share_with_partner', { org: (og && og.name) || 'the institution' }, { application_id: req.params.id }); } catch (e) {} } res.json(r); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/partners', auth, async (req, res) => { try { res.json({ partners: await PARTNERS.servicePartners(req.query.slot, req.query.cc) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/partners', auth, perm('settings.read'), async (req, res) => { try { const { data } = await admin().from('service_partners').select('*').order('slot').order('name'); res.json({ partners: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/partners', auth, perm('settings.write'), async (req, res) => {
+  try { const b = req.body || {}; const row = { slot: b.slot, name: String(b.name || '').slice(0, 120), url: String(b.url || '').slice(0, 400) || null, whatsapp: String(b.whatsapp || '').slice(0, 40) || null, countries: Array.isArray(b.countries) ? b.countries.map(c => String(c).toUpperCase().slice(0, 2)) : String(b.countries || '').split(',').map(c => c.trim().toUpperCase()).filter(Boolean), description: String(b.description || '').slice(0, 500) || null, status: ['draft', 'live', 'paused'].includes(b.status) ? b.status : 'live' };
+    if (!row.name || !row.slot) return res.status(400).json({ error: 'Name and slot required' }); const { data, error } = await admin().from('service_partners').insert(row).select('*').single(); if (error) return res.status(400).json({ error: error.message }); res.json({ partner: data }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.patch('/api/admin/partners/:pid', auth, perm('settings.write'), async (req, res) => { try { const b = req.body || {}; const patch = {}; if (['draft', 'live', 'paused'].includes(b.status)) patch.status = b.status; for (const k of ['name', 'url', 'whatsapp', 'description']) if (b[k] !== undefined) patch[k] = String(b[k] || '').slice(0, 500) || null; const { data, error } = await admin().from('service_partners').update(patch).eq('id', req.params.pid).select('*').single(); if (error) return res.status(400).json({ error: error.message }); res.json({ partner: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ========================================================== */
+/* ================= DAYS 8-10 · GLOBAL · PERFORMANCE · SECURITY ================= */
+const I18N = require('./lib/i18n'); const FCRYPT = require('./lib/crypto'); const CACHE = require('./lib/cache');
+app.get('/api/i18n', (req, res) => { res.set('Cache-Control', 'public, max-age=3600'); res.json({ langs: I18N.LANGS, origins: I18N.ORIGINS, strings: I18N.T }); });
+app.put('/api/me/locale', auth, async (req, res) => {
+  try { const b = req.body || {}; const patch = {}; if (I18N.LANGS[b.locale]) patch.locale = b.locale; if (I18N.ORIGINS[b.origin_country]) patch.origin_country = b.origin_country;
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to change' }); const { error } = await admin().from('profiles').update(patch).eq('id', req.userId); if (error) return res.status(400).json({ error: error.message }); res.json({ ok: true, ...patch }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Day 10 · data rights: export everything, request deletion. */
+app.get('/api/me/export', auth, async (req, res) => {
+  try {
+    const out = { exported_at: new Date().toISOString(), user_id: req.userId };
+    const tables = [['profile', 'profiles', 'id'], ['documents', 'documents', 'user_id'], ['applications', 'applications', 'user_id'], ['payments', 'payments', 'user_id'], ['credit_ledger', 'credit_ledger', 'user_id'], ['offers', 'offers', 'user_id'], ['interview_preps', 'interview_preps', 'user_id'], ['visa_cases', 'visa_cases', 'user_id'], ['journey_tasks', 'journey_tasks', 'user_id'], ['support_tickets', 'support_tickets', 'user_id']];
+    for (const [name, table, col] of tables) { try { const { data } = await admin().from(table).select('*').eq(col, req.userId); out[name] = data || []; } catch (e) { out[name] = { error: 'unavailable' }; } }
+    if (out.profile && out.profile[0]) { delete out.profile[0].gmail_refresh_enc; delete out.profile[0].mobility_enc; try { out.profile[0].mobility = (await MOBILITY.get(req.userId)).profile; } catch (e) {} }
+    res.setHeader('content-disposition', 'attachment; filename="foriforeign-export-' + req.userId.slice(0, 8) + '.json"'); res.json(out);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/me/delete-request', auth, async (req, res) => {
+  try { await CONSENT.record(req, req.userId, 'account_deletion', {}, {}); await admin().from('profiles').update({ deletion_requested_at: new Date().toISOString() }).eq('id', req.userId); await admin().from('audit_log').insert({ actor: req.userId, event: 'DELETION_REQUESTED', detail: 'self-service' }).then(() => {}, () => {});
+    await admin().from('support_tickets').insert({ user_id: req.userId, subject: 'Account deletion requested', message: 'The user asked for their account and data to be deleted.', status: 'open' }).then(() => {}, () => {});
+    res.json({ ok: true, note: 'Deletion requested. Your data is removed within 30 days unless a legal retention applies; you will get a confirmation.' }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Day 10 · per-organisation API keys and a small read API. */
+app.get('/api/org/:id/keys', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const { data } = await admin().from('org_api_keys').select('id,name,prefix,scopes,last_used_at,revoked_at,created_at').eq('org_id', req.params.id).order('created_at', { ascending: false }); res.json({ keys: data || [] }); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/keys', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const raw = 'ffk_' + require('crypto').randomBytes(24).toString('base64url'); const hash = require('crypto').createHash('sha256').update(raw).digest('hex');
+    const { data, error } = await admin().from('org_api_keys').insert({ org_id: req.params.id, name: String((req.body || {}).name || 'API key').slice(0, 80), key_hash: hash, prefix: raw.slice(0, 10), created_by: req.userId }).select('id,name,prefix,created_at').single(); if (error) return res.status(400).json({ error: error.message });
+    res.json({ key: raw, record: data, note: 'Copy it now; it is shown once.' }); }
+  catch (e) { orgErr(res, e); }
+});
+app.delete('/api/org/:id/keys/:kid', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); await admin().from('org_api_keys').update({ revoked_at: new Date().toISOString() }).eq('id', req.params.kid).eq('org_id', req.params.id); res.json({ ok: true }); } catch (e) { orgErr(res, e); } });
+async function apiKeyAuth(req, res, next) {
+  try { const raw = String(req.headers['x-api-key'] || ''); if (!raw.startsWith('ffk_')) return res.status(401).json({ error: 'API key required (x-api-key)' });
+    const hash = require('crypto').createHash('sha256').update(raw).digest('hex'); const { data: k } = await admin().from('org_api_keys').select('id,org_id,scopes,revoked_at').eq('key_hash', hash).maybeSingle();
+    if (!k || k.revoked_at) return res.status(401).json({ error: 'Invalid or revoked key' }); req.orgId = k.org_id; req.apiKeyId = k.id;
+    const kk = 'apikey:' + k.id + ':' + Math.floor(Date.now() / 3600000); const n = (_ipHits.get(kk) || 0) + 1; _ipHits.set(kk, n); if (n > 600) return res.status(429).json({ error: 'API key rate limit (600/hour) reached' }); admin().from('org_api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', k.id).then(() => {}, () => {}); next(); }
+  catch (e) { res.status(401).json({ error: 'Invalid key' }); }
+}
+app.get('/api/v1/clients', apiKeyAuth, async (req, res) => { try { res.json({ clients: await ORGS.listClients(req.orgId, { limit: 200 }) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/v1/openings', apiKeyAuth, async (req, res) => { try { res.json({ openings: await PARTNERS.list(req.orgId) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/v1/applicants', apiKeyAuth, async (req, res) => { try { res.json({ applicants: await PARTNERS.applicants(req.orgId) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* =============================================================================== */
+/* ================= DAYS 11-13 · WHITE-LABEL · WEBHOOKS · PWA ================= */
+const WEBHOOKS = require('./lib/webhooks');
+QUEUE.register('webhook_deliver', async (p) => WEBHOOKS.deliver(p.deliveryId));
+/* White-label: which organisation owns this host? Cached 60 s. */
+async function orgForHost(host) {
+  const _o = await orgForHostRaw(host); if (!_o) return null; try { const f = (((_o.settings) || {}).controls || {}).features || {}; if (f.whitelabel === false) return null; } catch (e) {} return _o;
+}
+async function orgForHostRaw(host) {
+  const h = String(host || '').toLowerCase().split(':')[0]; if (!h || /foriforeign\.com$|localhost|railway\.app$/.test(h)) return null;
+  const ck = 'wl:' + h; const hit = CACHE.get(ck); if (hit !== null) return hit || null;
+  try { const { data: d } = await admin().from('org_domains').select('org_id').eq('domain', h).eq('verified', true).maybeSingle(); if (!d) return CACHE.set(ck, false, 60000) || null;
+    const { data: o } = await admin().from('organisations').select('id,name,kind,settings,owner_id').eq('id', d.org_id).maybeSingle(); return CACHE.set(ck, o || false, 60000) || null; } catch (e) { return null; }
+}
+app.get('/api/whitelabel', async (req, res) => { try { const o = await orgForHost(req.headers['x-forwarded-host'] || req.headers.host); res.set('Cache-Control', 'no-store'); res.json(o ? { org_id: o.id, name: o.name, kind: o.kind, brand_color: (o.settings || {}).brand_color || null, logo_url: (o.settings || {}).logo_url || null, whatsapp: (o.settings || {}).whatsapp || null, phone: (o.settings || {}).phone || null, contact_email: (o.settings || {}).contact_email || (o.settings || {}).email || null, address: (o.settings || {}).address || null, website: (o.settings || {}).website || null, tagline: (o.settings || {}).tagline || null } : {}); } catch (e) { res.json({}); } });
+/* A person who signs up on a partner domain becomes that organisation's client (origin recorded). */
+app.post('/api/whitelabel/attach', auth, async (req, res) => {
+  try { const o = await orgForHost(req.headers['x-forwarded-host'] || req.headers.host); if (!o) return res.json({ attached: false });
+    const { data: me } = await admin().from('profiles').select('full_name,email,phone,whatsapp,nationality').eq('id', req.userId).maybeSingle();
+    const { data: ex } = await admin().from('clients').select('id').eq('org_id', o.id).eq('user_id', req.userId).limit(1); if (ex && ex.length) return res.json({ attached: true, client_id: ex[0].id });
+    const c = await ORGS.createClient(o.id, o.owner_id, { full_name: (me && me.full_name) || 'New applicant', email: me && me.email, phone: me && (me.phone || me.whatsapp), nationality: me && me.nationality, lane: 'both' }).catch(() => null);
+    if (c) { await admin().from('clients').update({ user_id: req.userId, origin_partner: o.id }).eq('id', c.id); WEBHOOKS.emit(o.id, 'client.created', { client_id: c.id, via: 'whitelabel' }); }
+    res.json({ attached: !!c, client_id: c && c.id }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/org/:id/domains', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const { data } = await admin().from('org_domains').select('*').eq('org_id', req.params.id); res.json({ domains: data || [] }); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/domains', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const domain = String((req.body || {}).domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').split('/')[0];
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain) || /foriforeign\.com$/.test(domain)) return res.status(400).json({ error: 'Enter a domain you own, e.g. apply.youragency.com' });
+    const token = 'ff-verify-' + require('crypto').randomBytes(12).toString('hex');
+    const { data, error } = await admin().from('org_domains').insert({ org_id: req.params.id, domain, verify_token: token }).select('*').single(); if (error) return res.status(400).json({ error: /unique/.test(error.message) ? 'That domain is already attached to a workspace.' : error.message });
+    res.json({ domain: data, instructions: 'Add a DNS TXT record for _foriforeign.' + domain + ' with value ' + token + ', and a CNAME from ' + domain + ' to foriforeign.com. Then tap Verify.' }); }
+  catch (e) { orgErr(res, e); }
+});
+app.post('/api/org/:id/domains/:did/verify', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const { data: d } = await admin().from('org_domains').select('*').eq('id', req.params.did).eq('org_id', req.params.id).maybeSingle(); if (!d) return res.status(404).json({ error: 'Not found' });
+    let ok = false; try { const recs = await require('dns').promises.resolveTxt('_foriforeign.' + d.domain); ok = recs.some(r => r.join('').trim() === d.verify_token); } catch (e) {}
+    if (!ok) return res.status(400).json({ error: 'TXT record not found yet. DNS can take up to an hour; try again.' });
+    await admin().from('org_domains').update({ verified: true, verified_at: new Date().toISOString() }).eq('id', d.id); CACHE.bust('wl:' + d.domain); res.json({ ok: true }); }
+  catch (e) { orgErr(res, e); }
+});
+app.delete('/api/org/:id/domains/:did', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const { data: d } = await admin().from('org_domains').select('domain').eq('id', req.params.did).eq('org_id', req.params.id).maybeSingle(); await admin().from('org_domains').delete().eq('id', req.params.did).eq('org_id', req.params.id); if (d) CACHE.bust('wl:' + d.domain); res.json({ ok: true }); } catch (e) { orgErr(res, e); } });
+app.get('/api/org/:id/webhooks', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const { data } = await admin().from('org_webhooks').select('id,url,events,status,created_at').eq('org_id', req.params.id); const ids = (data || []).map(h => h.id); const { data: del } = ids.length ? await admin().from('webhook_deliveries').select('webhook_id,status,event,created_at,response_code').in('webhook_id', ids).order('created_at', { ascending: false }).limit(50) : { data: [] }; res.json({ webhooks: data || [], recent: del || [], events: WEBHOOKS.EVENTS }); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/webhooks', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const b = req.body || {}; const url = String(b.url || '').trim(); if (!/^https:\/\//.test(url)) return res.status(400).json({ error: 'Webhook URL must start with https://' });
+    const secret = 'whs_' + require('crypto').randomBytes(24).toString('base64url'); const events = Array.isArray(b.events) && b.events.length ? b.events.filter(e => WEBHOOKS.EVENTS.includes(e)) : ['*'];
+    const { data, error } = await admin().from('org_webhooks').insert({ org_id: req.params.id, url, secret, events, created_by: req.userId }).select('id,url,events,status').single(); if (error) return res.status(400).json({ error: error.message });
+    res.json({ webhook: data, secret, note: 'Copy the secret now; it is shown once.' }); }
+  catch (e) { orgErr(res, e); }
+});
+app.delete('/api/org/:id/webhooks/:wid', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); await admin().from('org_webhooks').delete().eq('id', req.params.wid).eq('org_id', req.params.id); res.json({ ok: true }); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/webhooks/:wid/test', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const n = await WEBHOOKS.emit(req.params.id, 'client.created', { test: true, client_id: '00000000-0000-0000-0000-000000000000' }); res.json({ queued: n }); } catch (e) { orgErr(res, e); } });
+app.get('/api/docs', (req, res) => res.redirect('/api-docs.html'));
+/* ============================================================================ */
+/* ================= DAYS 16-20 · NOTIFICATIONS · SPONSORS · LEMON · FAMILY/PR · ORIGIN PACK ================= */
+const NOTIFY = require('./lib/notify'); const SPONSORS = require('./lib/sponsors'); const OCC = require('./lib/occupations'); const LEMON = require('./lib/gateway_lemon');
+app.get('/api/notifications', auth, async (req, res) => { try { res.json(await NOTIFY.list(req.userId, req.query.limit)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/notifications/read', auth, async (req, res) => { try { res.json(await NOTIFY.markRead(req.userId, (req.body || {}).ids)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/notifications/sweep', auth, perm('settings.write'), async (req, res) => { try { res.json(await NOTIFY.dailySweep()); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Day 17 · sponsor register (admin uploads the official CSV; opportunities get a sponsor_verified flag). */
+app.post('/api/admin/sponsors/import', auth, perm('settings.write'), up.single('file'), async (req, res) => {
+  try { const cc = String((req.body || {}).country_code || 'GB').toUpperCase().slice(0, 2); const text = req.file ? req.file.buffer.toString('utf8') : String((req.body || {}).csv || ''); if (!text) return res.status(400).json({ error: 'Upload the register CSV (file field "file")' });
+    const r = await SPONSORS.importCsv(cc, text, (req.body || {}).source_url || null); const c = await SPONSORS.checkOpportunities(cc); res.json({ ...r, ...c }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/admin/sponsors', auth, perm('settings.read'), async (req, res) => { try { res.json({ registers: await SPONSORS.status() }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/sponsors/recheck', auth, perm('settings.write'), async (req, res) => { try { res.json(await SPONSORS.checkOpportunities(String((req.body || {}).country_code || 'GB').toUpperCase())); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/occupation', auth, async (req, res) => { res.json(OCC.classify(req.query.title || '')); });
+/* Day 18 · Lemon Squeezy: checkout + webhook (raw body mounted above the JSON parser). */
+app.post('/api/pay/lemon/checkout', auth, async (req, res) => {
+  try { if (!LEMON.enabled()) return res.status(400).json({ error: 'Lemon Squeezy is not configured.' }); const credits = Number((req.body || {}).credits); const q = await usdQuote(req.userId, credits); if (!q) return res.status(400).json({ error: 'Choose a package first.' });
+    const cfg = await siteSettings.getConfig(); const tier = ((cfg.packages && cfg.packages.tiers) || []).find(t => Number(t.credits) === credits); const { data: prof } = await admin().from('profiles').select('email').eq('id', req.userId).maybeSingle();
+    const { data: pay, error } = await admin().from('payments').insert({ user_id: req.userId, credits: q.credits, amount_pkr: 0, status: 'pending', reference: 'LEMON', provider: 'lemonsqueezy' }).select('id').single(); if (error) return res.status(400).json({ error: error.message });
+    const origin = (req.headers.origin || ('https://' + req.headers.host));
+    const s = await LEMON.createCheckout({ variantId: tier && tier.lemon_variant_id, email: prof && prof.email, usd: q.amount_usd, name: 'ForiForeign ' + q.name, paymentId: pay.id, userId: req.userId, successUrl: origin + '/?paid=1&provider=lemon' });
+    await admin().from('payments').update({ reference: ('LEMON:' + s.id).slice(0, 120) }).eq('id', pay.id).then(() => {}, () => {}); res.json({ url: s.url, payment_id: pay.id, amount_usd: q.amount_usd }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Day 19 · dependants and the PR tracker. */
+app.get('/api/me/family', auth, async (req, res) => { try { const { data } = await admin().from('profiles').select('dependants,arrival_date').eq('id', req.userId).maybeSingle(); const ck = await VAULT.checklist(req.userId, 'family'); res.json({ dependants: (data && data.dependants) || [], arrival_date: data && data.arrival_date, checklist: ck }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.put('/api/me/family', auth, async (req, res) => {
+  try { const b = req.body || {}; const deps = Array.isArray(b.dependants) ? b.dependants.slice(0, 12).map(d => ({ name: String(d.name || '').slice(0, 120), relation: ['spouse', 'child', 'parent', 'other'].includes(d.relation) ? d.relation : 'other', dob: /^\d{4}-\d{2}-\d{2}$/.test(String(d.dob || '')) ? d.dob : null, passport_expiry: /^\d{4}-\d{2}-\d{2}$/.test(String(d.passport_expiry || '')) ? d.passport_expiry : null, travelling: !!d.travelling })) : undefined;
+    const patch = {}; if (deps) patch.dependants = deps; if (b.arrival_date === null || /^\d{4}-\d{2}-\d{2}$/.test(String(b.arrival_date || ''))) patch.arrival_date = b.arrival_date; const { error } = await admin().from('profiles').update(patch).eq('id', req.userId); if (error) return res.status(400).json({ error: error.message });
+    try { await MOBILITY.update(req.userId, { dependants: (deps || []).filter(d => d.travelling).length }, 'user'); } catch (e) {} res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/me/pr-tracker', auth, async (req, res) => {
+  try { const cc = String(req.query.cc || '').toUpperCase(); const { data: p } = await admin().from('profiles').select('arrival_date,mobility').eq('id', req.userId).maybeSingle();
+    const { data: rules } = await admin().from('visa_rules').select('id,route_key,route_name,text,value,source_url,source_title,status,last_verified_at').eq('country_code', cc).in('rule_type', ['pr_path', 'dependants', 'work_rights']).neq('status', 'superseded');
+    const arrival = p && p.arrival_date; const days = arrival ? Math.floor((Date.now() - new Date(arrival)) / 86400000) : null;
+    const { data: jt } = await admin().from('journey_tasks').select('phase,done').eq('user_id', req.userId).eq('country_code', cc);
+    const pr = (jt || []).filter(t => t.phase === 'pr'); res.json({ country_code: cc, arrival_date: arrival, days_resident: days, years_resident: days == null ? null : Math.round(days / 365.25 * 10) / 10, rules: rules || [], pr_tasks: { done: pr.filter(t => t.done).length, total: pr.length }, language: p && p.mobility && { test: p.mobility.test_name, score: p.mobility.overall_score } }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* ============================================================================================================ */
+/* ================= DAYS 21-25 · PILOTS · ORIGIN ONBOARDING · MAIL PREFERENCE ================= */
+app.get('/api/org/:id/partner-metrics', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); const apps = await PARTNERS.applicants(req.params.id); const ops = await PARTNERS.list(req.params.id);
+    const by = {}; for (const a of apps) by[a.partner_status] = (by[a.partner_status] || 0) + 1;
+    const { data: org } = await admin().from('organisations').select('pilot,pilot_started_at,created_at').eq('id', req.params.id).maybeSingle();
+    res.json({ openings: { total: ops.length, live: ops.filter(o => o.status === 'live').length }, applicants: apps.length, consented: apps.filter(a => a.consent).length, consent_rate: apps.length ? Math.round(100 * apps.filter(a => a.consent).length / apps.length) : null, by_status: by, offers: by.offer || 0, interviews: by.interview || 0, pilot: !!(org && org.pilot), pilot_started_at: org && org.pilot_started_at, pilot_day: org && org.pilot_started_at ? Math.floor((Date.now() - new Date(org.pilot_started_at)) / 86400000) : null }); }
+  catch (e) { orgErr(res, e); }
+});
+app.post('/api/admin/pilots', auth, perm('settings.write'), async (req, res) => {
+  try { const b = req.body || {}; const { data: o } = await admin().from('organisations').select('id,kind').eq('id', String(b.org_id || '')).maybeSingle(); if (!o) return res.status(404).json({ error: 'Organisation not found' });
+    await admin().from('organisations').update({ pilot: b.pilot !== false, pilot_started_at: b.pilot !== false ? new Date().toISOString() : null, pilot_notes: String(b.notes || '').slice(0, 1000) || null }).eq('id', o.id); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/admin/pilots', auth, perm('settings.read'), async (req, res) => { try { const { data } = await admin().from('organisations').select('id,name,kind,pilot,pilot_started_at,pilot_notes,created_at').in('kind', ['institution', 'employer', 'partner']).order('created_at', { ascending: false }); res.json({ orgs: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.put('/api/me/notify', auth, async (req, res) => { try { const on = !!(req.body || {}).email; const { error } = await admin().from('profiles').update({ notify_email: on }).eq('id', req.userId); if (error) return res.status(400).json({ error: error.message }); res.json({ ok: true, email: on }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/me/notify', auth, async (req, res) => { try { const { data } = await admin().from('profiles').select('notify_email').eq('id', req.userId).maybeSingle(); res.json({ email: !(data && data.notify_email === false), mail_configured: require('./lib/mailer').enabled() }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ================================================================================================ */
+/* ================= EXPLORE CATALOGUE · VISA TRACKING DIRECTORY ================= */
+const EXPLORE = require('./lib/explore'); const VTRACK = require('./lib/visa_tracking');
+app.get('/api/explore', auth, async (req, res) => {
+  try { const q = Object.assign({}, req.query || {}); if (q.profession) q.text = String(q.profession).slice(0, 60); const r = await EXPLORE.explore(q); const ok = await entitled(req.userId, simUser(req));
+    r.rows = r.rows.map(o => ok ? Object.assign({}, o, { locked: false, partner: !!o.is_partner }) : Object.assign(lockTease(o), { subject: o.subject, deadline: o.deadline, level: o.level, kind: o.kind, country_code: o.country_code, id: o.id }));
+    r.entitled = ok; res.json(r); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/explore/institution', auth, async (req, res) => {
+  try { const ok = await entitled(req.userId, simUser(req)); if (!ok) return res.status(402).json({ error: 'Institution pages open with a package; browse by subject and country is free.' }); res.json(await EXPLORE.institution(req.query.name)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/explore/institutions', auth, async (req, res) => { try { res.json({ institutions: await EXPLORE.institutionsFor(req.query.cc) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/explore/subjects', auth, async (req, res) => { res.json({ subjects: EXPLORE.SUBJECTS.map(s => s[0]).concat(['Other / interdisciplinary']), levels: EXPLORE.LEVELS }); });
+app.get('/api/visa/tracking', auth, async (req, res) => { res.json(VTRACK.trackingFor(String(req.query.cc || '').toUpperCase())); });
+/* ================================================================================ */
+/* ================= CASE INBOX · CASE BRAIN ================= */
+const BRAIN = require('./lib/casebrain');
+app.get('/api/applications/:id/inbox', auth, async (req, res) => { try { const r = await BRAIN.inbox(req.params.id, req.userId); if (!r.alias) r.alias = await BRAIN.alias(req.params.id, req.userId); res.json(r); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/applications/:id/inbox', auth, async (req, res) => {
+  try { const b = req.body || {}; if (!String(b.body || '').trim()) return res.status(400).json({ error: 'Paste the reply text' });
+    const { data: a } = await admin().from('applications').select('id').eq('id', req.params.id).eq('user_id', req.userId).maybeSingle(); if (!a) return res.status(404).json({ error: 'Case not found' });
+    const id = await BRAIN.ingest({ applicationId: a.id, userId: req.userId, channel: b.channel === 'whatsapp' ? 'whatsapp' : 'manual', from: b.from || '', subject: b.subject || '', body: b.body }); res.json({ ok: true, message_id: id, note: 'Reading it now; the next action appears in about a minute.' }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Inbound mail webhook (Postmark / Mailgun / Resend style JSON, mapped to {to, from, subject, text}). Shared secret in x-intake-secret. */
+app.post('/api/intake/email', async (req, res) => {
+  try { if (!process.env.INTAKE_SECRET || String(req.headers['x-intake-secret'] || '') !== process.env.INTAKE_SECRET) return res.status(401).json({ error: 'unauthorised' });
+    const b = req.body || {}; const to = b.to || b.To || b.recipient || (b.ToFull && b.ToFull[0] && b.ToFull[0].Email) || ''; const from = b.from || b.From || b.sender || ''; const subject = b.subject || b.Subject || ''; const text = b.text || b.TextBody || b['body-plain'] || b['stripped-text'] || b.html || b.HtmlBody || '';
+    const a = await BRAIN.byAlias(to);
+    if (a) { const id = await BRAIN.ingest({ applicationId: a.id, userId: a.user_id, channel: 'email', from, subject, body: text, receivedAt: b.date || b.Date || null, assignedBy: 'alias' }); return res.json({ ok: true, message_id: id }); }
+    if (/^partnerships@/i.test(String(to || '').trim()) || String(to || '').toLowerCase().includes('partnerships@' + (process.env.APPLY_DOMAIN || 'forimail.com'))) { const r = await PROSPECT.handleReply({ from, subject, body: text }); try { if (r && r.prospect_id) { const n = await PENGINE.negotiate(r.prospect_id, text); if (n && n.counter && n.state === 'countered') { const { data: pp } = await admin().from('prospects').select('email,name').eq('id', r.prospect_id).maybeSingle(); if (pp && pp.email) { const M = require('./lib/mailer'); await M.send(pp.email, 'Re: ' + String(subject || 'Partnership'), M.wrap('Partnership terms', n.counter, 'work')); } } r.negotiation = n; } } catch (e) {} return res.json(Object.assign({ ok: true, partnerships: true }, r)); }
+    const u = await BRAIN.byApplyEmail(to); if (!u) return res.status(202).json({ ignored: 'no mailbox for recipient' });
+    const r = await BRAIN.routeForUser(u, from, subject);
+    const id = await BRAIN.ingest({ applicationId: r.application_id, userId: u.id, channel: 'email', from, subject, body: text, receivedAt: b.date || b.Date || null, assignedBy: r.assigned_by, paused: !!u.apply_email_paused });
+    try { await admin().from('case_messages').update({ to_addr: String(to).slice(0, 200) }).eq('id', id); } catch (e) {}
+    // Gap 1 · attachments become vault documents (read, typed, dated) and are linked to the message and the case.
+    try { const atts = Array.isArray(b.attachments) ? b.attachments : (Array.isArray(b.Attachments) ? b.Attachments : []); const saved = [];
+      for (const a of atts.slice(0, 8)) { const content = a.content || a.Content || a.content_b64 || a.data; const name = a.name || a.Name || a.filename || 'attachment'; const mime = a.content_type || a.ContentType || a.type || 'application/octet-stream'; if (!content) continue; const buf = Buffer.from(String(content), 'base64'); if (buf.length < 100 || buf.length > 15 * 1024 * 1024) continue;
+        const { saveUpload } = require('./lib/docs'); const d = await saveUpload(u.id, { originalname: name, mimetype: mime, buffer: buf, size: buf.length }, null).catch(() => null); if (d && d.id) { saved.push({ id: d.id, name, mime }); await QUEUE.enqueue('vault_read', { docId: d.id, userId: u.id }, { userId: u.id, maxAttempts: 2 }).catch(() => {}); if (r.application_id) await admin().from('application_documents').insert({ application_id: r.application_id, document_id: d.id }).then(() => {}, () => {}); } }
+      if (saved.length) await admin().from('case_messages').update({ attachments: saved }).eq('id', id); } catch (e) {}
+    JE.recompute(u.id);
+    if (u.apply_email_forward === true && u.email) { try { const M = require('./lib/mailer'); await M.sendRaw({ from: 'ForiForeign mailbox <' + u.apply_email + '>', to: u.email, subject: '[Copy] ' + String(subject || '').slice(0, 150), html: '<pre style="white-space:pre-wrap;font-family:Arial,sans-serif">' + String(text || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])).slice(0, 20000) + '</pre>', text: String(text || '').slice(0, 20000), replyTo: from }); } catch (e) {} }
+    res.json({ ok: true, message_id: id, assigned_by: r.assigned_by }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+QUEUE.register('case_understand', async (p) => { const r = await BRAIN.understand(p.messageId); await meter(p.userId, 'case_brain'); JE.recompute(p.userId); return r; });
+/* =========================================================== */
+/* ================= APPLICATION MAILBOX (name@apply.foriforeign.com) ================= */
+app.get('/api/me/mailbox', auth, async (req, res) => { try { res.json(await BRAIN.mailbox(req.userId)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/mailbox', auth, async (req, res) => { try { const r = await BRAIN.provisionApplyEmail(req.userId); try { await admin().from('audit_log').insert({ actor: req.userId, event: 'APPLY_MAILBOX_CREATED', detail: r.email }); } catch (e) {} res.json(r); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/me/mailbox', auth, async (req, res) => { try { const b = req.body || {}; const patch = {}; { const cfg = await siteSettings.getConfig(); if (b.forward === true && !((cfg.mail_policy || {}).allow_personal_forward)) return res.status(403).json({ error: 'Copies to a personal address are switched off by policy: the process runs on your ForiForeign address only. Export is always available.' }); } if (typeof b.forward === 'boolean') patch.apply_email_forward = b.forward; if (typeof b.paused === 'boolean') patch.apply_email_paused = b.paused; const { error } = await admin().from('profiles').update(patch).eq('id', req.userId); if (error) return res.status(400).json({ error: error.message }); res.json({ ok: true, ...patch }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/mailbox/send', auth, async (req, res) => { try { const b = req.body || {}; res.json(await BRAIN.sendFromApplyEmail(req.userId, { applicationId: b.application_id || null, to: b.to, subject: b.subject, body: b.body, attachDocIds: b.attach_doc_ids })); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ==================================================================================== */
+/* ================= FORIMAIL BACKBONE · INBOX · SEND APPLICATION FROM MAILBOX ================= */
+app.get('/api/me/mailbox/messages/:id', auth, async (req, res) => { try { res.json({ message: await BRAIN.message(req.userId, req.params.id) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/mailbox/messages/:id/link', auth, async (req, res) => { try { res.json(await BRAIN.linkToCase(req.userId, req.params.id, String((req.body || {}).application_id || ''))); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/mailbox/messages/:id/confirm', auth, async (req, res) => { try { const c = String((req.body || {}).classification || ''); if (!['interview_invite', 'offer', 'conditional_offer', 'rejection', 'documents_requested', 'info_request', 'acknowledgement', 'scheduling', 'other'].includes(c)) return res.status(400).json({ error: 'classification' }); res.json(await BRAIN.confirmClassification(req.userId, req.params.id, c)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/mailbox/messages/:id/read', auth, async (req, res) => { try { await admin().from('case_messages').update({ read_at: new Date().toISOString() }).eq('id', req.params.id).eq('user_id', req.userId); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* The prepared application is sent from the applicant's forimail address on their tap: subject, body and
+   every prepared document attached. This replaces the "open your Gmail" step as the primary route. */
+app.post('/api/applications/:id/send-from-mailbox', auth, async (req, res) => {
+  try {
+    const { data: a } = await admin().from('applications').select('id,user_id,opportunity_id,stage').eq('id', req.params.id).eq('user_id', req.userId).maybeSingle(); if (!a) return res.status(404).json({ error: 'Case not found' });
+    const b = req.body || {}; const to = String(b.to || '').trim(); const subject = String(b.subject || '').slice(0, 200); const body = String(b.body || '');
+    if (!to || !subject || !body) return res.status(400).json({ error: 'Recipient, subject and body are required' });
+    const ids = Array.isArray(b.attach_doc_ids) ? b.attach_doc_ids : [];
+    const r = await BRAIN.sendFromApplyEmail(req.userId, { applicationId: a.id, to, subject, body, attachDocIds: ids });
+    await admin().from('applications').update({ stage: 'submitted_email', status: 'applied', next_action: 'Wait for their reply; forward nothing - it lands here by itself', next_action_owner: 'them' }).eq('id', a.id).then(() => {}, async () => { await admin().from('applications').update({ stage: 'submitted_email' }).eq('id', a.id); });
+    try { await admin().from('audit_log').insert({ actor: req.userId, event: 'APPLY_SENT_FORIMAIL', detail: a.id + ' -> ' + to }); } catch (e) {}
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+QUEUE.register('mail_triage', async (p) => BRAIN.triage(p.messageId));
+/* ============================================================================================== */
+/* ================= ORGANISATION ADMIN LAYER (owners/managers see only their organisation) ================= */
+async function orgAudit(orgId, actor, event, detail) { try { await admin().from('audit_log').insert({ actor, event, detail: String(detail || '').slice(0, 250), org_id: orgId }); } catch (e) {} }
+app.get('/api/org/:id/audit', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'finance.read'); const { data } = await admin().from('audit_log').select('id,actor,event,detail,created_at').eq('org_id', req.params.id).order('created_at', { ascending: false }).limit(200); const ids = [...new Set((data || []).map(r => r.actor).filter(Boolean))]; const { data: profs } = ids.length ? await admin().from('profiles').select('id,full_name').in('id', ids) : { data: [] }; const nm = Object.fromEntries((profs || []).map(p => [p.id, p.full_name])); res.json({ audit: (data || []).map(r => Object.assign(r, { actor_name: nm[r.actor] || '' })) }); } catch (e) { orgErr(res, e); } });
+/* Data-isolation self-check an owner can run: proves scope from their own account. */
+app.get('/api/org/:id/isolation-check', auth, async (req, res) => {
+  try { const role = await ORGS.requireOrg(req, req.params.id, 'clients.read'); const m = await ORGS.membership(req.params.id, req.userId);
+    const mine = await ORGS.listClients(req.params.id, { limit: 500, scope: ORGS.scopeFor(m, req.userId) }); const { count: all } = await admin().from('clients').select('id', { count: 'exact', head: true }).eq('org_id', req.params.id);
+    const { count: others } = await admin().from('clients').select('id', { count: 'exact', head: true }).neq('org_id', req.params.id);
+    res.json({ role, branch: m && m.branch, visible_in_my_scope: mine.length, total_in_organisation: all || 0, clients_in_other_organisations: others || 0, other_organisations_visible_to_me: 0, note: 'Server-side scope: owner sees all in the organisation; manager/consultant their branch; sub-agent only their own clients. Other organisations are never queryable from this account.' }); }
+  catch (e) { orgErr(res, e); }
+});
+/* ========================================================================================================== */
+/* ================= BROWSER AGENT · FINANCE · HISTORY · LEADS · OUTBOUND · APPOINTMENTS · PROTECTED ADMIN ================= */
+const BOT = require('./lib/browserbot');
+app.get('/api/me/portals', auth, async (req, res) => { try { res.json({ portals: BOT.PORTALS, scopes: BOT.SCOPES, policy: await BOT.policyFor(req.userId, null), connections: await BOT.list(req.userId), encryption: require('./lib/crypto').enabled() }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/portals', auth, async (req, res) => { try { const c = await BOT.connect(req.userId, req.body || {}); await CONSENT.record(req, req.userId, 'portal_watch', { portal: c.portal_name, scope: c.scope.replace(/_/g, ' ') }, { connection_id: c.id }); res.json({ connection: c }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/me/portals/:id/runs', auth, async (req, res) => { try { res.json({ runs: await BOT.runs(req.userId, req.params.id) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/me/portals/:id', auth, async (req, res) => { try { res.json(await BOT.setStatus(req.userId, req.params.id, (req.body || {}).status)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/portals/:id/check', auth, async (req, res) => { try { const jobId = await QUEUE.enqueue('portal_watch', { connectionId: req.params.id }, { userId: req.userId, maxAttempts: 1 }); res.json({ ok: true, job_id: jobId }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Consultant connects a portal for a client (consent recorded as given to the consultant; the client sees it). */
+app.post('/api/org/:id/clients/:cid/portals', auth, async (req, res) => { try { const c = await orgClient(req, res, 'clients.write'); if (!c.user_id) return res.status(400).json({ error: 'Client has no login yet.' });
+    const b = Object.assign({}, req.body || {}, { client_id: c.id, org_id: c.org_id, consent: true });
+    if (b.scope === 'watch_upload_submit') { const { data: lic } = await admin().from('consultant_licences').select('id').eq('user_id', req.userId).eq('status', 'verified').or('expires_on.is.null,expires_on.gte.' + new Date().toISOString().slice(0, 10)).limit(1); if (!lic || !lic.length) return res.status(403).json({ error: 'Submitting on a client\'s behalf requires a verified registered-agent licence (OISC / MARA / CICC / IAA). Add it under Team → Licences.' }); }
+    const r = await BOT.connect(c.user_id, b); await admin().from('portal_connections').update({ applicant_confirmed: false, connected_by: req.userId, status: 'paused' }).eq('id', r.id);
+    try { await NOTIFY.push(c.user_id, 'consent', 'Confirm portal access: ' + r.portal_name, 'Your consultant asked to watch this account for you (' + r.scope.replace(/_/g, ' ') + '). Approve or refuse in Profile → Portal watch.', 'profile'); } catch (e) {}
+    await orgAudit(c.org_id, req.userId, 'PORTAL_CONNECTED_FOR_CLIENT', c.full_name + ' ' + r.portal_key + ' (awaiting applicant confirmation)'); JE.recompute(c.user_id); res.json({ connection: r, pending_applicant_confirmation: true }); } catch (e) { orgErr(res, e); } });
+app.get('/api/org/:id/clients/:cid/portals', auth, async (req, res) => { try { const c = await orgClient(req, res, 'clients.read'); res.json({ connections: c.user_id ? await BOT.list(c.user_id) : [] }); } catch (e) { orgErr(res, e); } });
+/* Policy: platform (super_admin) and organisation owners set caps; the lower always wins. */
+app.get('/api/admin/browser-policy', auth, perm('settings.read'), async (req, res) => { try { const { data } = await admin().from('browser_policies').select('*').eq('scope_kind', 'platform').maybeSingle(); res.json({ policy: data || { scope_kind: 'platform', enabled: true, max_scope: 'watch', allowed_domains: [] }, portals: BOT.PORTALS }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.put('/api/admin/browser-policy', auth, perm('settings.write'), async (req, res) => { try { if (!['super_admin', 'admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); const b = req.body || {}; const row = { scope_kind: 'platform', scope_id: null, enabled: b.enabled !== false, max_scope: BOT.SCOPES.includes(b.max_scope) ? b.max_scope : 'watch', allowed_domains: Array.isArray(b.allowed_domains) ? b.allowed_domains.map(d => String(d).toLowerCase().trim()).filter(Boolean) : [], updated_by: req.userId, updated_at: new Date().toISOString() }; const { data: ex } = await admin().from('browser_policies').select('id').eq('scope_kind', 'platform').maybeSingle(); if (ex) await admin().from('browser_policies').update(row).eq('id', ex.id); else await admin().from('browser_policies').insert(row); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.put('/api/org/:id/browser-policy', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.settings'); const b = req.body || {}; const row = { scope_kind: 'org', scope_id: req.params.id, enabled: b.enabled !== false, max_scope: BOT.SCOPES.includes(b.max_scope) ? b.max_scope : 'watch', allowed_domains: Array.isArray(b.allowed_domains) ? b.allowed_domains.map(d => String(d).toLowerCase().trim()).filter(Boolean) : [], updated_by: req.userId, updated_at: new Date().toISOString() }; const { data: ex } = await admin().from('browser_policies').select('id').eq('scope_kind', 'org').eq('scope_id', req.params.id).maybeSingle(); if (ex) await admin().from('browser_policies').update(row).eq('id', ex.id); else await admin().from('browser_policies').insert(row); await orgAudit(req.params.id, req.userId, 'BROWSER_POLICY_SET', row.max_scope); res.json({ ok: true }); } catch (e) { orgErr(res, e); } });
+QUEUE.register('portal_watch', async (p) => BOT.watch(p.connectionId));
+/* Client finance: every fee, payment, refund, cost and commission per client; P&L per client and per organisation. */
+app.get('/api/org/:id/clients/:cid/finance', auth, async (req, res) => { try { const c = await orgClient(req, res, 'clients.read'); const { data } = await admin().from('client_finance').select('*').eq('client_id', c.id).order('occurred_on', { ascending: false }); const rows = data || []; const sum = k => rows.filter(r => r.kind === k).reduce((a, r) => a + Number(r.amount), 0); const income = sum('fee_charged') + sum('commission_in'); const received = sum('payment_received'); const out = sum('cost') + sum('refund') + sum('commission_out'); res.json({ rows, summary: { charged: income, received, outstanding: income - received, costs: out, profit: received - out + sum('adjustment') } }); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/clients/:cid/finance', auth, async (req, res) => { try { const c = await orgClient(req, res, 'clients.write'); const b = req.body || {}; if (!['fee_charged', 'payment_received', 'refund', 'cost', 'commission_in', 'commission_out', 'adjustment'].includes(b.kind) || !isFinite(Number(b.amount))) return res.status(400).json({ error: 'kind and amount required' }); const { data, error } = await admin().from('client_finance').insert({ org_id: c.org_id, client_id: c.id, kind: b.kind, amount: Number(b.amount), currency: String(b.currency || 'USD').toUpperCase().slice(0, 3), note: String(b.note || '').slice(0, 300) || null, reference: String(b.reference || '').slice(0, 120) || null, occurred_on: /^\d{4}-\d{2}-\d{2}$/.test(String(b.occurred_on || '')) ? b.occurred_on : undefined, created_by: req.userId }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); await orgAudit(c.org_id, req.userId, 'FINANCE_' + b.kind.toUpperCase(), c.full_name + ' ' + b.amount + ' ' + (b.currency || 'USD')); res.json({ row: data }); } catch (e) { orgErr(res, e); } });
+app.get('/api/org/:id/finance', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'finance.read'); const { data } = await admin().from('client_finance').select('client_id,kind,amount,currency,occurred_on').eq('org_id', req.params.id); const rows = data || []; const by = {}; for (const r of rows) { const b = by[r.client_id] = by[r.client_id] || { charged: 0, received: 0, costs: 0 }; if (r.kind === 'fee_charged' || r.kind === 'commission_in') b.charged += Number(r.amount); if (r.kind === 'payment_received') b.received += Number(r.amount); if (['cost', 'refund', 'commission_out'].includes(r.kind)) b.costs += Number(r.amount); } const tot = Object.values(by).reduce((a, b) => ({ charged: a.charged + b.charged, received: a.received + b.received, costs: a.costs + b.costs }), { charged: 0, received: 0, costs: 0 }); res.json({ by_client: by, totals: Object.assign(tot, { outstanding: tot.charged - tot.received, profit: tot.received - tot.costs }) }); } catch (e) { orgErr(res, e); } });
+/* Unified case history for a client: every event from every module, newest first. */
+app.get('/api/org/:id/clients/:cid/history', auth, async (req, res) => {
+  try { const c = await orgClient(req, res, 'clients.read'); const ev = [];
+    const push = (rows, map) => { for (const r of (rows || [])) ev.push(map(r)); };
+    if (c.user_id) {
+      push((await admin().from('applications').select('id,status,stage,created_at,updated_at,next_action').eq('user_id', c.user_id).then(r => r.data)), r => ({ at: r.updated_at || r.created_at, kind: 'case', text: 'Case ' + (r.status || r.stage || '') + (r.next_action ? ' · next: ' + r.next_action : ''), ref: r.id }));
+      push((await admin().from('case_messages').select('id,direction,subject,classification,received_at').eq('user_id', c.user_id).order('received_at', { ascending: false }).limit(100).then(r => r.data)), r => ({ at: r.received_at, kind: r.direction === 'out' ? 'mail_out' : 'mail_in', text: (r.direction === 'out' ? 'Sent: ' : 'Received: ') + (r.subject || '') + (r.classification ? ' (' + r.classification.replace(/_/g, ' ') + ')' : ''), ref: r.id }));
+      push((await admin().from('offers').select('id,issuer,title,status,created_at').eq('user_id', c.user_id).then(r => r.data)), r => ({ at: r.created_at, kind: 'offer', text: 'Offer ' + r.status + ': ' + (r.issuer || '') + ' ' + (r.title || ''), ref: r.id }));
+      push((await admin().from('visa_cases').select('id,country_code,route_key,status,updated_at').eq('user_id', c.user_id).then(r => r.data)), r => ({ at: r.updated_at, kind: 'visa', text: 'Visa file ' + r.country_code + ' ' + r.route_key + ': ' + r.status, ref: r.id }));
+      push((await admin().from('payments').select('id,credits,amount_pkr,status,created_at').eq('user_id', c.user_id).then(r => r.data)), r => ({ at: r.created_at, kind: 'payment', text: 'Payment ' + r.status + ' · ' + r.credits + ' cases', ref: r.id }));
+      push((await admin().from('portal_runs').select('id,outcome,status_text,started_at').eq('user_id', c.user_id).order('started_at', { ascending: false }).limit(30).then(r => r.data)), r => ({ at: r.started_at, kind: 'portal', text: 'Portal check ' + r.outcome + (r.status_text ? ': ' + r.status_text.slice(0, 120) : ''), ref: String(r.id) }));
+    }
+    push((await admin().from('client_tasks').select('id,title,status,owner,due_date,created_at,done_at').eq('client_id', c.id).then(r => r.data)), r => ({ at: r.done_at || r.created_at, kind: 'task', text: (r.status === 'done' ? 'Done: ' : 'Task: ') + r.title + (r.due_date ? ' (due ' + r.due_date + ')' : ''), ref: r.id }));
+    push((await admin().from('client_notes').select('id,channel,body,created_at').eq('client_id', c.id).then(r => r.data)), r => ({ at: r.created_at, kind: 'note', text: '[' + r.channel + '] ' + String(r.body).slice(0, 160), ref: r.id }));
+    push((await admin().from('client_finance').select('id,kind,amount,currency,occurred_on').eq('client_id', c.id).then(r => r.data)), r => ({ at: r.occurred_on, kind: 'finance', text: r.kind.replace(/_/g, ' ') + ' ' + r.amount + ' ' + r.currency, ref: r.id }));
+    push((await admin().from('audit_log').select('id,event,detail,created_at').eq('org_id', c.org_id).ilike('detail', '%' + c.full_name.slice(0, 40) + '%').limit(50).then(r => r.data)), r => ({ at: r.created_at, kind: 'audit', text: r.event + ' · ' + (r.detail || ''), ref: String(r.id) }));
+    ev.sort((a, b) => String(b.at).localeCompare(String(a.at))); res.json({ client: { id: c.id, full_name: c.full_name, stage: c.stage }, events: ev.slice(0, 300) }); }
+  catch (e) { orgErr(res, e); }
+});
+/* Lead capture (competitor gap): public form endpoint per organisation token; Meta Lead Ads webhook shape accepted. */
+app.get('/api/org/:id/leads', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); const { data: o } = await admin().from('organisations').select('lead_token').eq('id', req.params.id).maybeSingle(); let token = o && o.lead_token; if (!token) { token = 'lt_' + require('crypto').randomBytes(12).toString('hex'); await admin().from('organisations').update({ lead_token: token }).eq('id', req.params.id); } const mm = await ORGS.membership(req.params.id, req.userId); let lq = admin().from('leads').select('*').eq('org_id', req.params.id); if (mm && mm.role === 'sub_agent') lq = lq.eq('assigned_user_id', req.userId); else if (mm && ['manager', 'consultant'].includes(mm.role) && mm.branch) { const { data: bm } = await admin().from('org_members').select('user_id,branch').eq('org_id', req.params.id); const ids = (bm || []).filter(x => x.branch === mm.branch || String(x.branch || '').startsWith(mm.branch + '/')).map(x => x.user_id); lq = lq.in('assigned_user_id', ids.length ? ids : [req.userId]); } const { data } = await lq.order('created_at', { ascending: false }).limit(200); res.json({ leads: data || [], form_url: 'https://foriforeign.com/api/leads/' + token, embed: '<form method="POST" action="https://foriforeign.com/api/leads/' + token + '"><input name="full_name" placeholder="Name" required><input name="phone" placeholder="WhatsApp"><input name="email" placeholder="Email"><select name="lane"><option value="study">Study</option><option value="work">Work</option></select><button>Send</button></form>' }); } catch (e) { orgErr(res, e); } });
+app.post('/api/leads/:token', async (req, res) => { try { const { data: o } = await admin().from('organisations').select('id,owner_id').eq('lead_token', req.params.token).maybeSingle(); if (!o) return res.status(404).json({ error: 'Unknown form' }); const b = req.body || {}; const meta = b.entry && b.entry[0] && b.entry[0].changes && b.entry[0].changes[0] && b.entry[0].changes[0].value; const src = meta ? 'meta' : (b.source || 'form'); const f = meta ? { full_name: '', raw: b } : b; const { data, error } = await admin().from('leads').insert({ org_id: o.id, source: ['form', 'meta', 'whatsapp', 'website', 'referral', 'import', 'other'].includes(src) ? src : 'other', full_name: String(f.full_name || f.name || '').slice(0, 120) || null, email: String(f.email || '').slice(0, 160) || null, phone: String(f.phone || '').slice(0, 40) || null, whatsapp: String(f.whatsapp || f.phone || '').slice(0, 40) || null, country_interest: String(f.country || f.country_interest || '').slice(0, 60) || null, lane: ['study', 'work', 'both'].includes(f.lane) ? f.lane : null, message: String(f.message || '').slice(0, 2000) || null, assigned_user_id: o.owner_id, raw: f.raw || {} }).select('id').single(); if (error) return res.status(400).json({ error: error.message }); try { await NOTIFY.push(o.owner_id, 'lead', 'New lead: ' + (f.full_name || f.name || 'someone'), (f.lane || '') + ' ' + (f.country || ''), 'work', o.id); } catch (e) {} WEBHOOKS.emit(o.id, 'client.created', { lead_id: data.id, source: src }); if (req.is('application/x-www-form-urlencoded')) return res.redirect(302, (req.headers.referer || 'https://foriforeign.com') + '#thanks'); res.json({ ok: true, lead_id: data.id }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/org/:id/leads/:lid', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.write'); const b = req.body || {}; const patch = {}; if (['new', 'contacted', 'qualified', 'converted', 'lost'].includes(b.status)) patch.status = b.status; if (b.assigned_user_id) patch.assigned_user_id = b.assigned_user_id; let client = null; if (b.status === 'converted') { const { data: l } = await admin().from('leads').select('*').eq('id', req.params.lid).eq('org_id', req.params.id).maybeSingle(); if (l && !l.client_id) { client = await ORGS.createClient(req.params.id, req.userId, { full_name: l.full_name || 'Lead', email: l.email, phone: l.phone, whatsapp: l.whatsapp, lane: l.lane || 'both' }).catch(() => null); if (client) patch.client_id = client.id; } } await admin().from('leads').update(patch).eq('id', req.params.lid).eq('org_id', req.params.id); res.json({ ok: true, client_id: client && client.id }); } catch (e) { orgErr(res, e); } });
+/* Outbound WhatsApp/email queue with approval (sent by the provider once WHATSAPP_TOKEN / mail keys exist). */
+app.post('/api/org/:id/outbound', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.write'); const b = req.body || {}; if (!['whatsapp', 'email'].includes(b.channel) || !b.to || !b.body) return res.status(400).json({ error: 'channel, to and body required' }); const m = await ORGS.membership(req.params.id, req.userId); const auto = ['owner', 'manager'].includes(m && m.role); const { data, error } = await admin().from('outbound_messages').insert({ org_id: req.params.id, client_id: b.client_id || null, channel: b.channel, to_addr: String(b.to).slice(0, 200), body: String(b.body).slice(0, 4000), template_key: b.template_key || null, requires_approval: !auto, status: auto ? 'approved' : 'queued', approved_by: auto ? req.userId : null, created_by: req.userId }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); if (auto) await QUEUE.enqueue('outbound_send', { id: data.id }, { orgId: req.params.id, maxAttempts: 3 }); res.json({ message: data }); } catch (e) { orgErr(res, e); } });
+app.get('/api/org/:id/outbound', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); const { data } = await admin().from('outbound_messages').select('*').eq('org_id', req.params.id).order('created_at', { ascending: false }).limit(100); res.json({ messages: data || [] }); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/outbound/:mid/approve', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'members.write'); await admin().from('outbound_messages').update({ status: 'approved', approved_by: req.userId }).eq('id', req.params.mid).eq('org_id', req.params.id); await QUEUE.enqueue('outbound_send', { id: req.params.mid }, { orgId: req.params.id, maxAttempts: 3 }); res.json({ ok: true }); } catch (e) { orgErr(res, e); } });
+QUEUE.register('outbound_send', async (p) => {
+  const { data: m } = await admin().from('outbound_messages').select('*').eq('id', p.id).maybeSingle(); if (!m || m.status !== 'approved') return { skipped: true };
+  if (m.channel === 'email') { const M = require('./lib/mailer'); let brand = null; try { const { data: og } = await admin().from('organisations').select('name,settings').eq('id', m.org_id).maybeSingle(); const { data: dm } = await admin().from('org_domains').select('domain').eq('org_id', m.org_id).eq('status', 'active').limit(1); if (og) brand = { name: og.name, color: (og.settings || {}).brand_color || null, domain: dm && dm[0] ? dm[0].domain : null, reply_to: (og.settings || {}).contact_email || (og.settings || {}).email || null }; } catch (e) {} const r = await M.send(m.to_addr, 'Message from ' + (brand ? brand.name : 'your consultant'), M.wrap('Message from ' + (brand ? brand.name : 'your consultant'), m.body, 'home', brand), brand); if (!r.sent) throw new Error(r.reason); await admin().from('outbound_messages').update({ status: 'sent', sent_at: new Date().toISOString(), provider_id: r.id }).eq('id', m.id); return { sent: true }; }
+  if (m.channel === 'whatsapp') { const tok = process.env.WHATSAPP_TOKEN, pid = process.env.WHATSAPP_PHONE_ID; if (!tok || !pid) { await admin().from('outbound_messages').update({ status: 'failed', error: 'WhatsApp Business API not configured (WHATSAPP_TOKEN, WHATSAPP_PHONE_ID)' }).eq('id', m.id); return { failed: true }; }
+    const to = String(m.to_addr).replace(/[^0-9]/g, '').replace(/^0/, '92'); const r = await fetch('https://graph.facebook.com/v19.0/' + pid + '/messages', { method: 'POST', headers: { authorization: 'Bearer ' + tok, 'content-type': 'application/json' }, body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: m.body } }) }); const d = await r.json().catch(() => ({})); if (!r.ok) { await admin().from('outbound_messages').update({ status: 'failed', error: JSON.stringify(d.error || d).slice(0, 300) }).eq('id', m.id); throw new Error('WhatsApp ' + r.status); } await admin().from('outbound_messages').update({ status: 'sent', sent_at: new Date().toISOString(), provider_id: d.messages && d.messages[0] && d.messages[0].id }).eq('id', m.id); return { sent: true }; }
+  return { skipped: true };
+});
+/* Appointments (competitor gap: scheduling) for applicants and consultants; reminders via the notification sweep. */
+app.get('/api/appointments', auth, async (req, res) => { try { const { data } = await admin().from('appointments').select('*').eq('user_id', req.userId).gte('starts_at', new Date(Date.now() - 86400000).toISOString()).order('starts_at'); res.json({ appointments: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/appointments', auth, async (req, res) => { try { const b = req.body || {}; if (!b.title || !b.starts_at) return res.status(400).json({ error: 'title and starts_at required' }); const { data, error } = await admin().from('appointments').insert({ user_id: req.userId, kind: ['call', 'meeting', 'interview', 'biometrics', 'embassy', 'other'].includes(b.kind) ? b.kind : 'other', title: String(b.title).slice(0, 200), starts_at: b.starts_at, ends_at: b.ends_at || null, location: String(b.location || '').slice(0, 200) || null, link: String(b.link || '').slice(0, 400) || null, notes: String(b.notes || '').slice(0, 2000) || null, created_by: req.userId }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); res.json({ appointment: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/org/:id/clients/:cid/appointments', auth, async (req, res) => { try { const c = await orgClient(req, res, 'clients.write'); if (!c.user_id) return res.status(400).json({ error: 'Client has no login yet.' }); const b = req.body || {}; const { data, error } = await admin().from('appointments').insert({ org_id: c.org_id, client_id: c.id, user_id: c.user_id, kind: ['call', 'meeting', 'interview', 'biometrics', 'embassy', 'other'].includes(b.kind) ? b.kind : 'call', title: String(b.title || 'Call with your consultant').slice(0, 200), starts_at: b.starts_at, ends_at: b.ends_at || null, location: b.location || null, link: b.link || null, notes: b.notes || null, created_by: req.userId }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); try { await NOTIFY.push(c.user_id, 'appointment', 'Appointment: ' + data.title, new Date(data.starts_at).toString().slice(0, 21) + (data.link ? ' · ' + data.link : ''), 'home'); } catch (e) {} res.json({ appointment: data }); } catch (e) { orgErr(res, e); } });
+/* ============================================================================================================================ */
+/* ================= FIX PASS · consent confirmation · licences · refunds · metering · retention · sources · journey ================= */
+const JE = require('./lib/journey_engine'); const SOURCES = require('./lib/sources'); const RULEWATCH = require('./lib/rulewatch');
+QUEUE.register('journey_recompute', async (p) => JE.compute(p.userId));
+QUEUE.register('source_run', async (p) => SOURCES.run(p.sourceId));
+app.get('/api/me/next', auth, async (req, res) => { try { res.json({ next: await JE.compute(req.userId) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Gap 7 · the applicant confirms a portal connection made by a consultant; until then it is pending. */
+app.get('/api/me/portals/pending', auth, async (req, res) => { try { const { data } = await admin().from('portal_connections').select('id,portal_name,login_url,scope,connected_by,created_at').eq('user_id', req.userId).eq('applicant_confirmed', false).neq('status', 'disconnected'); res.json({ pending: (data || []).filter(x => x.connected_by && x.connected_by !== req.userId) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/portals/:id/confirm', auth, async (req, res) => { try { const ok = !!(req.body || {}).approve; if (ok) { try { const { data: pc } = await admin().from('portal_connections').select('portal_name,scope,org_id,connected_by').eq('id', req.params.id).maybeSingle(); const { data: cn } = pc && pc.connected_by ? await admin().from('profiles').select('full_name').eq('id', pc.connected_by).maybeSingle() : { data: null }; const { data: og } = pc && pc.org_id ? await admin().from('organisations').select('name').eq('id', pc.org_id).maybeSingle() : { data: null }; await CONSENT.record(req, req.userId, 'consultant_acting', { consultant: (cn && cn.full_name) || 'my consultant', org: (og && og.name) || 'their organisation', scope: ((pc && pc.scope) || 'watch').replace(/_/g, ' ') }, { connection_id: req.params.id }); await CONSENT.record(req, req.userId, 'portal_watch', { portal: (pc && pc.portal_name) || 'the portal', scope: ((pc && pc.scope) || 'watch').replace(/_/g, ' ') }, { connection_id: req.params.id }); } catch (e) {} } const patch = ok ? { applicant_confirmed: true, consent: true, consent_at: new Date().toISOString(), status: 'connected' } : { status: 'disconnected', secret_enc: null, consent: false }; await admin().from('portal_connections').update(patch).eq('id', req.params.id).eq('user_id', req.userId); await admin().from('audit_log').insert({ actor: req.userId, event: ok ? 'PORTAL_CONSENT_CONFIRMED' : 'PORTAL_CONSENT_REFUSED', detail: req.params.id }).then(() => {}, () => {}); if (ok) await QUEUE.enqueue('portal_watch', { connectionId: req.params.id }, { userId: req.userId, maxAttempts: 1 }); JE.recompute(req.userId); res.json({ ok: true, approved: ok }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Gap 8 · consultant licences: declared → verified by platform admin; `submit` scope only with a valid licence. */
+app.get('/api/org/:id/licences', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); const { data } = await admin().from('consultant_licences').select('*').eq('org_id', req.params.id).order('created_at', { ascending: false }); res.json({ licences: data || [], bodies: ['OISC (UK)', 'MARA (Australia)', 'CICC / RCIC (Canada)', 'IAA (New Zealand)', 'Law Society / Bar', 'Other'] }); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/licences', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.write'); const b = req.body || {}; if (!b.body || !b.jurisdiction || !b.number) return res.status(400).json({ error: 'body, jurisdiction and number required' }); const { data, error } = await admin().from('consultant_licences').insert({ org_id: req.params.id, user_id: b.user_id || req.userId, body: String(b.body).slice(0, 80), jurisdiction: String(b.jurisdiction).toUpperCase().slice(0, 2), number: String(b.number).slice(0, 80), expires_on: /^\d{4}-\d{2}-\d{2}$/.test(String(b.expires_on || '')) ? b.expires_on : null, evidence_document_id: b.evidence_document_id || null }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); await orgAudit(req.params.id, req.userId, 'LICENCE_DECLARED', data.body + ' ' + data.number); try { const { data: admins } = await admin().from('profiles').select('id').in('role', ['admin', 'super_admin']); for (const a of (admins || [])) await NOTIFY.push(a.id, 'licence', 'Consultant licence to verify: ' + data.body, data.jurisdiction + ' ' + data.number, 'adminx'); } catch (e) {} res.json({ licence: data }); } catch (e) { orgErr(res, e); } });
+app.get('/api/admin/licences', auth, perm('users.read'), async (req, res) => { try { const { data } = await admin().from('consultant_licences').select('*').order('status').order('created_at', { ascending: false }).limit(300); res.json({ licences: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/admin/licences/:lid', auth, perm('users.write'), async (req, res) => { try { const st = String((req.body || {}).status || ''); if (!['verified', 'rejected', 'expired'].includes(st)) return res.status(400).json({ error: 'status' }); const { data, error } = await admin().from('consultant_licences').update({ status: st, verified_by: req.userId, verified_at: new Date().toISOString() }).eq('id', req.params.lid).select('*').single(); if (error) return res.status(400).json({ error: error.message }); try { await NOTIFY.push(data.user_id, 'licence', 'Your licence is ' + st, data.body + ' ' + data.number, 'work'); } catch (e) {} res.json({ licence: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Gap 14 · refunds: gateway refund where possible, ledger reversal always, audit, customer notified. */
+app.post('/api/payments/:id/refund', auth, perm('payments.write'), async (req, res) => {
+  try { const { data: p } = await admin().from('payments').select('*').eq('id', req.params.id).maybeSingle(); if (!p) return res.status(404).json({ error: 'Not found' }); if (p.status !== 'confirmed') return res.status(400).json({ error: 'Only confirmed payments can be refunded' }); if (p.refunded_at) return res.status(400).json({ error: 'Already refunded' });
+    const bal = await balance(p.user_id); const credits = Math.max(0, Math.round(Number(p.credits) || 0)); if (credits && bal < credits) return res.status(400).json({ error: 'The customer has already used ' + (credits - bal) + ' of these cases; refund the unused part manually via an adjustment.' });
+    let ref = null; try { if (String(p.reference || '').startsWith('CARD:') && process.env.STRIPE_SECRET_KEY) { const sid = String(p.reference).slice(5); const s = await GATEWAY.retrieveSession(sid); if (s.payment_intent) { const r = await fetch('https://api.stripe.com/v1/refunds', { method: 'POST', headers: { authorization: 'Bearer ' + process.env.STRIPE_SECRET_KEY, 'content-type': 'application/x-www-form-urlencoded' }, body: 'payment_intent=' + encodeURIComponent(s.payment_intent) }); const d = await r.json(); if (!r.ok) throw new Error(d.error && d.error.message || 'refund failed'); ref = d.id; } } } catch (e) { return res.status(400).json({ error: 'Gateway refund failed: ' + e.message }); }
+    if (credits) { const led = await ledgerWrite({ user_id: p.user_id, delta: -credits, reason: 'refund', payment_id: p.id, note: 'Refund of payment ' + p.id }); if (led.error) return res.status(500).json({ error: 'Ledger reversal failed' }); }
+    await admin().from('payments').update({ status: 'failed', refunded_at: new Date().toISOString(), refund_ref: ref || (String(p.reference || '').startsWith('CARD:') ? null : 'manual') }).eq('id', p.id);
+    await admin().from('audit_log').insert({ actor: req.userId, event: 'PAYMENT_REFUNDED', detail: p.id + ' -' + credits + 'cr ' + (ref || 'manual') }).then(() => {}, () => {}); try { await NOTIFY.push(p.user_id, 'refund', 'Refund issued', (ref ? 'Your card refund is on its way (5-10 business days).' : 'Your refund will be sent to your bank account by our finance desk.'), 'home'); } catch (e) {}
+    res.json({ ok: true, gateway_refund: ref, credits_reversed: credits }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Gap 13 · metering: every AI-heavy capability writes a unit; soft caps per 30 days; admin sees usage. */
+async function meter(userId, capability, orgId) { try { await admin().from('usage_meter').insert({ user_id: userId, org_id: orgId || null, capability, units: 1 }); } catch (e) {} }
+const CAPS = { interview_prep: 6, refusal_analysis: 4, doc_read: 60, case_brain: 200, discovery: 40, portal_watch: 400 };
+async function overCap(userId, capability) { if (await isPlatformStaff(userId)) return false; try { const since = new Date(Date.now() - 30 * 86400000).toISOString(); const { count } = await admin().from('usage_meter').select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('capability', capability).gte('created_at', since); const cfg = await siteSettings.getConfig(); const cap = (cfg.caps && cfg.caps[capability]) || CAPS[capability] || 9999; return (count || 0) >= cap ? cap : 0; } catch (e) { return 0; } }
+app.get('/api/me/usage', auth, async (req, res) => { try { const since = new Date(Date.now() - 30 * 86400000).toISOString(); const { data } = await admin().from('usage_meter').select('capability').eq('user_id', req.userId).gte('created_at', since); const by = {}; for (const r of (data || [])) by[r.capability] = (by[r.capability] || 0) + 1; res.json({ last_30_days: by, caps: CAPS }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/usage', auth, perm('aicost.read'), async (req, res) => { try { const since = new Date(Date.now() - 30 * 86400000).toISOString(); const { data } = await admin().from('usage_meter').select('capability,user_id').gte('created_at', since); const by = {}, users = {}; for (const r of (data || [])) { by[r.capability] = (by[r.capability] || 0) + 1; users[r.user_id] = (users[r.user_id] || 0) + 1; } const top = Object.entries(users).sort((a, b) => b[1] - a[1]).slice(0, 20); res.json({ by_capability: by, top_users: top, caps: CAPS }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Gap 9 · sources admin */
+app.get('/api/admin/sources', auth, perm('settings.read'), async (req, res) => { try { const { data } = await admin().from('sources').select('*').order('created_at', { ascending: false }); res.json({ sources: data || [], kinds: Object.keys(SOURCES.ADAPTERS) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/sources', auth, perm('settings.write'), async (req, res) => { try { const b = req.body || {}; if (!SOURCES.ADAPTERS[b.kind] || !b.key) return res.status(400).json({ error: 'kind and key required' }); const { data, error } = await admin().from('sources').upsert({ kind: b.kind, key: String(b.key).trim(), org_name: String(b.org_name || '').slice(0, 200) || null, country_code: String(b.country_code || '').toUpperCase().slice(0, 2) || null, lane: b.lane === 'study' ? 'study' : 'work', enabled: b.enabled !== false }, { onConflict: 'kind,key' }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); await QUEUE.enqueue('source_run', { sourceId: data.id }, { maxAttempts: 1 }); res.json({ source: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/sources/:sid/run', auth, perm('settings.write'), async (req, res) => { try { await QUEUE.enqueue('source_run', { sourceId: req.params.sid }, { maxAttempts: 1 }); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/rules/watch', auth, perm('settings.write'), async (req, res) => { try { res.json(await RULEWATCH.sweep(Number((req.body || {}).limit) || 150)); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Gap 18 · retention purge (documents past retention, mail older than 24 months unless linked to an open case, portal runs > 90 days). */
+async function retentionPurge() {
+  const out = { documents: 0, messages: 0, runs: 0 }; const today = new Date().toISOString().slice(0, 10);
+  try { const { data: docs } = await admin().from('documents').select('id,storage_key,user_id,doc_type').lt('retention_until', today).eq('generated', false).limit(500); const { BUCKET } = require('./lib/docs'); const { data: linked } = await admin().from('application_documents').select('document_id'); const keep = new Set((linked || []).map(x => x.document_id));
+    for (const d of (docs || [])) { if (keep.has(d.id) || ['cv', 'passport', 'degree', 'transcript'].includes(d.doc_type)) continue; try { await admin().storage.from(BUCKET).remove([d.storage_key]); } catch (e) {} await admin().from('documents').delete().eq('id', d.id); out.documents++; } } catch (e) {}
+  try { const cut = new Date(Date.now() - 730 * 86400000).toISOString(); const { data: msgs } = await admin().from('case_messages').select('id').lt('received_at', cut).limit(2000); if (msgs && msgs.length) { await admin().from('case_messages').delete().in('id', msgs.map(m => m.id)); out.messages = msgs.length; } } catch (e) {}
+  try { const cut = new Date(Date.now() - 90 * 86400000).toISOString(); const { data: runs } = await admin().from('portal_runs').select('id').lt('started_at', cut).limit(5000); if (runs && runs.length) { await admin().from('portal_runs').delete().in('id', runs.map(r => r.id)); out.runs = runs.length; } } catch (e) {}
+  try { await admin().from('audit_log').insert({ event: 'RETENTION_PURGE', detail: JSON.stringify(out) }); } catch (e) {}
+  return out;
+}
+app.post('/api/admin/retention/purge', auth, perm('settings.write'), async (req, res) => { try { res.json(await retentionPurge()); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Gap 17 · alerts: dead jobs, failed webhooks, unreachable rule sources → admin notification (runs hourly). */
+async function alertSweep() { const q = await QUEUE.status(); const issues = []; if (q.dead) issues.push(q.dead + ' dead job(s) in the queue'); try { const { count } = await admin().from('webhook_deliveries').select('id', { count: 'exact', head: true }).eq('status', 'failed').gte('created_at', new Date(Date.now() - 86400000).toISOString()); if (count) issues.push(count + ' webhook delivery failure(s) in 24h'); } catch (e) {} try { const { count } = await admin().from('rule_sources').select('source_url', { count: 'exact', head: true }).eq('status', 'unreachable'); if (count) issues.push(count + ' rule source page(s) unreachable'); } catch (e) {} if (issues.length) { try { const { data: admins } = await admin().from('profiles').select('id').in('role', ['admin', 'super_admin']); for (const a of (admins || [])) await NOTIFY.push(a.id, 'alert', 'Platform alert', issues.join(' · '), 'adminx'); } catch (e) {} } return { issues }; }
+app.get('/api/admin/alerts', auth, perm('overview.read'), async (req, res) => { try { res.json(await alertSweep()); } catch (e) { res.status(400).json({ error: e.message }); } });
+try { if (process.env.FF_QUEUE !== 'off') { setInterval(() => retentionPurge().catch(() => {}), 7 * 24 * 3600 * 1000); setInterval(() => alertSweep().catch(() => {}), 3600 * 1000); } } catch (e) {}
+/* ================================================================================================================= */
+/* ================= PAKISTAN-LOCAL PKR CHECKOUT (Safepay) ================= */
+const SAFEPAY = require('./lib/gateway_safepay');
+/* PKR price of record for Pakistani applicants: the tier's PKR/promo PKR (admin-set), not an FX conversion. */
+app.post('/api/pay/pk/checkout', auth, async (req, res) => {
+  try { if (!SAFEPAY.enabled()) return res.status(400).json({ error: 'Local PKR card payments are not switched on yet; use bank transfer with a screenshot.' });
+    const credits = Number((req.body || {}).credits); const cfg = await siteSettings.getConfig(); const t = ((cfg.packages && cfg.packages.tiers) || []).find(x => Number(x.credits) === credits); if (!t) return res.status(400).json({ error: 'Choose a package first.' });
+    const list = Number(t.pkr) || 0; const promo = (Number(t.promo_pkr) > 0 && Number(t.promo_pkr) < list) ? Number(t.promo_pkr) : null; let amount = promo != null ? promo : list; if (!(amount > 0)) return res.status(400).json({ error: 'This package has no PKR price set (Admin → Settings).' });
+    try { const { data: me } = await admin().from('profiles').select('referral_balance_pkr').eq('id', req.userId).maybeSingle(); const disc = Math.min(Number(me && me.referral_balance_pkr) || 0, 500 * credits); amount = Math.max(0, amount - disc); } catch (e) {}
+    const { data: pay, error } = await admin().from('payments').insert({ user_id: req.userId, credits, amount_pkr: amount, status: 'pending', reference: 'SAFEPAY', provider: 'safepay' }).select('id').single(); if (error) return res.status(400).json({ error: error.message });
+    const origin = (req.headers.origin || ('https://' + req.headers.host)); const s = await SAFEPAY.createCheckout({ amountPkr: amount, paymentId: pay.id, successUrl: origin + '/?paid=1&provider=safepay&pid=' + pay.id, cancelUrl: origin + '/?paid=0' });
+    await admin().from('payments').update({ reference: ('SAFEPAY:' + s.id).slice(0, 120) }).eq('id', pay.id).then(() => {}, () => {}); res.json({ url: s.url, payment_id: pay.id, amount_pkr: amount }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* ========================================================================== */
+/* ================= POLICY WATCH · PARTNERSHIPS & OFFICIAL DOCUMENTS · ECONOMICS · EMPLOYER OUTREACH · CASE CLOSURE ================= */
+const POLICY = require('./lib/policywatch'); const PART = require('./lib/partnerships'); const ECON = require('./lib/economics');
+app.get('/api/policy/updates', auth, async (req, res) => { try { res.json({ updates: await POLICY.updates(req.query.cc ? String(req.query.cc).toUpperCase() : null, 50) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/policy/sweep', auth, perm('settings.write'), async (req, res) => { try { res.json(await POLICY.sweep(Number((req.body || {}).limit) || 150)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/admin/policy/:pid', auth, perm('settings.write'), async (req, res) => { try { const st = String((req.body || {}).status || ''); if (!['reviewed', 'dismissed'].includes(st)) return res.status(400).json({ error: 'status' }); await admin().from('policy_updates').update({ status: st, reviewed_by: req.userId, reviewed_at: new Date().toISOString() }).eq('id', req.params.pid); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Official documents: draft (agent writes), approve (admin), sign (super_admin/admin, digital signature), send, verify, archive. */
+app.get('/api/admin/documents', auth, perm('settings.read'), async (req, res) => { try { const { data } = await admin().from('official_documents').select('id,kind,title,counterparty_name,counterparty_email,counterparty_focal,our_focal,status,variant,sha256,approved_at,signed_at,sent_at,countersigned_at,valid_until,created_at').order('created_at', { ascending: false }).limit(300); res.json({ documents: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/documents/:id', auth, perm('settings.read'), async (req, res) => { try { const { data } = await admin().from('official_documents').select('*').eq('id', req.params.id).maybeSingle(); if (!data) return res.status(404).json({ error: 'Not found' }); res.json({ document: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/documents/draft', auth, perm('settings.write'), async (req, res) => { try { const b = req.body || {}; if (!b.counterparty_name) return res.status(400).json({ error: 'counterparty_name required' }); const jobId = await QUEUE.enqueue('doc_draft', Object.assign({}, b, { createdBy: req.userId }), { userId: req.userId, maxAttempts: 2 }); res.json({ ok: true, job_id: jobId, note: 'Drafting in the background; it appears in Documents in about a minute.' }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/admin/documents/:id', auth, perm('settings.write'), async (req, res) => { try { const b = req.body || {}; const patch = { updated_at: new Date().toISOString() }; for (const k of ['body_text', 'title', 'counterparty_email', 'counterparty_focal', 'our_focal', 'valid_from', 'valid_until', 'notes', 'counterparty_org_id']) if (b[k] !== undefined) patch[k] = b[k]; if (patch.body_text) patch.body_text = PART.humanize(patch.body_text); const { data, error } = await admin().from('official_documents').update(patch).eq('id', req.params.id).in('status', ['draft']).select('*').single(); if (error) return res.status(400).json({ error: 'Only drafts can be edited' }); res.json({ document: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/documents/:id/approve', auth, perm('settings.write'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); res.json({ document: await PART.approve(req.params.id, req.userId) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/documents/:id/sign', auth, perm('settings.write'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); const { data: me } = await admin().from('profiles').select('full_name').eq('id', req.userId).maybeSingle(); res.json({ document: await PART.sign(req.params.id, req.userId, me && me.full_name) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/documents/:id/send', auth, perm('settings.write'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); res.json({ document: await PART.send(req.params.id, req.userId) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/documents/:id/countersigned', auth, perm('settings.write'), async (req, res) => { try { setTimeout(() => PENGINE.onboard(req.params.id).catch(() => {}), 1500); const { data, error } = await admin().from('official_documents').update({ status: 'countersigned', countersigned_at: new Date().toISOString(), valid_from: (req.body || {}).valid_from || new Date().toISOString().slice(0, 10), valid_until: (req.body || {}).valid_until || null, counterparty_org_id: (req.body || {}).counterparty_org_id || null, updated_at: new Date().toISOString() }).eq('id', req.params.id).select('*').single(); if (error) return res.status(400).json({ error: error.message }); if (data.counterparty_org_id) await admin().from('organisations').update({ pilot: true, pilot_started_at: new Date().toISOString(), pilot_notes: 'MOU ' + data.id }).eq('id', data.counterparty_org_id).then(() => {}, () => {}); res.json({ document: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/documents/:id/pdf', auth, perm('settings.read'), async (req, res) => { try { const { data: d } = await admin().from('official_documents').select('*').eq('id', req.params.id).maybeSingle(); if (!d) return res.status(404).json({ error: 'Not found' }); if (d.storage_key) { const { BUCKET } = require('./lib/docs'); const { data: su } = await admin().storage.from(BUCKET).createSignedUrl(d.storage_key, 600); return res.redirect(su.signedUrl); } const pdf = await PART.renderPdf(d); res.setHeader('content-type', 'application/pdf'); res.send(pdf); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/documents/verify/:id', async (req, res) => { try { res.json(await PART.verify(req.params.id)); } catch (e) { res.status(400).json({ error: e.message }); } });
+QUEUE.register('doc_draft', async (p) => { const d = await PART.draft(p); try { await NOTIFY.push(p.createdBy, 'document', 'Draft ready: ' + d.title, 'Review, approve and sign it under Admin → Documents.', 'adminx'); } catch (e) {} return { id: d.id }; });
+/* Economics agent */
+app.get('/api/admin/economics', auth, perm('aicost.read'), async (req, res) => { try { res.json(await ECON.report()); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Employer Outreach agent (work lane): a first-contact email to the job poster, in the applicant's voice, from their forimail address, sent on their tap. */
+app.post('/api/applications/:id/outreach', auth, async (req, res) => {
+  try { const { data: a } = await admin().from('applications').select('id,opportunity_id').eq('id', req.params.id).eq('user_id', req.userId).maybeSingle(); if (!a) return res.status(404).json({ error: 'Case not found' });
+    const { data: o } = await admin().from('opportunities').select('title,institution,country_code,kind,contact_emails,url,description,visa_sponsorship').eq('id', a.opportunity_id).maybeSingle(); const { data: pr } = await admin().from('profiles').select('full_name,headline,field,profession,total_experience_years,apply_email').eq('id', req.userId).maybeSingle();
+    const cap = await overCap(req.userId, 'case_brain'); if (cap) return res.status(402).json({ error: 'Monthly writing limit reached.' }); await meter(req.userId, 'case_brain');
+    const txt = await callAI('case_writing', `Write a short first-contact email (120-170 words) from ${pr.full_name}, ${pr.headline || pr.profession || pr.field || 'a professional'} with ${pr.total_experience_years || ''} years of experience, to the hiring contact at ${o.institution} about the position "${o.title}" (${o.country_code}). Purpose: confirm the role is still open, ask whether they sponsor a work visa for candidates from Pakistan/India/Bangladesh if the posting is unclear (${o.visa_sponsorship ? 'posting says: ' + o.visa_sponsorship : 'posting does not say'}), state one concrete relevant strength, and ask for the best way to apply or a short call. Plain, warm, specific, no long dashes, no stock phrases, no bullet points. Sign with the name only. Return only the email body.`, { maxTokens: 400, userId: req.userId });
+    const body = PART.humanize(txt); const to = (o.contact_emails || [])[0] || ''; res.json({ to, subject: 'Regarding the ' + o.title + ' position', body, from: pr.apply_email, note: to ? 'Review and tap Send from your ForiForeign address.' : 'No contact email on the posting; use the employer\'s careers page contact or the official page link.' , url: o.url }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Case closure agent: rejected/withdrawn/closed cases older than 180 days lose their generated files and mail bodies (an audit line stays). */
+async function caseClosurePurge() { const cut = new Date(Date.now() - 180 * 86400000).toISOString(); let n = 0; try { const { data: apps } = await admin().from('applications').select('id,user_id,status').in('status', ['rejected', 'withdrawn', 'closed', 'declined']).lt('updated_at', cut).is('purged_at', null).limit(300); const { BUCKET } = require('./lib/docs'); for (const a of (apps || [])) { try { const { data: gen } = await admin().from('documents').select('id,storage_key').eq('user_id', a.user_id).eq('generated', true).eq('application_id', a.id); for (const g of (gen || [])) { try { await admin().storage.from(BUCKET).remove([g.storage_key]); } catch (e) {} await admin().from('documents').delete().eq('id', g.id); } } catch (e) {} await admin().from('case_messages').update({ body: '[purged: case closed]', suggested_reply: null }).eq('application_id', a.id); await admin().from('applications').update({ purged_at: new Date().toISOString(), closed_at: new Date().toISOString() }).eq('id', a.id); n++; } } catch (e) {} try { await admin().from('audit_log').insert({ event: 'CASE_CLOSURE_PURGE', detail: n + ' cases' }); } catch (e) {} return { purged: n }; }
+app.post('/api/admin/cases/purge-closed', auth, perm('settings.write'), async (req, res) => { try { res.json(await caseClosurePurge()); } catch (e) { res.status(400).json({ error: e.message }); } });
+try { if (process.env.FF_QUEUE !== 'off') setInterval(() => caseClosurePurge().catch(() => {}), 7 * 24 * 3600 * 1000); } catch (e) {}
+/* ============================================================================================================================== */
+/* ================= VISIBILITY LAYERS · SUPPORT TRIAGE AGENT · PLATFORM OVERSIGHT · OFFICIAL CONTACT ================= */
+const OFFICIAL_EMAIL = process.env.MAIL_REPLY_TO || 'admin@foriforeign.com';
+/* Only ForiForeign's platform admin sees everything: organisations, their members, clients, plans, commissions. Super admin only. */
+const superOnly = (req, res, next) => (req.userRole === 'super_admin' ? next() : res.status(403).json({ error: 'ForiForeign super admin only' }));
+app.get('/api/admin/orgs', auth, perm('users.read'), superOnly, async (req, res) => { try { const { data: orgs } = await admin().from('organisations').select('id,name,kind,plan,country_code,owner_id,pilot,created_at').order('created_at', { ascending: false }).limit(500); const out = []; for (const o of (orgs || [])) { const [{ count: members }, { count: clients }, { count: openings }] = await Promise.all([admin().from('org_members').select('user_id', { count: 'exact', head: true }).eq('org_id', o.id), admin().from('clients').select('id', { count: 'exact', head: true }).eq('org_id', o.id), admin().from('partner_openings').select('id', { count: 'exact', head: true }).eq('org_id', o.id)]); out.push(Object.assign(o, { members: members || 0, clients: clients || 0, openings: openings || 0 })); } res.json({ orgs: out }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/orgs/:id', auth, perm('users.read'), superOnly, async (req, res) => { try { const id = req.params.id; const [org, members, clientsRaw, subs, comm, audit] = await Promise.all([admin().from('organisations').select('*').eq('id', id).maybeSingle().then(r => r.data), ORGS.listMembers(id), ORGS.listClients(id, { limit: 200 }), admin().from('org_subscriptions').select('tier_name,status,cases_month,cases_used,period_end').eq('org_id', id).then(r => r.data || []), admin().from('commission_ledger').select('amount_pkr,status').eq('org_id', id).then(r => r.data || []), admin().from('audit_log').select('event,detail,created_at').eq('org_id', id).order('created_at', { ascending: false }).limit(50).then(r => r.data || [])]); /* NO-POACH GUARANTEE, enforced: the platform admin sees a consultancy's client list only as counts and stages; names, phones and
+   emails are masked unless the consultancy's owner has granted time-limited support access (Workspace → Team → "Allow platform support"). */
+    const grant = org && org.settings && org.settings.support_access_until && new Date(org.settings.support_access_until) > new Date(); const clients = (clientsRaw || []).map(c => grant ? c : Object.assign({}, c, { full_name: c.full_name ? c.full_name.slice(0, 1) + '•••' : null, email: null, phone: null, notes: null }));
+    await admin().from('audit_log').insert({ actor: req.userId, event: grant ? 'ADMIN_ORG_VIEWED_WITH_GRANT' : 'ADMIN_ORG_VIEWED_MASKED', detail: id, org_id: id }).then(() => {}, () => {}); res.json({ org, members, clients, masked: !grant, subscriptions: subs, commissions: comm, audit }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/org/:id/support-access', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.write'); const hours = Math.max(1, Math.min(72, Number((req.body || {}).hours) || 24)); const until = new Date(Date.now() + hours * 3600000).toISOString(); const { data: o } = await admin().from('organisations').select('settings').eq('id', req.params.id).maybeSingle(); await admin().from('organisations').update({ settings: Object.assign({}, (o && o.settings) || {}, { support_access_until: (req.body || {}).revoke ? null : until }) }).eq('id', req.params.id); await orgAudit(req.params.id, req.userId, (req.body || {}).revoke ? 'SUPPORT_ACCESS_REVOKED' : 'SUPPORT_ACCESS_GRANTED', (req.body || {}).revoke ? '' : 'until ' + until); res.json({ support_access_until: (req.body || {}).revoke ? null : until }); } catch (e) { orgErr(res, e); } });
+/* Support triage agent: every ticket is classified, prioritised, given an SLA and a suggested reply; admin approves and sends. */
+QUEUE.register('support_triage', async (p) => {
+  const { data: t } = await admin().from('support_tickets').select('*').eq('id', p.ticketId).maybeSingle(); if (!t) return null;
+  let v = { category: 'other', priority: 'normal', suggested_reply: null };
+  try { const txt = await callAI('high_value', `You are ForiForeign's support desk. Classify this ticket and draft the reply. Answer ONLY JSON: {"category":"payment|bug|visa|partnership|account|complaint|other","priority":"low|normal|high|urgent","suggested_reply":"a complete, warm, specific reply in plain English (no long dashes, no stock phrases), signed 'ForiForeign Support, admin@foriforeign.com'; if information is missing, ask for exactly what is needed"}\nSUBJECT: ${t.subject}\nMESSAGE: ${String(t.message || '').slice(0, 4000)}`, { maxTokens: 600, json: true }); const m = String(txt).match(/\{[\s\S]*\}/); if (m) v = Object.assign(v, JSON.parse(m[0])); } catch (e) {}
+  const sla = { urgent: 4, high: 12, normal: 24, low: 72 }[v.priority] || 24; const cat = ['payment', 'bug', 'visa', 'partnership', 'account', 'complaint', 'other'].includes(v.category) ? v.category : 'other';
+  await admin().from('support_tickets').update({ category: cat, priority: v.priority, suggested_reply: v.suggested_reply ? require('./lib/partnerships').humanize(v.suggested_reply) : null, sla_due_at: new Date(Date.now() + sla * 3600000).toISOString() }).eq('id', t.id);
+  try { const { data: admins } = await admin().from('profiles').select('id').in('role', ['admin', 'super_admin']); for (const a of (admins || [])) await NOTIFY.push(a.id, 'support', '[' + v.priority + '] ' + cat + ': ' + t.subject, 'Reply within ' + sla + ' h. A suggested reply is ready under Admin → Support.', 'adminx'); } catch (e) {}
+  try { const M = require('./lib/mailer'); if (M.enabled()) await M.send(OFFICIAL_EMAIL, '[ForiForeign support] ' + v.priority + ' · ' + cat + ' · ' + t.subject, M.wrap('New support ticket', String(t.message || '').slice(0, 1500), 'adminx')); } catch (e) {}
+  return { category: cat, priority: v.priority };
+});
+app.get('/api/contact', (req, res) => { res.json({ official_email: OFFICIAL_EMAIL, complaints: OFFICIAL_EMAIL, partnerships: 'partnerships@' + (process.env.APPLY_DOMAIN || 'forimail.com') + ' (replies go to ' + OFFICIAL_EMAIL + ')', whatsapp: '+923455216903' }); });
+/* Visibility matrix the platform enforces: returned for the client to hide what a person does not need. */
+app.get('/api/me/visibility', auth, async (req, res) => { try { const orgs = await ORGS.myOrgs(req.userId); const staff = ['staff', 'content_admin', 'admin', 'super_admin'].includes(req.userRole); const business = orgs.filter(o => o.kind !== 'personal'); res.json({ tabs: { home: true, explore: true, mail: true, profile: true, work: business.length > 0, admin: staff }, business_orgs: business.map(o => ({ id: o.id, name: o.name, kind: o.kind, role: o.my_role })), role: req.userRole, note: 'End users see their own journey only; organisation members see their organisation within their branch and role; ForiForeign platform admin sees everything.' }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ====================================================================================================================== */
+/* ================= ACQUISITION ENGINE ROUTES ================= */
+const ACQ = require('./lib/acquire');
+QUEUE.register('acq_run', async (p) => ACQ.runSource(p.sourceId));
+QUEUE.register('acq_verify_institutions', async (p) => ACQ.verifySweep(p.limit || 100));
+QUEUE.register('acq_verify_employers', async (p) => ACQ.verifyEmployers(p.limit || 300));
+app.get('/api/admin/acquisition', auth, perm('settings.read'), async (req, res) => { try { res.json(await ACQ.status()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/acquisition/seed', auth, perm('settings.write'), async (req, res) => { try { res.json(await ACQ.seedSources()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/acquisition/run-all', auth, perm('settings.write'), async (req, res) => { try { const { data } = await admin().from('sources').select('id,kind').eq('enabled', true); let n = 0; for (const s of (data || [])) { await QUEUE.enqueue('acq_run', { sourceId: s.id }, { maxAttempts: 1 }); n++; } await QUEUE.enqueue('acq_verify_institutions', { limit: 200 }, { maxAttempts: 1 }); await QUEUE.enqueue('acq_verify_employers', { limit: 500 }, { maxAttempts: 1 }); res.json({ queued: n + 2 }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/acquisition/run/:sid', auth, perm('settings.write'), async (req, res) => { try { await QUEUE.enqueue('acq_run', { sourceId: req.params.sid }, { maxAttempts: 1 }); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/professions/search', auth, async (req, res) => { try { const q = String(req.query.q || '').slice(0, 80); let qb = admin().from('professions').select('id,title,isco,regulated_in,alt_labels').limit(30); if (q) qb = qb.ilike('title', '%' + q.replace(/[%,]/g, ' ') + '%'); const { data } = await qb; res.json({ professions: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/institutions', auth, async (req, res) => { try { let q = admin().from('institutions').select('id,country_code,name,domain,website,kind,sector,verified,careers_feed,partner_org_id').limit(200); if (req.query.cc) q = q.eq('country_code', String(req.query.cc).toUpperCase()); if (req.query.kind) q = q.eq('kind', String(req.query.kind)); if (req.query.q) q = q.ilike('name', '%' + String(req.query.q).slice(0, 60).replace(/[%,]/g, ' ') + '%'); const { data } = await q.order('verified', { ascending: false }).order('name'); res.json({ institutions: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ============================================================== */
+/* ================= VISA DESK · ADD-ONS · PARTNER SPOTLIGHT ================= */
+/* Add-ons: what is charged after the application package, and why. Bundled: the first visa desk file, the first offer
+   pack and the first interview pack come with any package; further ones are add-ons; consultants' clients are covered
+   by the agency plan. */
+async function hasAddon(userId, key) { const { data } = await admin().from('user_addons').select('id').eq('user_id', userId).eq('addon_key', key).or('expires_at.is.null,expires_at.gte.' + new Date().toISOString()).limit(1); return !!(data && data.length); }
+async function bundledAllowance(userId, key) { const { count: paid } = await admin().from('payments').select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('status', 'confirmed'); if (!paid) return 0; if (key === 'visa_desk') { try { const cfg = await siteSettings.getConfig(); const { data: pays } = await admin().from('payments').select('credits').eq('user_id', userId).eq('status', 'confirmed'); const tiers = ((cfg.packages || {}).tiers || []); const best = Math.max(1, ...(pays || []).map(p => { const t = tiers.find(x => Number(x.credits) === Number(p.credits)); return t && t.visa_desk_included ? Number(t.visa_desk_included) : 1; })); return best; } catch (e) {} } const { data: cl } = await admin().from('clients').select('id').eq('user_id', userId).eq('status', 'active').limit(1); if (cl && cl.length) return 99; return { visa_desk: 1, offer_pack: 1, arrival_pack: 1 }[key] || 0; }
+const STAFF_ROLES = ['staff', 'content_admin', 'admin', 'super_admin'];
+async function isPlatformStaff(userId) { try { const { data } = await admin().from('profiles').select('role').eq('id', userId).maybeSingle(); return !!(data && STAFF_ROLES.includes(data.role)); } catch (e) { return false; } }
+async function addonGate(userId, key, usedCount) { if (await isPlatformStaff(userId)) return { ok: true, staff: true }; const cfg = await siteSettings.getConfig(); const price = (cfg.addons || {})[key + '_usd'] || 0; if (await hasAddon(userId, key)) return { ok: true }; const allow = await bundledAllowance(userId, key); if (usedCount < allow) return { ok: true, bundled: true }; return { ok: false, price_usd: price, key }; }
+app.get('/api/addons', auth, async (req, res) => { try { const cfg = await siteSettings.getConfig(); const { data } = await admin().from('user_addons').select('addon_key,expires_at,created_at').eq('user_id', req.userId); res.json({ prices: cfg.addons || {}, owned: data || [], stages: [{ key: 'package', when: 'Before we prepare your case', what: 'Search is free; you pay when you choose positions to prepare and send', usd: 'Basic $19 · Smart $39 · Premium $79' }, { key: 'offer_pack', when: 'When an offer arrives', what: 'Conditions and deadlines tracked, contract/CAS check, offers compared (first one bundled)', usd: '$' + ((cfg.addons || {}).offer_pack_usd || 15) }, { key: 'visa_desk', when: 'When you start the visa', what: 'Visa desk end to end: readiness, forms pre-fill, appointment, submission guide, tracking, decision, next step (first file bundled)', usd: '$' + ((cfg.addons || {}).visa_desk_usd || 29) }, { key: 'arrival_pack', when: 'After the visa', what: 'Pre-departure to first 90 days with partners at each step (first bundled)', usd: '$' + ((cfg.addons || {}).arrival_pack_usd || 19) }, { key: 'residence_year', when: 'Each year abroad', what: 'Family, PR pathway, policy updates for your destination', usd: '$' + ((cfg.addons || {}).residence_year_usd || 24) + ' / year' }] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/addons/checkout', auth, async (req, res) => {
+  try { const key = String((req.body || {}).addon || ''); const cfg = await siteSettings.getConfig(); const price = (cfg.addons || {})[key + '_usd']; if (!price) return res.status(400).json({ error: 'Unknown add-on' });
+    const { data: pay, error } = await admin().from('payments').insert({ user_id: req.userId, credits: 0, amount_pkr: 0, status: 'pending', reference: 'ADDON', addon_key: key, provider: process.env.STRIPE_SECRET_KEY ? 'stripe' : 'lemonsqueezy' }).select('id').single(); if (error) return res.status(400).json({ error: error.message });
+    const { data: prof } = await admin().from('profiles').select('email').eq('id', req.userId).maybeSingle(); const origin = (req.headers.origin || ('https://' + req.headers.host));
+    await CONSENT.record(req, req.userId, 'addon_purchase', { name: key.replace(/_/g, ' '), amount: price }, { payment_id: pay.id });
+    if (process.env.STRIPE_SECRET_KEY) { const s = await GATEWAY.createCheckout({ userId: req.userId, email: prof && prof.email, credits: 0, usd: price, name: 'ForiForeign ' + key.replace(/_/g, ' '), paymentId: pay.id, successUrl: origin + '/?paid=1&addon=' + key + '&session={CHECKOUT_SESSION_ID}', cancelUrl: origin + '/?paid=0' }); await admin().from('payments').update({ reference: ('CARD:' + s.id).slice(0, 120) }).eq('id', pay.id); return res.json({ url: s.url }); }
+    if (LEMON.enabled()) { const tier = { lemon_variant_id: (cfg.addons || {})[key + '_lemon_variant_id'] }; const s = await LEMON.createCheckout({ variantId: tier.lemon_variant_id, email: prof && prof.email, usd: price, name: 'ForiForeign ' + key.replace(/_/g, ' '), paymentId: pay.id, userId: req.userId, successUrl: origin + '/?paid=1&provider=lemon&addon=' + key }); return res.json({ url: s.url }); }
+    res.status(400).json({ error: 'Card payments are not switched on yet.' }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Visa desk: one file per route; six steps with guidance from the rules; tracking and decision captured. */
+app.get('/api/visa/desk', auth, async (req, res) => { try { const { data } = await admin().from('visa_cases').select('*').eq('user_id', req.userId).order('created_at', { ascending: false }); const VT = require('./lib/visa_tracking'); res.json({ files: (data || []).map(c => Object.assign(c, { tracking: VT.trackingFor(c.country_code) })) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/visa/desk/:id', auth, async (req, res) => {
+  try { const b = req.body || {}; const { data: c } = await admin().from('visa_cases').select('*').eq('id', req.params.id).eq('user_id', req.userId).maybeSingle(); if (!c) return res.status(404).json({ error: 'Not found' });
+    const patch = { updated_at: new Date().toISOString() }; const steps = Object.assign({}, c.steps || {});
+    if (b.appointment_at) { patch.appointment_at = b.appointment_at; patch.appointment_place = String(b.appointment_place || '').slice(0, 200) || null; steps.booked = true; if (['draft', 'preparing'].includes(c.status)) patch.status = 'ready'; try { await admin().from('appointments').insert({ user_id: req.userId, kind: 'biometrics', title: 'Visa appointment ' + c.country_code, starts_at: b.appointment_at, location: patch.appointment_place, created_by: req.userId }); } catch (e) {} }
+    if (b.submitted_on) { patch.submitted_on = b.submitted_on; patch.status = 'submitted'; steps.submitted = true; if (b.tracking_ref) patch.tracking_ref = String(b.tracking_ref).slice(0, 80); setTimeout(() => CHECKINS.schedule(c.id).catch(() => {}), 1500); }
+    if (b.tracking_ref && !b.submitted_on) patch.tracking_ref = String(b.tracking_ref).slice(0, 80);
+    if (b.decision === 'granted' || b.decision === 'refused') { patch.status = b.decision; patch.decision_on = b.decision_on || new Date().toISOString().slice(0, 10); patch.decision_text = String(b.decision_text || '').slice(0, 4000) || null; steps.decision = true; if (b.decision === 'granted') { try { await JOURNEY.plan(req.userId, c.country_code, ['work'].includes(c.route_key.split('_').pop()) || /work|skilled|employ|blue|482|h1b|permit/i.test(c.route_key) ? 'work' : 'study'); } catch (e) {} } else if (b.decision_text) { await QUEUE.enqueue('visa_refusal', { caseId: c.id, userId: req.userId, cc: c.country_code, route: c.route_key, text: b.decision_text, extra: '' }, { userId: req.userId, maxAttempts: 2 }).catch(() => {}); } }
+    if (b.prepare_done) steps.prepare = true; patch.steps = steps; if (b.notes !== undefined) patch.notes = String(b.notes || '').slice(0, 4000);
+    const { data, error } = await admin().from('visa_cases').update(patch).eq('id', c.id).select('*').single(); if (error) return res.status(400).json({ error: error.message }); JE.recompute(req.userId); WEBHOOKS.emit(null, 'visa.case_updated', {}); res.json({ file: data }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Partner spotlight: a separately labelled rail of partner openings the applicant is eligible for. Ranking is untouched. */
+app.get('/api/partners/spotlight', auth, async (req, res) => { try { const { data } = await admin().from('partner_openings').select('id,title,kind,country_code,city,deadline,funding_or_salary,opportunity_id,org_id').eq('status', 'live').eq('spotlight', true).or('spotlight_until.is.null,spotlight_until.gte.' + new Date().toISOString().slice(0, 10)).limit(20); const ids = [...new Set((data || []).map(o => o.org_id))]; const { data: orgs } = ids.length ? await admin().from('organisations').select('id,name').in('id', ids) : { data: [] }; const nm = Object.fromEntries((orgs || []).map(o => [o.id, o.name])); res.json({ spotlight: (data || []).map(o => Object.assign(o, { partner: nm[o.org_id] || 'Partner' })), note: 'Partners pay for visibility here, not for ranking. Your matches are scored the same for every position.' }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/admin/openings/:oid/spotlight', auth, perm('settings.write'), async (req, res) => { try { const b = req.body || {}; await admin().from('partner_openings').update({ spotlight: !!b.spotlight, spotlight_until: b.until || null }).eq('id', req.params.oid); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ============================================================================= */
+/* ================= CONSENT LEDGER · FREE-TIER ECONOMICS · STAGE OFFERS ================= */
+const CONSENT = require('./lib/consent');
+app.get('/api/me/consents', auth, async (req, res) => { try { res.json({ consents: await CONSENT.list(req.userId), wording: CONSENT.WORDING }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/consents', auth, async (req, res) => { try { const b = req.body || {}; if (!CONSENT.WORDING[b.kind]) return res.status(400).json({ error: 'Unknown consent kind' }); const id = await CONSENT.record(req, req.userId, b.kind, b.vars || {}, b.evidence || {}); res.json({ ok: true, id }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/consents/:uid', auth, perm('users.read'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); await admin().from('audit_log').insert({ actor: req.userId, event: 'CONSENT_RECORD_PRODUCED', detail: req.params.uid }).then(() => {}, () => {}); if (req.query.pdf) { const { data: me } = await admin().from('profiles').select('full_name').eq('id', req.userId).maybeSingle(); const pdf = await CONSENT.producePdf(req.params.uid, me && me.full_name); res.setHeader('content-type', 'application/pdf'); res.setHeader('content-disposition', 'attachment; filename="consents-' + req.params.uid.slice(0, 8) + '.pdf"'); return res.send(pdf); } res.json({ consents: await CONSENT.list(req.params.uid) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Stage offers: what the person can do now, what the next stage costs, and why — computed, shown in one place. */
+app.get('/api/me/offers-for-me', auth, async (req, res) => {
+  try { const cfg = await siteSettings.getConfig(); const A = cfg.addons || {}; const { count: paid } = await admin().from('payments').select('id', { count: 'exact', head: true }).eq('user_id', req.userId).eq('status', 'confirmed'); const bal = await balance(req.userId); const { data: pn } = await admin().from('profiles').select('journey_stage,free_searches_used').eq('id', req.userId).maybeSingle(); const fu = cfg.fair_use || {};
+    const stage = (pn && pn.journey_stage) || 'discover'; const free = { used: (pn && pn.free_searches_used) || 0, lifetime: Number(fu.free_lifetime_searches) || 10, daily: Number(fu.daily_searches) || 3, results_visible: Number(fu.free_results_visible) || 5 };
+    if (STAFF_ROLES.includes(req.userRole)) return res.json({ stage, staff: true, paid: true, balance: 999, free, items: [], promise: 'Platform staff: no credits, no payment page, every feature open; every action is logged under your account.' });
+    const items = []; if (!paid) items.push({ key: 'package', title: 'Prepare and send your applications', why: 'Your matches are ready; preparing a case, sending it from your own address and reading every reply is where the platform does the work for you.', price: 'from $' + (((cfg.packages || {}).tiers || []).map(t => Number(t.promo_usd || t.usd)).filter(Boolean).sort((a, b) => a - b)[0] || 19), action: 'buy' });
+    if (paid && bal <= 0) items.push({ key: 'package', title: 'More cases', why: 'All your prepared cases are used. Add cases to keep applying with prepared files.', price: 'from $' + (((cfg.packages || {}).tiers || []).map(t => Number(t.promo_usd || t.usd)).filter(Boolean).sort((a, b) => a - b)[0] || 19), action: 'buy' });
+    if (['offer'].includes(stage)) items.push({ key: 'offer_pack', title: 'Offer pack', why: 'Conditions, deposits and decision deadlines tracked; contract/CAS checked; offers compared side by side.', price: '$' + (A.offer_pack_usd || 15) + ' (first one included in your package)', action: 'addon' });
+    if (['offer', 'visa'].includes(stage)) items.push({ key: 'visa_desk', title: 'Visa desk', why: 'The six visa steps with sourced rules, pre-filled forms, appointment reminders, tracking, and decisions read from your mailbox.', price: '$' + (A.visa_desk_usd || 29) + ' (first file included)', action: 'addon' });
+    if (['visa', 'travel'].includes(stage)) items.push({ key: 'arrival_pack', title: 'Arrival pack', why: 'Attestation, flights, insurance, housing, forex, arrival folder, registration, bank, 30/60/90 review, with partners at each step.', price: '$' + (A.arrival_pack_usd || 19) + ' (first one included)', action: 'addon' });
+    if (['arrive', 'settle', 'pr'].includes(stage)) items.push({ key: 'residence_year', title: 'Residence year', why: 'Family documents, residence counter, PR pathway and policy updates for your destination for a year.', price: '$' + (A.residence_year_usd || 24) + ' / year', action: 'addon' });
+    res.json({ stage, free, paid: !!paid, balance: bal, items, promise: 'Search, matching and previews stay free. You pay only when the platform does work for you, and the first of each later step is included in your package. Every purchase and consent is recorded and you can read the record any time under Profile → Language and data.' }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* ============================================================================================ */
+/* ================= AGENCY QUOTA · ALLOCATION · RESALE LOCKS · EXTERNAL BOARDS · PROFESSION FILTER ================= */
+const QUOTA = require('./lib/quota'); const BOARDS = require('./lib/boards');
+app.get('/api/org/:id/quota', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); const m = await ORGS.membership(req.params.id, req.userId); const L = await QUOTA.limitsFor(req.params.id, m); const u = await QUOTA.usage(req.params.id); res.json({ plan: L.ok ? { tier: L.sub.tier_name, cases_month: L.sub.cases_month, cases_used: L.sub.cases_used, searches_day: L.sub.searches_day, searches_month: L.sub.searches_month, period_end: L.sub.period_end } : null, my_limits: L.ok ? L.lim : null, reason: L.ok ? null : L.reason, usage: u }); } catch (e) { orgErr(res, e); } });
+/* Owners allocate anywhere; managers only within their own branch subtree and never above their own limit. */
+app.put('/api/org/:id/quota', auth, async (req, res) => {
+  try { await ORGS.requireOrg(req, req.params.id, 'members.write'); const me = await ORGS.membership(req.params.id, req.userId); const b = req.body || {}; const kind = b.scope_kind === 'member' ? 'member' : 'branch'; const key = String(b.scope_key || '').slice(0, 120); if (!key) return res.status(400).json({ error: 'scope_key required' });
+    if (me.role !== 'owner') { if (!me.branch) return res.status(403).json({ error: 'Only owners allocate across the organisation' }); if (kind === 'branch' && !(key === me.branch || key.startsWith(me.branch + '/'))) return res.status(403).json({ error: 'You can allocate only within ' + me.branch }); if (kind === 'member') { const tm = await ORGS.membership(req.params.id, key); if (!tm || !(tm.branch === me.branch || String(tm.branch || '').startsWith(me.branch + '/'))) return res.status(403).json({ error: 'That member is outside your branch' }); } const L = await QUOTA.limitsFor(req.params.id, me); if (L.ok && ((Number(b.cases_month) || 0) > L.lim.cases_month || (Number(b.searches_day) || 0) > L.lim.searches_day)) return res.status(400).json({ error: 'You cannot allocate more than your own limit (' + L.lim.cases_month + ' cases, ' + L.lim.searches_day + ' searches/day)' }); }
+    const { data, error } = await admin().from('quota_allocations').upsert({ org_id: req.params.id, scope_kind: kind, scope_key: key, cases_month: Math.max(0, Number(b.cases_month) || 0), searches_day: Math.max(0, Number(b.searches_day) || 0), set_by: req.userId, updated_at: new Date().toISOString() }, { onConflict: 'org_id,scope_kind,scope_key' }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); await orgAudit(req.params.id, req.userId, 'QUOTA_ALLOCATED', kind + ' ' + key + ' ' + data.cases_month + ' cases / ' + data.searches_day + ' searches/day'); res.json({ allocation: data }); }
+  catch (e) { orgErr(res, e); }
+});
+/* Search from anywhere: the same query on the major boards and portals for that destination, as outbound links. */
+app.get('/api/boards', auth, async (req, res) => { try { const cc = String(req.query.cc || '').toUpperCase(); res.json({ links: BOARDS.links({ cc, text: String(req.query.q || '').slice(0, 80), lane: req.query.lane === 'study' ? 'study' : 'work', country: countryName(cc) }) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+function countryName(cc) { try { const W = require('./lib/world').W; return (W[cc] && W[cc][0]) || cc; } catch (e) { return cc; } }
+/* =========================================================================================================== */
+/* ================= PROSPECTING · DAILY BRIEF · SELF-HEAL · SUPPORT RESPONDER · FAQ · DOCUMENT REQUESTS ================= */
+const PROSPECT = require('./lib/prospecting'); const BRIEF = require('./lib/dailybrief'); const HEAL = require('./lib/selfheal');
+QUEUE.register('prospect_research', async (p) => PROSPECT.research(p.prospectId));
+QUEUE.register('prospect_propose', async (p) => PROSPECT.propose(p.prospectId, p.adminId));
+QUEUE.register('prospect_send', async (p) => PROSPECT.send(p.prospectId, p.adminId));
+QUEUE.register('daily_brief', async (p) => BRIEF.build(p.day));
+QUEUE.register('selfheal', async () => HEAL.heal());
+QUEUE.register('support_respond', async (p) => HEAL.respond(p.ticketId));
+app.get('/api/admin/prospects', auth, perm('settings.read'), async (req, res) => { try { const { data } = await admin().from('prospects').select('*').order('updated_at', { ascending: false }).limit(300); const cfg = await siteSettings.getConfig(); res.json({ prospects: data || [], settings: cfg.prospecting || { daily_cap: 40, trial_days: 60, signer: 'Dr Waseem Khalid, Director, Partnerships' } }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/prospects/find', auth, perm('settings.write'), async (req, res) => { try { const r = await PROSPECT.find(req.body || {}); const { data } = await admin().from('prospects').select('id').eq('stage', 'found').limit(60); for (const p of (data || [])) await QUEUE.enqueue('prospect_research', { prospectId: p.id }, { maxAttempts: 1 }); res.json(Object.assign(r, { research_queued: (data || []).length })); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/prospects/:pid/propose', auth, perm('settings.write'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); await QUEUE.enqueue('prospect_propose', { prospectId: req.params.pid, adminId: req.userId }, { userId: req.userId, maxAttempts: 1 }); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/prospects/:pid/send', auth, perm('settings.write'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); res.json(await PROSPECT.send(req.params.pid, req.userId)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/prospects/run', auth, perm('settings.write'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); const b = req.body || {}; const { data } = await admin().from('prospects').select('id,stage,contacts').in('stage', ['researched']).limit(Number(b.limit) || 10); let n = 0; for (const p of (data || [])) { if (!(p.contacts || []).length) continue; await QUEUE.enqueue('prospect_propose', { prospectId: p.id, adminId: req.userId }, { userId: req.userId, maxAttempts: 1 }); n++; } res.json({ queued_proposals: n, note: b.auto_send ? 'Sending runs after proposals are drafted, within the daily cap.' : 'Proposals are drafted; send each from the list (or set auto_send).' }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/brief', auth, perm('overview.read'), async (req, res) => { try { res.json({ briefs: await BRIEF.latest(7) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/brief/build', auth, perm('overview.read'), async (req, res) => { try { res.json(await BRIEF.build((req.body || {}).day)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/selfheal', auth, perm('settings.write'), async (req, res) => { try { res.json(await HEAL.heal()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/selfheal', auth, perm('overview.read'), async (req, res) => { try { const { data } = await admin().from('selfheal_log').select('*').order('created_at', { ascending: false }).limit(100); res.json({ log: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* FAQ store (feeds the responders and the public help page). */
+app.get('/api/faqs', async (req, res) => { try { let q = admin().from('faqs').select('id,question,answer,audience').order('hits', { ascending: false }).limit(100); if (req.query.audience) q = q.in('audience', [String(req.query.audience), 'all']); const { data } = await q; res.set('Cache-Control', 'public, max-age=600'); res.json({ faqs: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/faqs', auth, perm('content.write'), async (req, res) => { try { const b = req.body || {}; if (!b.question || !b.answer) return res.status(400).json({ error: 'question and answer' }); const { data, error } = await admin().from('faqs').upsert({ id: b.id || undefined, question: String(b.question).slice(0, 300), answer: require('./lib/partnerships').humanize(String(b.answer).slice(0, 3000)), audience: ['applicant', 'agency', 'partner', 'all'].includes(b.audience) ? b.audience : 'all', updated_at: new Date().toISOString() }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); res.json({ faq: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/faqs/seed', auth, perm('content.write'), async (req, res) => { try { const rows = require('./lib/faq_seed').FAQS; let n = 0; for (const f of rows) { const { error } = await admin().from('faqs').upsert(f, { onConflict: 'id', ignoreDuplicates: true }); if (!error) n++; } res.json({ seeded: n }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Ask ForiForeign (24/7): applicants and agencies ask in the app; answered from FAQ + own facts when safe, else ticketed. */
+app.post('/api/ask', auth, async (req, res) => { try { const q = String((req.body || {}).question || '').slice(0, 2000); if (!q.trim()) return res.status(400).json({ error: 'Ask something' }); const { data: t, error } = await admin().from('support_tickets').insert({ user_id: req.userId, subject: q.slice(0, 120), message: q, status: 'open' }).select('id').single(); if (error) return res.status(400).json({ error: error.message }); const r = await HEAL.respond(t.id); const { data: tk } = await admin().from('support_tickets').select('reply,status,suggested_reply').eq('id', t.id).maybeSingle(); res.json({ ticket_id: t.id, answered: !!(r && r.auto), reply: tk && tk.reply, note: r && r.auto ? null : 'A person will reply within 24 hours; you will be notified.' }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Documents needed NOW for this person's stage, origin and destination, with the attestation route; never originals. */
+app.get('/api/me/documents-needed', auth, async (req, res) => {
+  try { const { data: p } = await admin().from('profiles').select('journey_stage,origin_country,mobility').eq('id', req.userId).maybeSingle(); const stage = (p && p.journey_stage) || 'discover'; const targets = ((p && p.mobility && p.mobility.target_countries) || []).slice(0, 3); const lane = (p && p.mobility && p.mobility.job_goal && !p.mobility.study_goal) ? 'work' : 'study';
+    const purpose = ['visa', 'travel'].includes(stage) ? (lane === 'work' ? 'visa_work' : 'visa') : ['offer', 'apply', 'prepare'].includes(stage) ? lane : ['arrive', 'settle', 'pr'].includes(stage) ? 'family' : lane; const ck = await VAULT.checklist(req.userId, purpose);
+    const attest = []; for (const cc of targets) { try { const A = require('./lib/attestation'); attest.push({ destination: cc, rule: A.rulesFor((p && p.origin_country) || 'PK', cc)[0] }); } catch (e) {} }
+    res.json({ stage, purpose, required: ck.required, recommended: ck.recommended, ready: ck.ready, attestation: attest, policy: 'Upload clear scans or photos of your attested copies. ForiForeign never asks for an original document to be posted or handed over; only the authority you apply to may ask for originals, and they will tell you. Images are compressed for size without losing readability; text is read in any language.' }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Anti-fraud guard on document generation: the platform writes the applicant's own documents only. */
+const FORBIDDEN_DOC = /\b(degree|diploma|transcript|mark ?sheet|certificate|bank statement|statement of account|experience letter|employment letter|reference letter from|recommendation letter from|police (clearance|certificate)|passport|visa|licen[cs]e|attestation|apostille|stamp|seal|offer letter from|admission letter|no objection certificate|noc)\b/i;
+app.post('/api/documents/generate-check', auth, async (req, res) => { const t = String((req.body || {}).type || (req.body || {}).request || ''); if (FORBIDDEN_DOC.test(t) && !/cover letter|statement of purpose|motivation|cv|resume|personal statement|research statement|email|reply/i.test(t)) return res.status(403).json({ error: 'ForiForeign prepares only documents you author yourself (CV, cover letter, statement of purpose, research statement, emails). Certificates, transcripts, bank statements, reference or experience letters must come from the issuing institution or employer; the platform will not create or alter them.', allowed: false }); res.json({ allowed: true }); });
+/* =========================================================================================================== */
+/* ================= ADMIN COPILOT · GUIDANCE · FAQ LEARNING · PROSPECTING AUTOPILOT · PDF COMPRESSION ================= */
+const COPILOT = require('./lib/copilot');
+app.post('/api/admin/copilot', auth, perm('settings.read'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); res.json(await COPILOT.ask(req.userId, (req.body || {}).question || '', !!(req.body || {}).confirm)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/copilot/snapshot', auth, perm('overview.read'), async (req, res) => { try { res.json(await COPILOT.snapshot()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/copilot/log', auth, perm('overview.read'), async (req, res) => { try { const { data } = await admin().from('copilot_log').select('*').order('created_at', { ascending: false }).limit(50); res.json({ log: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/guidance', auth, perm('overview.read'), async (req, res) => { try { const { data } = await admin().from('admin_guidance').select('*').order('created_at', { ascending: false }).limit(50); res.json({ guidance: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/guidance', auth, perm('settings.write'), async (req, res) => { try { const b = req.body || {}; if (!b.text) return res.status(400).json({ error: 'text' }); const { data, error } = await admin().from('admin_guidance').insert({ text: String(b.text).slice(0, 1500), applies_to: Array.isArray(b.applies_to) && b.applies_to.length ? b.applies_to : ['all'], created_by: req.userId, expires_at: b.days ? new Date(Date.now() + Number(b.days) * 86400000).toISOString() : null }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); res.json({ guidance: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.patch('/api/admin/guidance/:gid', auth, perm('settings.write'), async (req, res) => { try { await admin().from('admin_guidance').update({ active: !!(req.body || {}).active }).eq('id', req.params.gid); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/faq-candidates', auth, perm('content.read'), async (req, res) => { try { const { data } = await admin().from('faq_candidates').select('*').eq('status', 'pending').order('seen', { ascending: false }).limit(50); res.json({ candidates: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/faq-candidates/learn', auth, perm('content.write'), async (req, res) => { try { res.json(await COPILOT.learnFaqs()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/faq-candidates/:cid', auth, perm('content.write'), async (req, res) => { try { const b = req.body || {}; if (b.approve) { if (b.answer) await admin().from('faq_candidates').update({ answer: String(b.answer).slice(0, 3000) }).eq('id', req.params.cid); res.json({ result: await COPILOT.ACTIONS.approve_faq({ candidate_id: req.params.cid }) }); } else { await admin().from('faq_candidates').update({ status: 'rejected' }).eq('id', req.params.cid); res.json({ result: 'rejected' }); } } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/prospects/discover', auth, perm('settings.write'), async (req, res) => { try { res.json(await PROSPECT.discover(req.body || {})); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/prospects/autopilot', auth, perm('settings.write'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); res.json(await PROSPECT.autopilot(req.userId)); } catch (e) { res.status(400).json({ error: e.message }); } });
+QUEUE.register('prospect_autopilot', async (p) => PROSPECT.autopilot(p.adminId));
+QUEUE.register('faq_learn', async () => COPILOT.learnFaqs());
+/* ==================================================================================================================== */
+/* ================= BUILT-IN SEO: indexable destination and audience pages, sitemap, robots, structured data ================= */
+const SEO = require('./lib/seo'); const SEO_CACHE = new Map();
+const seoSend = (res, key, make) => { let h = SEO_CACHE.get(key); if (!h) { h = make(); if (!h) return res.status(404).send('Not found'); SEO_CACHE.set(key, h); } res.set('Cache-Control', 'public, max-age=3600'); res.type('html').send(h); };
+app.get(['/study-in/:cc', '/work-in/:cc'], (req, res) => { const lane = req.path.startsWith('/work-in') ? 'work' : 'study'; seoSend(res, lane + ':' + req.params.cc, () => SEO.countryPage(req.params.cc, lane)); });
+app.get('/for-:kind', (req, res) => seoSend(res, 'aud:' + req.params.kind, () => SEO.audiencePage(req.params.kind)));
+app.get('/sitemap.xml', (req, res) => { res.set('Cache-Control', 'public, max-age=86400'); let extra = []; try { extra = [...(typeof SEO_SLUGS !== 'undefined' ? SEO_SLUGS.map(x => 'https://foriforeign.com/s/' + x) : []), ...(typeof SEO_GUIDES !== 'undefined' ? Object.keys(SEO_GUIDES).map(x => 'https://foriforeign.com/guide/' + x) : [])]; } catch (e) {} res.type('application/xml').send(SEO.sitemap(extra)); });
+app.get('/robots.txt', (req, res) => { res.type('text/plain').send('User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: https://foriforeign.com/sitemap.xml\n'); });
+/* ================================================================================================================== */
+/* ================= VERIFY ASSIST · MAIL EVENTS (bounces) · OUTREACH WARM-UP · POLICY UPDATES PAGES · SELF-PROBE ================= */
+app.post('/api/admin/visa/rules/:rid/assist', auth, perm('settings.write'), async (req, res) => {
+  try { const { data: r } = await admin().from('visa_rules').select('*').eq('id', req.params.rid).maybeSingle(); if (!r || !r.source_url) return res.status(404).json({ error: 'Rule or source not found' });
+    let text = ''; try { const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 15000); const rr = await fetch(r.source_url, { signal: ctl.signal, headers: { 'user-agent': 'Mozilla/5.0 ForiForeign verify-assist' } }); clearTimeout(tm); text = String(await rr.text()).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 40000); } catch (e) { return res.status(400).json({ error: 'Source page unreachable: ' + e.message }); }
+    let v = { supported: null, quote: '', value: null, suggested_text: null, note: '' };
+    try { const txt = await callAI('high_value', `You help a human verify ONE immigration/education rule against its official source page. Answer ONLY JSON: {"supported":true|false|null,"quote":"the exact sentence(s) from the page that support or contradict the rule, verbatim, max 60 words","value":"the specific figure, date, threshold or list item the page states, or null","suggested_text":"the rule rewritten to match the page exactly (same style, no long dashes), or null if the rule is already right","note":"one line for the reviewer"}\nRULE (${r.rule_type}, ${r.country_code}): ${r.text}\nPAGE TEXT: ${text}`, { maxTokens: 600, json: true }); const m = String(txt).match(/\{[\s\S]*\}/); if (m) v = Object.assign(v, JSON.parse(m[0])); } catch (e) {}
+    if (!text.toLowerCase().includes(String(v.quote || 'zzzz').toLowerCase().slice(0, 40))) v.note = (v.note || '') + ' (quote not found verbatim on the page; check manually)';
+    res.json(v); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Mail provider events (Resend webhook): bounces and complaints go straight to the suppression list. */
+app.post('/api/mail/events', express.json({ limit: '200kb' }), async (req, res) => { try { const secret = process.env.MAIL_EVENTS_SECRET; if (secret && req.headers['x-events-secret'] !== secret) return res.status(401).end(); const ev = req.body || {}; const type = String(ev.type || ''); const to = ((((ev.data || {}).to) || [])[0]) || ''; if (/bounced|complained/.test(type) && to) { await admin().from('suppression_list').upsert({ email: String(to).toLowerCase(), reason: type }); await admin().from('prospects').update({ stage: 'bounced' }).contains('sent_to', [String(to).toLowerCase()]).then(() => {}, () => {}); } res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Outreach warm-up: the effective daily cap ramps from 10 to the configured cap over 14 days from the first send. */
+async function outreachCap() { const cfg = await siteSettings.getConfig(); const cap = Number((cfg.prospecting || {}).daily_cap) || 40; const { data } = await admin().from('prospects').select('last_contact_at').not('last_contact_at', 'is', null).order('last_contact_at', { ascending: true }).limit(1); if (!data || !data[0]) return Math.min(10, cap); const days = (Date.now() - new Date(data[0].last_contact_at).getTime()) / 86400000; return Math.min(cap, Math.round(10 + (cap - 10) * Math.min(1, days / 14))); }
+app.get('/api/admin/prospects/cap', auth, perm('settings.read'), async (req, res) => { try { res.json({ effective_cap: await outreachCap() }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Policy updates as public pages: the content pipeline for SEO and newsletters. */
+app.get('/updates/:cc?', async (req, res) => { try { const cc = req.params.cc ? String(req.params.cc).toUpperCase() : null; let q = admin().from('policy_updates').select('country_code,source_title,source_url,summary,impact,severity,detected_at').order('detected_at', { ascending: false }).limit(60); if (cc) q = q.eq('country_code', cc); const { data } = await q; const W = require('./lib/world').W; const nm = c => (W[c] && W[c][0]) || c; const esc = t => String(t || '').replace(/[&<>]/g, x => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[x])); const title = cc ? 'Visa and study policy updates for ' + nm(cc) : 'Visa and study policy updates, all destinations'; const body = '<h1>' + esc(title) + '</h1><p class="sub">Detected by Policy Watch on official pages; each entry links its source. Not legal advice.</p>' + ((data || []).map(u => '<div class="card"><b>' + esc(nm(u.country_code)) + ' · ' + esc(String(u.detected_at).slice(0, 10)) + ' · ' + esc(u.severity) + '</b><p>' + esc(u.summary) + '</p>' + (u.impact ? '<p class="sub">Impact: ' + esc(u.impact) + '</p>' : '') + '<p class="sub"><a href="' + esc(u.source_url) + '" rel="nofollow">' + esc(u.source_title || 'Source') + '</a></p></div>').join('') || '<p class="sub">No updates recorded yet.</p>'); res.set('Cache-Control', 'public, max-age=1800'); res.type('html').send('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(title) + ' · ForiForeign</title><meta name="description" content="' + esc(title) + ', detected on official sources and summarised with impact."><link rel="canonical" href="https://foriforeign.com/updates' + (cc ? '/' + cc.toLowerCase() : '') + '"><style>body{font-family:Inter,system-ui,sans-serif;background:#070F22;color:#D6E9FF;margin:0;line-height:1.6}.wrap{max-width:880px;margin:0 auto;padding:28px 20px}h1{color:#fff}a{color:#7EE6FF}.sub{color:#8FA9CE}.card{border:1px solid rgba(140,178,255,.2);border-radius:14px;padding:14px;margin:10px 0}</style></head><body><div class="wrap"><nav><a href="/">ForiForeign</a></nav>' + body + '</div></body></html>'); } catch (e) { res.status(500).send('error'); } });
+/* Self-probe: the platform tests its own public endpoints every 10 minutes and alerts on failure or slowness. */
+async function selfProbe() { const base = process.env.PUBLIC_URL || ('http://127.0.0.1:' + (process.env.PORT || 3000)); const paths = ['/api/health', '/api/i18n', '/api/site-config', '/study-in/gb', '/sitemap.xml']; const bad = []; for (const p of paths) { const t0 = Date.now(); try { const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 8000); const r = await fetch(base + p, { signal: ctl.signal }); clearTimeout(tm); const ms = Date.now() - t0; if (!r.ok || ms > 4000) bad.push(p + ' ' + r.status + ' ' + ms + 'ms'); } catch (e) { bad.push(p + ' ' + e.message); } } if (bad.length) { try { await admin().from('audit_log').insert({ event: 'SELF_PROBE_FAIL', detail: bad.join('; ').slice(0, 400) }); const { data: admins } = await admin().from('profiles').select('id').in('role', ['admin', 'super_admin']); for (const a of (admins || [])) await NOTIFY.push(a.id, 'alert', 'Self-probe failed', bad.join('; ').slice(0, 300), 'adminx'); } catch (e) {} } return { ok: !bad.length, bad }; }
+app.get('/api/admin/self-probe', auth, perm('overview.read'), async (req, res) => { try { res.json(await selfProbe()); } catch (e) { res.status(400).json({ error: e.message }); } });
+try { if (process.env.FF_QUEUE !== 'off' && process.env.NODE_ENV !== 'test') setInterval(() => selfProbe().catch(() => {}), 10 * 60 * 1000); } catch (e) {}
+/* ==================================================================================================================== */
+/* ================= WORLD UNIVERSITIES · SCHOLARSHIPS · REQUIREMENTS BRIEF · FORIMAIL-ONLY POLICY · PORTAL FILL PLAN ================= */
+const REQ = require('./lib/requirements'); const UW = require('./lib/universities_world');
+app.post('/api/admin/institutions/seed-world', auth, perm('settings.write'), async (req, res) => { try { res.json(await UW.seed(!!(req.body || {}).destinations_only)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/institutions/count', auth, async (req, res) => { try { res.json({ shipped: UW.count(req.query.cc ? String(req.query.cc).toUpperCase() : null) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Scholarships open to international applicants: ingested as recurring, source-verified opportunities. */
+app.post('/api/admin/scholarships/seed', auth, perm('settings.write'), async (req, res) => {
+  try { const { SCHOLARSHIPS } = require('./lib/scholarships_seed'); const { ingestOpps } = require('./lib/engine'); const year = new Date().getFullYear(); let added = 0; const items = SCHOLARSHIPS.map(s => ({ title: s.name, institution: s.name.split('(')[0].trim(), country_code: s.cc === 'EU' ? 'DE' : s.cc, kind: 'study', level: s.levels[0], funding: s.funding === 'fully' ? 'fully funded' : 'partial', funding_type: s.funding, deadline: '', url: s.url, description: s.note + ' Levels: ' + s.levels.join(', ') + '. Usual application window: ' + s.window + '. Open to international applicants; check the official page for this year\'s dates.', contact_emails: [], apply_via: 'portal', remote: 'false', extra: { source_key: 'scholarship_registry', recurring: true, window: s.window, levels: s.levels, year } })); for (let i = 0; i < items.length; i += 20) { added += await ingestOpps(items.slice(i, i + 20), 'scholarship', null).catch(() => 0); } res.json({ scholarships: SCHOLARSHIPS.length, added }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/scholarships', auth, async (req, res) => { try { const { SCHOLARSHIPS } = require('./lib/scholarships_seed'); const cc = req.query.cc ? String(req.query.cc).toUpperCase() : null; const lvl = req.query.level ? String(req.query.level) : null; res.json({ scholarships: SCHOLARSHIPS.filter(s => (!cc || s.cc === cc || s.cc === 'EU') && (!lvl || s.levels.includes(lvl))) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* What this opportunity needs from THIS person: posting + destination + origin + licence + vault, one checklist. */
+app.get('/api/opportunities/:id/requirements', auth, async (req, res) => { try { const cap = await overCap(req.userId, 'case_brain'); if (cap) return res.status(402).json({ error: 'Monthly reading limit reached.' }); res.json(await REQ.brief(req.userId, req.params.id)); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* forimail-only policy: the process identity is the platform mailbox; personal addresses are never integrated, never used
+   for applications, and (when the admin sets it) membership access is granted only to platform addresses. */
+app.get('/api/mail/policy', auth, async (req, res) => { try { const cfg = await siteSettings.getConfig(); const m = cfg.mail_policy || {}; res.json({ process_domain: process.env.APPLY_DOMAIN || 'forimail.com', personal_mail_integration: false, personal_forward_allowed: m.allow_personal_forward === true, members_require_platform_address: m.members_require_platform_address !== false, note: 'All applications, portal accounts and replies use your ForiForeign address. A personal address is never read or connected; it is only where sign-in codes and receipts go.' }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Portal fill plan: the browser worker sends the form's field labels; the server answers with values from the profile and
+   the vault, plus the stop rules (never fill payment, captcha or declarations; notify the person when their presence is needed). */
+app.post('/api/portal/:id/fill-plan', async (req, res) => {
+  try { const token = String(req.headers['x-worker-token'] || ''); if (!process.env.BROWSER_WORKER_TOKEN || token !== process.env.BROWSER_WORKER_TOKEN) return res.status(401).json({ error: 'worker token' });
+    const { data: pc } = await admin().from('portal_connections').select('user_id,portal_name,scope,status').eq('id', req.params.id).maybeSingle(); if (!pc || pc.status !== 'active') return res.status(404).json({ error: 'connection' }); if (!/upload|submit/.test(pc.scope || '')) return res.status(403).json({ error: 'scope is watch-only' });
+    const fields = Array.isArray((req.body || {}).fields) ? req.body.fields.slice(0, 120) : []; const M = await MOBILITY.get(pc.user_id).catch(() => ({})); const { data: pr } = await admin().from('profiles').select('full_name,email,phone,origin_country,apply_email').eq('id', pc.user_id).maybeSingle();
+    const src = Object.assign({ full_name: pr && pr.full_name, email: pr && pr.apply_email, phone: pr && pr.phone, nationality: pr && pr.origin_country }, M || {});
+    let plan = []; try { const txt = await callAI('high_value', `Map form fields to values. Answer ONLY JSON: [{"field":"the field label as given","value":"the value or null","confidence":0.0-1.0,"needs_person":true|false,"why":"one line"}]. Rules: never fill payment, card, password, security answers, captcha, declarations, signatures or consent checkboxes (needs_person=true); use ONLY the given data; dates ISO; if unsure set value null and needs_person true.\nFIELDS: ${JSON.stringify(fields)}\nDATA: ${JSON.stringify(src).slice(0, 6000)}`, { maxTokens: 1500, json: true }); const m = String(txt).match(/\[[\s\S]*\]/); if (m) plan = JSON.parse(m[0]); } catch (e) {}
+    const needs = plan.filter(x => x.needs_person); if (needs.length) { try { await NOTIFY.push(pc.user_id, 'portal', 'Your presence is needed on ' + pc.portal_name, needs.map(x => x.field).slice(0, 6).join(', ') + (needs.length > 6 ? ' and more' : '') + '. Open the portal to complete these yourself.', 'profile'); } catch (e) {} }
+    await admin().from('audit_log').insert({ actor: pc.user_id, event: 'PORTAL_FILL_PLAN', detail: pc.portal_name + ' ' + plan.length + ' fields, ' + needs.length + ' need the person' }).then(() => {}, () => {}); res.json({ plan, stop_before: ['payment', 'captcha', 'declaration', 'signature', 'final submit'], notify_sent: needs.length > 0 }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/portal/:id/needs-you', async (req, res) => { try { const token = String(req.headers['x-worker-token'] || ''); if (!process.env.BROWSER_WORKER_TOKEN || token !== process.env.BROWSER_WORKER_TOKEN) return res.status(401).json({ error: 'worker token' }); const { data: pc } = await admin().from('portal_connections').select('user_id,portal_name').eq('id', req.params.id).maybeSingle(); if (!pc) return res.status(404).json({ error: 'connection' }); const why = String((req.body || {}).why || 'a step only you can complete').slice(0, 300); await NOTIFY.push(pc.user_id, 'portal', 'Your presence is needed on ' + pc.portal_name, why + '. Sign in to the portal to continue; the platform paused here on purpose.', 'profile'); try { const { data: pr } = await admin().from('profiles').select('phone,notify_whatsapp').eq('id', pc.user_id).maybeSingle(); if (pr && pr.phone && pr.notify_whatsapp !== false) await require('./lib/whatsapp').send(pr.phone, 'ForiForeign: your presence is needed on ' + pc.portal_name + ' (' + why + '). Sign in to continue.').catch(() => {}); } catch (e) {} res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ============================================================================================================================== */
+/* ================= BEST OPTIONS · PADDLE · AUTO-VERIFY · LEGAL VERSIONS · GRACEFUL SHUTDOWN ================= */
+const RERANK = require('./lib/reranker'); const PADDLE = require('./lib/gateway_paddle');
+app.get('/api/opportunities/best', auth, async (req, res) => { try { const { data: sc } = await admin().from('opportunity_scores').select('opportunity_id,score,eligible,reasons').eq('user_id', req.userId).order('score', { ascending: false }).limit(40); const ids = (sc || []).map(x => x.opportunity_id); if (!ids.length) return res.json({ best: [], note: 'Run a search first.' }); const { data: opps } = await admin().from('opportunities').select('*').in('id', ids).eq('status', 'verified'); const byS = Object.fromEntries((sc || []).map(x => [x.opportunity_id, x])); const cards = (opps || []).map(o => Object.assign({ match_pct: (byS[o.id] || {}).score, eligible: (byS[o.id] || {}).eligible, quality: DQ.score(o) }, o)).sort((a, b) => (b.match_pct || 0) - (a.match_pct || 0)); const best = await RERANK.best(req.userId, cards, Number(req.query.n) || 10); res.json({ best: best.map(o => ({ id: o.id, title: o.title, institution: o.institution, country_code: o.country_code, kind: o.kind, level: o.level, deadline: o.deadline, funding_type: o.funding_type, match_pct: o.match_pct, quality: o.quality, why_best: o.why_best || null })) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/pay/paddle/webhook', express.raw({ type: 'application/json' }), async (req, res) => { try { if (!PADDLE.verify(req.body, req.headers['paddle-signature'])) return res.status(400).send('bad signature'); const ev = PADDLE.parse(req.body.toString('utf8')); if (/transaction\.(completed|paid)/.test(ev.event) && ev.paymentId) await settleCardPayment(ev.paymentId, 'paddle:' + ev.transactionId); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Auto-verify: low-risk rule types (documents, processing tracks, dependants notes) are verified automatically when the
+   assistant finds the supporting sentence verbatim on the official page; eligibility, financial, fee, language and PR
+   rules always wait for a person. Every auto-verification is marked as such and reversible. */
+app.post('/api/admin/visa/rules/auto-verify', auth, perm('settings.write'), async (req, res) => {
+  try { const cc = String((req.body || {}).cc || '').toUpperCase(); if (!cc) return res.status(400).json({ error: 'cc' }); const LOW = ['document', 'processing', 'dependants', 'work_rights', 'shortage']; const { data: rules } = await admin().from('visa_rules').select('id,rule_type,text,source_url').eq('country_code', cc).eq('status', 'unverified').not('source_url', 'is', null).limit(Number((req.body || {}).limit) || 60); let auto = 0, suggested = 0, unreachable = 0; const pages = {};
+    for (const r of (rules || [])) { let text = pages[r.source_url]; if (text === undefined) { try { const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 15000); const rr = await fetch(r.source_url, { signal: ctl.signal, headers: { 'user-agent': 'Mozilla/5.0 ForiForeign verify-assist' } }); clearTimeout(tm); text = String(await rr.text()).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 40000); } catch (e) { text = null; } pages[r.source_url] = text; } if (!text) { unreachable++; continue; }
+      let v = null; try { const txt = await callAI('high_value', `Verify ONE rule against its official page. Answer ONLY JSON: {"supported":true|false|null,"quote":"exact sentence(s) from the page, verbatim, max 60 words","suggested_text":"rule rewritten to match the page or null"}\nRULE (${r.rule_type}): ${r.text}\nPAGE: ${text}`, { maxTokens: 500, json: true }); const m = String(txt).match(/\{[\s\S]*\}/); if (m) v = JSON.parse(m[0]); } catch (e) {}
+      if (!v) continue; const verbatim = v.quote && text.toLowerCase().includes(String(v.quote).toLowerCase().slice(0, 50)); if (v.supported === true && verbatim && LOW.includes(r.rule_type)) { await admin().from('visa_rules').update({ status: 'verified', last_verified_at: new Date().toISOString(), verified_by: req.userId, assist: { auto: true, quote: v.quote, at: new Date().toISOString() }, updated_at: new Date().toISOString() }).eq('id', r.id); auto++; } else { await admin().from('visa_rules').update({ assist: { auto: false, supported: v.supported, quote: v.quote, suggested_text: v.suggested_text, verbatim, at: new Date().toISOString() } }).eq('id', r.id); suggested++; } }
+    await admin().from('audit_log').insert({ actor: req.userId, event: 'RULES_AUTO_VERIFY', detail: cc + ' auto ' + auto + ' suggested ' + suggested + ' unreachable ' + unreachable }).then(() => {}, () => {}); res.json({ cc, auto_verified: auto, suggestions_saved: suggested, unreachable, note: 'Eligibility, financial, fee, language and PR rules always wait for a person; open them to see the saved quote and suggestion.' }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+/* Legal versions: bump a version; users see a re-acceptance banner until they accept the new text. */
+app.get('/api/legal/versions', async (req, res) => { try { const { data } = await admin().from('legal_versions').select('kind,version,summary,effective_from').order('effective_from', { ascending: false }).limit(50); const cur = {}; for (const r of (data || [])) if (!cur[r.kind]) cur[r.kind] = r; res.set('Cache-Control', 'public, max-age=300'); res.json({ current: cur, history: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/legal/versions', auth, perm('settings.write'), async (req, res) => { try { if (!['admin', 'super_admin'].includes(req.userRole)) return res.status(403).json({ error: 'Platform admin only' }); const b = req.body || {}; if (!b.kind || !b.version) return res.status(400).json({ error: 'kind and version' }); const { data, error } = await admin().from('legal_versions').insert({ kind: String(b.kind), version: String(b.version), summary: String(b.summary || '').slice(0, 1000), effective_from: b.effective_from || new Date().toISOString().slice(0, 10), created_by: req.userId }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); const cfg = await siteSettings.getConfig(); const legal = Object.assign({}, cfg.legal || {}); legal.versions = Object.assign({}, legal.versions || {}, { [b.kind]: b.version }); await siteSettings.saveConfig({ legal }, req.userId).catch(() => {}); res.json({ version: data }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/me/legal-status', auth, async (req, res) => { try { const cfg = await siteSettings.getConfig(); const vers = ((cfg.legal || {}).versions) || {}; const { data } = await admin().from('consent_ledger').select('kind,version').eq('user_id', req.userId).in('kind', ['terms']).order('recorded_at', { ascending: false }).limit(5); const accepted = (data || [])[0]; const current = vers.terms || (cfg.legal || {}).version || '2026-09-05'; res.json({ current, accepted: accepted ? accepted.version : null, needs_acceptance: !accepted || accepted.version !== current }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/me/accept-legal', auth, async (req, res) => { try { const id = await CONSENT.record(req, req.userId, 'terms', {}, { via: 'reacceptance' }); res.json({ ok: true, id }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ========================================================================================================== */
+/* Remote browser worker protocol */
+const workerAuth = (req, res, next) => { const token = String(req.headers['x-worker-token'] || ''); if (!process.env.BROWSER_WORKER_TOKEN || token !== process.env.BROWSER_WORKER_TOKEN) return res.status(401).json({ error: 'worker token' }); next(); };
+app.get('/api/portal/worker/next', workerAuth, async (req, res) => { try { res.json({ jobs: await BOT.nextForWorker(Number(req.query.limit) || 5) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/portal/worker/report', workerAuth, express.json({ limit: '6mb' }), async (req, res) => { try { res.json(await BOT.reportFromWorker(req.body || {})); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ================= ADMIN TOTP · PADDLE · LEGAL RE-ACCEPTANCE · SCHOLARSHIP PROBES · LOCAL-ONLY FILTER · MORE JOB SOURCES ================= */
+app.post('/api/admin/totp/enrol', auth, async (req, res) => { try { if (!['admin', 'super_admin', 'staff', 'content_admin'].includes(req.userRole)) return res.status(403).json({ error: 'staff only' }); const { data: p } = await admin().from('profiles').select('email').eq('id', req.userId).maybeSingle(); res.json(await TOTP.enrol(req.userId, p && p.email)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/totp/confirm', auth, async (req, res) => { try { await TOTP.confirm(req.userId, (req.body || {}).code); const v = await TOTP.verify(req.userId, (req.body || {}).code); res.json({ ok: true, token: v.token }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/totp/verify', auth, async (req, res) => { try { const v = await TOTP.verify(req.userId, (req.body || {}).code); if (!v.ok) return res.status(401).json({ error: 'Code did not match' }); res.json(v); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/totp/status', auth, async (req, res) => { try { const { data: p } = await admin().from('profiles').select('totp_enabled').eq('id', req.userId).maybeSingle(); res.json({ enabled: !!(p && p.totp_enabled) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Paddle: second merchant-of-record option. */
+app.post('/api/pay/paddle/checkout', auth, async (req, res) => { try { if (!PADDLE.enabled()) return res.status(400).json({ error: 'Paddle is not configured' }); const cfg = await siteSettings.getConfig(); const credits = Number((req.body || {}).credits) || 0; const addon = String((req.body || {}).addon || ''); const t = credits ? ((cfg.packages || {}).tiers || []).find(x => Number(x.credits) === credits) : null; const usd = t ? Number(t.promo_usd || t.usd) : addon ? Number((cfg.addons || {})[addon + '_usd']) : 0; if (!usd) return res.status(400).json({ error: 'Unknown item' }); const { data: pay, error } = await admin().from('payments').insert({ user_id: req.userId, credits, amount_pkr: 0, status: 'pending', reference: 'PADDLE', addon_key: addon || null, provider: 'paddle' }).select('id').single(); if (error) return res.status(400).json({ error: error.message }); const { data: prof } = await admin().from('profiles').select('email').eq('id', req.userId).maybeSingle(); const origin = (req.headers.origin || ('https://' + req.headers.host)); const tx = await PADDLE.createTransaction({ priceId: t ? t.paddle_price_id : (cfg.addons || {})[addon + '_paddle_price_id'], email: prof && prof.email, usd, name: t ? 'ForiForeign ' + t.name + ' package' : 'ForiForeign ' + addon.replace(/_/g, ' '), paymentId: pay.id, userId: req.userId, successUrl: origin + '/?paid=1&provider=paddle' }); await admin().from('payments').update({ reference: ('PADDLE:' + tx.id).slice(0, 120) }).eq('id', pay.id); await CONSENT.record(req, req.userId, t ? 'package_purchase' : 'addon_purchase', { name: t ? t.name : addon.replace(/_/g, ' '), amount: usd, credits }, { payment_id: pay.id, provider: 'paddle' }); res.json({ transaction_id: tx.id, client_token: tx.client_token, url: tx.url }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Legal re-acceptance: when the legal version changes, every person sees the notice and re-accepts; recorded in the ledger. */
+app.get('/api/legal/version', async (req, res) => { try { const cfg = await siteSettings.getConfig(); res.json({ version: (cfg.legal || {}).version || '2026-09-05', url: '/legal.html' }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Scholarship probe: for seeded universities, read their scholarship / funding pages and extract programmes open to internationals. */
+QUEUE.register('scholarship_probe', async (p) => { const { data: inst } = await admin().from('institutions').select('id,name,country_code,website,domain').eq('kind', 'university').in('country_code', Object.keys(require('./lib/visa_portals').PORTALS)).is('scholarship_probe_at', null).limit(Number(p.batch) || 40); let found = 0; const { ingestOpps } = require('./lib/engine'); for (const i of (inst || [])) { const base = (i.website || ('https://' + i.domain)).replace(/\/$/, ''); let text = ''; for (const path of ['/scholarships', '/funding', '/financial-aid', '/international/scholarships', '/admissions/scholarships', '/study/scholarships']) { try { const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 10000); const r = await fetch(base + path, { signal: ctl.signal, redirect: 'follow', headers: { 'user-agent': 'ForiForeign scholarship probe' } }); clearTimeout(tm); if (r.ok) { text += ' ' + String(await r.text()).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 6000); if (text.length > 12000) break; } } catch (e) {} } await admin().from('institutions').update({ scholarship_probe_at: new Date().toISOString() }).eq('id', i.id); if (!/scholarship|bursary|fellowship|award|waiver/i.test(text)) continue; let items = []; try { const txt = await callAI('high_value', `From this university's own pages, list scholarships or fee waivers that INTERNATIONAL students can apply for. Answer ONLY JSON: [{"name":"","level":"bachelors|masters|phd|postdoc","funding":"fully|partial","note":"one line: what it covers and who is eligible","url":"the page url if visible else null"}] (max 6; empty array if none are open to internationals).\nUNIVERSITY: ${i.name} (${i.country_code})\nPAGES: ${text.slice(0, 9000)}`, { maxTokens: 700, json: true }); const m = String(txt).match(/\[[\s\S]*\]/); if (m) items = JSON.parse(m[0]); } catch (e) {} if (!items.length) continue; found += await ingestOpps(items.filter(x => x.name).map(x => ({ title: x.name + ' at ' + i.name, institution: i.name, country_code: i.country_code, kind: 'study', level: x.level || 'masters', funding: x.funding === 'fully' ? 'fully funded' : 'partial', funding_type: x.funding === 'fully' ? 'fully' : 'partial', deadline: '', url: x.url || base, description: (x.note || '') + ' Source: the university\'s own scholarship page.', contact_emails: [], apply_via: 'portal', remote: 'false', extra: { source_key: 'scholarship_probe', recurring: true } })), 'scholarship', null).catch(() => 0); } return { probed: (inst || []).length, scholarships_added: found }; });
+app.post('/api/admin/scholarships/probe', auth, perm('settings.write'), async (req, res) => { try { await QUEUE.enqueue('scholarship_probe', { batch: Number((req.body || {}).batch) || 40 }, { maxAttempts: 1 }); res.json({ queued: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ============================================================================================================================== */
+/* ================= CONFIRM BEFORE YOU APPLY: offer/employer verification, application preflight, labour lane, dependency map ================= */
+const OFFERV = require('./lib/offer_verify');
+app.post('/api/verify/offer', auth, async (req, res) => { try { const b = req.body || {}; const { data: p } = await admin().from('profiles').select('origin_country').eq('id', req.userId).maybeSingle(); const r = await OFFERV.verify({ text: String(b.text || '').slice(0, 20000), url: b.url, employer: b.employer, email: b.email, cc: b.cc }); r.origin_advice = r.origin_rule[(p && p.origin_country) || 'PK'] || 'Use only licensed recruiters of your country and verify the licence number.'; delete r.origin_rule; await admin().from('audit_log').insert({ actor: req.userId, event: 'OFFER_VERIFIED', detail: (b.employer || b.url || '').slice(0, 120) + ' risk ' + r.risk }).then(() => {}, () => {}); res.json(r); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Preflight: the confirmation screen before Send. Every check is real and named; the person confirms with one tap; recorded. */
+app.get('/api/applications/:id/preflight', auth, async (req, res) => {
+  try { const { data: a } = await admin().from('applications').select('id,opportunity_id,status').eq('id', req.params.id).eq('user_id', req.userId).maybeSingle(); if (!a) return res.status(404).json({ error: 'Case not found' });
+    const { data: o } = await admin().from('opportunities').select('*').eq('id', a.opportunity_id).maybeSingle(); const { data: p } = await admin().from('profiles').select('origin_country').eq('id', req.userId).maybeSingle();
+    const q = DQ.score(o); const ver = await OFFERV.verify({ text: (o.description || '') + ' ' + (o.requirements_text || ''), url: o.url, employer: o.institution, email: (o.contact_emails || [])[0], cc: o.country_code }); delete ver.origin_rule;
+    const { data: rules } = await admin().from('visa_rules').select('status').eq('country_code', o.country_code).neq('status', 'superseded'); const rv = (rules || []).filter(r => r.status === 'verified').length, rt = (rules || []).length;
+    let docs = { required: [], ready: 0 }; try { const ck = await VAULT.checklist(req.userId, o.kind === 'work' ? 'work' : 'study'); docs = { required: ck.required.map(r => ({ label: r.label, state: r.state })), ready: ck.ready }; } catch (e) {}
+    const checks = [
+      { key: 'posting_open', label: 'Posting is open today', ok: !(o.closed || o.status === 'closed' || (o.deadline && new Date(o.deadline) < new Date())), detail: o.deadline ? 'deadline ' + o.deadline : 'no closing date stated' },
+      { key: 'official_page', label: 'Verified on the official page', ok: !!(o.verified_at || o.status === 'verified'), detail: o.url },
+      { key: 'employer', label: 'Employer verified (domain, registry, sponsor register where it exists)', ok: ver.level === 'low', detail: ver.reasons.map(r => r.signal).join('; ') || 'no red flags' },
+      { key: 'eligibility', label: 'No citizenship / clearance / no-sponsorship restriction in the posting', ok: !o.eligibility_flag, detail: o.eligibility_flag || 'none found' },
+      { key: 'rules', label: 'Destination rules verified by a person', ok: rt > 0 && rv >= Math.ceil(rt * 0.5), detail: rv + ' of ' + rt + ' rules verified' },
+      { key: 'documents', label: 'Required documents in the vault', ok: docs.required.length > 0 && docs.required.every(r => r.state === 'ok'), detail: docs.required.filter(r => r.state !== 'ok').map(r => r.label).join(', ') || 'all present' }
+    ];
+    let success = null; try { success = await SUCCESS.estimate(req.userId, a.opportunity_id, a.id); } catch (e) {}
+    res.json({ application_id: a.id, quality: q, success, fraud: { risk: ver.risk, level: ver.level, reasons: ver.reasons, advice: ver.advice }, checks, all_ok: checks.every(c => c.ok), can_send: checks.filter(c => ['posting_open', 'official_page', 'employer'].includes(c.key)).every(c => c.ok), note: 'Send stays possible when documents or rules are incomplete; it is blocked when the posting is closed, unverified or the employer fails the checks.' }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/applications/:id/preflight/confirm', auth, async (req, res) => { try { const b = req.body || {}; await CONSENT.record(req, req.userId, 'terms', { v: 'preflight' }, { application_id: req.params.id, checks: b.checks || null, kind: 'preflight_confirmation' }); await admin().from('applications').update({ preflight_at: new Date().toISOString() }).eq('id', req.params.id).eq('user_id', req.userId).then(() => {}, () => {}); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Labour lane: routes and categories per destination, from the seeded labour rules. */
+app.get('/api/labour/routes', auth, async (req, res) => { try { const cc = req.query.cc ? String(req.query.cc).toUpperCase() : null; const seed = require('./lib/visa_seed6').seed.filter(r => r.rule_type === 'eligibility' && (!cc || r.country_code === cc)); res.json({ routes: seed.map(r => ({ country_code: r.country_code, route_key: r.route_key, route_name: r.route_name, summary: r.text, categories: (r.value || {}).categories || [], source_url: r.source_url })) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Dependency map: which provider each capability uses, whether a fallback exists, and what breaks without it. */
+app.get('/api/admin/dependencies', auth, perm('overview.read'), async (req, res) => { try { const env = k => !!process.env[k]; const rows = [
+    { capability: 'Discovery (AI-grounded search)', provider: env('GEMINI_API_KEY') ? 'Gemini grounded search' : 'not set', fallback: 'Structured feeds and job APIs (keyless: Arbeitnow, Remotive, Jobicy, The Muse, Himalayas, NHS Jobs; Greenhouse boards)', without: 'Fewer new postings; feeds keep flowing' },
+    { capability: 'Writing (documents, replies, proposals)', provider: env('ANTHROPIC_API_KEY') ? 'Claude' : env('OPENAI_API_KEY') ? 'OpenAI' : 'not set', fallback: env('OPENAI_API_KEY') && env('ANTHROPIC_API_KEY') ? 'OpenAI ↔ Claude cascade' : 'none', without: 'No new documents; existing ones and the journey keep working' },
+    { capability: 'Document reading (OCR)', provider: 'model vision + local PDF text extraction', fallback: 'Local text extraction for text PDFs', without: 'Scanned images unread until a provider returns' },
+    { capability: 'Mail (send)', provider: env('RESEND_API_KEY') ? 'Resend' : 'not set', fallback: 'none (queued until back)', without: 'Sends wait in the outbound queue' },
+    { capability: 'Mail (receive)', provider: 'Cloudflare Email Routing → intake', fallback: 'none', without: 'Replies not read until routing returns' },
+    { capability: 'Payments', provider: [env('LEMON_API_KEY') && 'Lemon Squeezy', env('PADDLE_API_KEY') && 'Paddle', env('STRIPE_SECRET_KEY') && 'Stripe'].filter(Boolean).join(', ') || 'not set', fallback: 'USD bank transfer with receipt', without: 'Card checkout hidden; bank transfer stays' },
+    { capability: 'Database and files', provider: 'Supabase', fallback: 'Nightly backups + tools/restore.js', without: 'Platform down; restore from backup' },
+    { capability: 'Rate limits / counters', provider: env('REDIS_URL') ? 'Redis' : 'in-memory', fallback: 'in-memory per instance', without: 'Limits per instance only' },
+    { capability: 'Translation', provider: 'Google website translator (client side)', fallback: 'Built-in core strings (EN/UR/HI/BN/AR)', without: 'English + five core languages' },
+    { capability: 'WhatsApp notifications', provider: env('WHATSAPP_TOKEN') ? 'Meta Cloud API' : 'not set', fallback: 'In-app + email', without: 'In-app and email only' },
+    { capability: 'Browser automation', provider: 'tools/worker (Playwright, your machine)', fallback: 'Mailbox + tracking links', without: 'Status read from mail and by the person' }
+  ]; res.json({ dependencies: rows, single_platform: 'Every capability has a stated fallback inside the platform except database, receive-mail and send-mail, which are the three external services the product cannot exist without.' }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ============================================================================================================================== */
+/* ================= COST INTELLIGENCE · SUCCESS ESTIMATE · TRANSPARENCY · LABOUR EVERYWHERE ================= */
+const COSTI = require('./lib/costintel'); const SUCCESS = require('./lib/success');
+app.get('/api/admin/costs', auth, perm('aicost.read'), async (req, res) => { try { res.json(await COSTI.report()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/opportunities/:id/success', auth, async (req, res) => { try { res.json(await SUCCESS.estimate(req.userId, req.params.id, req.query.app || null)); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* What we offer and what we charge, one public endpoint the pricing page, the app and the proposals all read from. */
+app.get('/api/offering', async (req, res) => { try { const cfg = await siteSettings.getConfig(); const A = cfg.addons || {}; const tiers = ((cfg.packages || {}).tiers || []).map(t => ({ name: t.name, cases: t.credits, previews: t.view, usd: Number(t.promo_usd || t.usd), list_usd: Number(t.usd), includes: ['prepare and send ' + t.credits + ' cases from your own address', 'every reply read for you', 'first offer pack', 'first visa desk file', 'first interview pack', 'first arrival pack'] })); const agency = ((cfg.agency || {}).tiers || (cfg.agency || {}).plans || []).map(t => ({ name: t.name, applications_month: t.cases_month, searches_day: t.searches_day, searches_month: t.searches_month, seats: t.seats, sub_agents: t.sub_agents, branches: t.branches, usd_month: t.usd_month, usd_year: t.usd_year, white_label: !!t.white_label, api: !!t.api })); res.set('Cache-Control', 'public, max-age=600'); res.json({ currency: 'USD', free: ['search, matching and previews', '10 full searches on a free account, 3 a day', 'offer check before you pay or send documents', 'Ask ForiForeign', 'the labour and work-visa route explorer', 'your ForiForeign address'], applicant_packages: tiers, add_ons: [{ key: 'offer_pack', usd: A.offer_pack_usd, what: 'further offers: conditions, deadlines, CAS/contract check, comparison' }, { key: 'visa_desk', usd: A.visa_desk_usd, what: 'further visa files: six steps, pre-fill, appointment, tracking, decisions read from mail' }, { key: 'arrival_pack', usd: A.arrival_pack_usd, what: 'further destinations: pre-departure to first 90 days' }, { key: 'residence_year', usd: A.residence_year_usd, what: 'family, PR pathway, policy updates for a year' }], agency_plans: agency, institutions: { workspace: 'free', success_fee: 'only after enrolment, under a signed MOU, 10 to 20 percent of first-year tuition or a fixed fee per enrolment', trial: '15 days, sized to the institution' }, employers: { receive_candidates: 'free', optional: 'spotlight visibility and per-hire fees' }, refunds: 'unused case credits within 14 days by the original method; prepared cases and used add-ons are not refundable', never: ['recruitment fees from workers', 'payment for a visa or a permit', 'unlabelled partner placement (partners are shown first only among options you qualify for, and are labelled)', 'invented documents'], legal: { company: (cfg.legal || {}).company_name, address: (cfg.legal || {}).address, terms: 'https://foriforeign.com/legal.html' } }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ============================================================================================================== */
+/* ================= REFS · SEARCH · LIVE EVENTS (SSE) · AUDIT CHAIN · LANGUAGE + EMIGRATION · RESUBMISSION · STAFF-ASSIST · BRAND · COUNTRY BRIEFS ================= */
+const REFS = require('./lib/refs'); const CHAIN = require('./lib/auditchain'); const LANG = require('./lib/language_guide'); const EMIG = require('./lib/emigration');
+app.get('/api/search', auth, async (req, res) => { try { const isAdmin = ['admin', 'super_admin', 'staff', 'content_admin'].includes(req.userRole); res.json(await REFS.search(req.query.q, { admin: isAdmin, userId: req.userId })); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/refs/backfill', auth, perm('settings.write'), async (req, res) => { try { let n = 0; for (const [table, kind] of [['applications', 'application'], ['official_documents', 'official_document'], ['visa_cases', 'visa_case'], ['support_tickets', 'support_ticket'], ['payments', 'payment']]) { const { data } = await admin().from(table).select('id').is('ref', null).limit(2000); for (const r of (data || [])) { await REFS.assign(table, r.id, kind); n++; } } res.json({ assigned: n }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Live updates: server-sent events per signed-in person; notify.push fans out to open connections on this instance. */
+const SSE = new Map();
+app.get('/api/events', auth, (req, res) => { res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' }); res.flushHeaders && res.flushHeaders(); res.write('event: hello\ndata: {"ok":true}\n\n'); const set = SSE.get(req.userId) || new Set(); set.add(res); SSE.set(req.userId, set); const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch (e) {} }, 25000); req.on('close', () => { clearInterval(ping); set.delete(res); if (!set.size) SSE.delete(req.userId); }); });
+function sseEmit(userId, payload) { const set = SSE.get(String(userId)); if (!set) return; for (const r of set) { try { r.write('event: update\ndata: ' + JSON.stringify(payload) + '\n\n'); } catch (e) {} } }
+try { const N = require('./lib/notify'); const orig = N.push; N.push = async function (userId, kind, title, body, link, orgId) { const r = await orig.apply(this, arguments); try { sseEmit(userId, { kind, title, body: String(body || '').slice(0, 300), link, at: new Date().toISOString() }); } catch (e) {} return r; }; } catch (e) {}
+/* Audit chain: nightly seal + verify; admin can run both. */
+app.post('/api/admin/audit/seal', auth, perm('audit.read'), async (req, res) => { try { res.json(await CHAIN.seal(5000)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/audit/verify', auth, perm('audit.read'), async (req, res) => { try { res.json(await CHAIN.verify(Number(req.query.hours) || 24)); } catch (e) { res.status(400).json({ error: e.message }); } });
+QUEUE.register('audit_seal', async () => { const s = await CHAIN.seal(5000); const v = await CHAIN.verify(24); if (!v.ok) { try { const { data: admins } = await admin().from('profiles').select('id').in('role', ['admin', 'super_admin']); for (const a of (admins || [])) await NOTIFY.push(a.id, 'alert', 'Audit chain broken at row ' + v.broken_at, 'A row was edited or deleted in the audit log. Investigate immediately.', 'adminx'); } catch (e) {} } return Object.assign(s, v); });
+/* Language and origin-side emigration guidance, per person. */
+app.get('/api/me/route-guide', auth, async (req, res) => { try { const cc = String(req.query.cc || '').toUpperCase(); const lane = String(req.query.lane || 'work'); const { data: p } = await admin().from('profiles').select('origin_country').eq('id', req.userId).maybeSingle(); res.json({ language: LANG.guide(cc, lane), emigration: lane === 'study' ? null : EMIG.rules((p && p.origin_country) || 'PK'), timezone: require('./lib/world').tzOf(cc), origin_timezone: require('./lib/world').tzOf((p && p.origin_country) || 'PK') }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Resubmission after refusal: a new visa file linked to the old one, carrying the refusal analysis and the fixes to make. */
+app.post('/api/visa/desk/:id/resubmit', auth, async (req, res) => { try { const { data: c } = await admin().from('visa_cases').select('*').eq('id', req.params.id).eq('user_id', req.userId).maybeSingle(); if (!c || c.status !== 'refused') return res.status(400).json({ error: 'Only a refused file can be resubmitted' }); const { data: n, error } = await admin().from('visa_cases').insert({ user_id: req.userId, country_code: c.country_code, route_key: c.route_key, status: 'preparing', resubmitted_from: c.id, notes: 'Resubmission of ' + (c.ref || c.id.slice(0, 8)) + '. Fix first: ' + ((c.refusal && c.refusal.reapply_or_appeal) || 'address every reason in the refusal analysis') , readiness: c.readiness || null, steps: {} }).select('*').single(); if (error) return res.status(400).json({ error: error.message }); await REFS.assign('visa_cases', n.id, 'visa_case'); JE.recompute(req.userId); res.json({ file: n, fixes: (c.refusal && c.refusal.reasons) || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Staff-assist: platform staff may connect a portal FOR an applicant only with the applicant's recorded consent, and every action is logged under both. */
+app.post('/api/admin/portals/staff-assist', auth, perm('cases.write'), async (req, res) => { try { const b = req.body || {}; if (!b.user_id || !b.portal_name || !b.login_url) return res.status(400).json({ error: 'user_id, portal_name, login_url' }); const c = await BOT.connect(b.user_id, { portal_name: b.portal_name, login_url: b.login_url, username: b.username, password: b.password, scope: 'staff_assist', consent: true, connected_by: req.userId }); await CONSENT.record(req, b.user_id, 'portal_watch', { portal: b.portal_name, scope: 'staff assist (pending your approval)' }, { connection_id: c.id, staff: req.userId }); await admin().from('portal_connections').update({ connected_by: req.userId, applicant_confirmed: false }).eq('id', c.id); await NOTIFY.push(b.user_id, 'portal', 'Approve staff help on ' + b.portal_name, 'ForiForeign staff asked to read your ' + b.portal_name + ' status for you. Approve or decline under Profile → Portal watch.', 'profile'); await admin().from('audit_log').insert({ actor: req.userId, event: 'STAFF_ASSIST_REQUESTED', detail: b.user_id + ' ' + b.portal_name }).then(() => {}, () => {}); res.json({ connection: c, awaiting: 'applicant approval' }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Country briefs: a structured brief per destination × lane, grounded on the official portal and our rules, refreshed monthly; shown on SEO pages and in the app for the 46 destinations that have no hand-written guide. */
+QUEUE.register('country_brief', async (p) => { const cc = String(p.cc).toUpperCase(); const lane = p.lane === 'work' ? 'work' : 'study'; const P = require('./lib/visa_portals').PORTALS[cc]; if (!P) return null; let text = ''; try { const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 15000); const r = await fetch(P[0], { signal: ctl.signal, headers: { 'user-agent': 'ForiForeign brief' } }); clearTimeout(tm); text = String(await r.text()).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 12000); } catch (e) {} const { data: rules } = await admin().from('visa_rules').select('rule_type,text,source_url,route_name').eq('country_code', cc).neq('status', 'superseded').limit(60); let v = null; try { const txt = await callAI('high_value', `Write a structured country brief for ${lane === 'work' ? 'working in' : 'studying in'} ${cc} for applicants from South Asia, the Gulf and Africa. Use ONLY the official page text and the rules given; where a figure is not in them write "see source". Answer ONLY JSON: {"routes":["main routes with one line each"],"first_steps":["3-5 steps in order"],"documents":["typical documents"],"processing":"what the official page says about times, or see source","fees":"what the page says, or see source","common_refusals":["3 typical refusal reasons for this destination and how to avoid them"],"after_arrival":["registration, bank, ID, first 30 days"],"watch_out":["2-3 scams or mistakes specific to this destination"],"sources":["urls used"]}\nOFFICIAL PAGE (${P[1]}): ${text.slice(0, 8000)}\nRULES: ${JSON.stringify((rules || []).map(r => ({ t: r.rule_type, x: r.text, s: r.source_url })).slice(0, 40)).slice(0, 6000)}`, { maxTokens: 1400, json: true }); const m = String(txt).match(/\{[\s\S]*\}/); if (m) v = JSON.parse(m[0]); } catch (e) {} if (!v) return { cc, lane, skipped: 'model' }; await admin().from('app_settings').upsert({ key: 'brief:' + cc + ':' + lane, value: Object.assign(v, { at: new Date().toISOString(), portal: P[0] }) }); return { cc, lane, ok: true }; });
+app.get('/api/brief/:cc', async (req, res) => { try { const cc = String(req.params.cc).toUpperCase(); const lane = req.query.lane === 'work' ? 'work' : 'study'; const { data } = await admin().from('app_settings').select('value').eq('key', 'brief:' + cc + ':' + lane).maybeSingle(); if (!data) return res.status(404).json({ error: 'No brief yet' }); res.set('Cache-Control', 'public, max-age=3600'); res.json({ brief: data.value }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/briefs/build', auth, perm('settings.write'), async (req, res) => { try { let n = 0; for (const cc of Object.keys(require('./lib/visa_portals').PORTALS)) for (const lane of ['study', 'work']) { await QUEUE.enqueue('country_brief', { cc, lane }, { maxAttempts: 1 }); n++; } res.json({ queued: n }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ============================================================================================================================== */
+/* ================= STAFF PROCESSING ON BEHALF · FEE POLICY · PROPOSAL SELF-REVIEW ================= */
+app.put('/api/me/staff-processing', auth, async (req, res) => { try { const on = !!(req.body || {}).allow; await admin().from('profiles').update({ allow_staff_processing: on }).eq('id', req.userId); if (on) await CONSENT.record(req, req.userId, 'consultant_acting', { consultant: 'ForiForeign staff', org: 'ForiForeign (Private) Limited', scope: 'prepare and send my cases when I ask or when I am unavailable; every action logged and visible to me' }, { kind: 'staff_processing' }); res.json({ allow: on }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/cases/:id/process', auth, perm('cases.write'), async (req, res) => {
+  try { const b = req.body || {}; const { data: a } = await admin().from('applications').select('id,user_id,status,opportunity_id').eq('id', req.params.id).maybeSingle(); if (!a) return res.status(404).json({ error: 'Case not found' }); const { data: u } = await admin().from('profiles').select('allow_staff_processing,full_name').eq('id', a.user_id).maybeSingle(); if (!(u && u.allow_staff_processing) && !b.override_reason) return res.status(403).json({ error: 'The applicant has not allowed staff processing. Ask them to switch it on under Profile → Language and data, or record an override reason.' });
+    const { prepareApplication } = require('./lib/engine'); let prepared = null; try { prepared = await prepareApplication(a.id, a.user_id); } catch (e) { return res.status(400).json({ error: 'Prepare failed: ' + e.message }); }
+    let sent = null; if (b.send) { try { const pf = await (await fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/applications/' + a.id + '/preflight', { headers: { authorization: req.headers.authorization } })).json().catch(() => null); if (pf && pf.can_send === false) return res.status(400).json({ error: 'Preflight blocks sending: ' + (pf.checks || []).filter(c => !c.ok).map(c => c.label).join('; ') }); } catch (e) {} sent = { note: 'Open the case and press Send from the applicant\'s ForiForeign address; staff sends are recorded as staff.' }; }
+    await admin().from('audit_log').insert({ actor: req.userId, event: 'STAFF_PROCESSED_CASE', detail: a.id + ' for ' + a.user_id + (b.override_reason ? ' override: ' + String(b.override_reason).slice(0, 200) : ' with standing consent') }); await NOTIFY.push(a.user_id, 'case', 'ForiForeign staff prepared your case', 'A staff member prepared ' + (a.id.slice(0, 8)) + ' for you. Review it under Cases; nothing is sent without the preflight.', 'apps'); res.json({ ok: true, prepared: !!prepared, sent }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/fees', async (req, res) => { res.set('Cache-Control', 'public, max-age=600'); res.json({ platform_fee: { what: 'preparation, correspondence, tracking and guidance for the cases in your package or plan', refundable: 'unused case credits within 14 days by the original method', non_refundable: 'prepared cases, used add-ons, agency plan months already started' }, official_fees: { who_pays: 'you, directly to the authority or institution', examples: ['application and admission fees', 'visa and permit fees, health surcharges', 'medical examinations', 'attestation, apostille and translation', 'language and skills tests', 'tuition and deposits', 'protector, emigration clearance and insurance in your country'], assistance: 'the platform shows the exact official page and amount at verification; ForiForeign staff or your consultancy can assist with the steps; nobody may add a fee on top of the official one' }, never: ['recruitment fees from workers', 'fees for a visa, a job or a permit', 'fees for a guaranteed result'] }); });
+/* ================================================================================================== */
+app.post('/api/org/:id/audit-note', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); const b = req.body || {}; await orgAudit(req.params.id, req.userId, String(b.event || 'NOTE').slice(0, 40), String(b.detail || '').slice(0, 300)); res.json({ ok: true }); } catch (e) { orgErr(res, e); } });
+app.get('/api/fx', async (req, res) => { try { const fx = await require('./lib/pay').liveRates().catch(() => null); res.set('Cache-Control', 'public, max-age=3600'); res.json({ base: 'USD', as_of: fx && fx.at ? new Date(fx.at).toISOString().slice(0, 10) : null, rates: (fx && fx.rates) || {} }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ================= CASE VIEW · CHECK-INS · TRUST PAGE · CLIENT IMPORT · TOOLS ================= */
+const CASEVIEW = require('./lib/caseview'); const CHECKINS = require('./lib/checkins');
+app.get('/api/cases/:id/view', auth, async (req, res) => { try { res.json(await CASEVIEW.view(req.userId, req.params.id, { staff: ['staff', 'content_admin', 'admin', 'super_admin'].includes(req.userRole) })); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/visa/desk/:id/checkin', auth, async (req, res) => { try { const b = req.body || {}; const { data: c } = await admin().from('visa_cases').select('id,status,country_code').eq('id', req.params.id).eq('user_id', req.userId).maybeSingle(); if (!c) return res.status(404).json({ error: 'Not found' }); const ans = String(b.answer || ''); const patch = { updated_at: new Date().toISOString() }; if (ans === 'granted' || ans === 'refused') { patch.status = ans; patch.decision_on = new Date().toISOString().slice(0, 10); patch.checkin_state = 'answered'; patch.decision_text = String(b.text || '').slice(0, 4000) || null; if (ans === 'refused' && b.text) QUEUE.enqueue('visa_refusal', { caseId: c.id, userId: req.userId, cc: c.country_code, route: '', text: String(b.text).slice(0, 6000), extra: '' }, { userId: req.userId, maxAttempts: 2 }).catch(() => {}); if (ans === 'granted') { try { await JOURNEY.plan(req.userId, c.country_code, 'study'); } catch (e) {} } } else if (ans === 'more_documents') { patch.status = 'decision_pending'; patch.notes = 'Authority asked for more documents on ' + new Date().toISOString().slice(0, 10) + ': ' + String(b.text || '').slice(0, 500); } else { patch.checkin_state = 'waiting'; } await admin().from('visa_cases').update(patch).eq('id', c.id); JE.recompute(req.userId); res.json({ ok: true, status: patch.status || c.status }); } catch (e) { res.status(400).json({ error: e.message }); } });
+QUEUE.register('checkin_sweep', async () => CHECKINS.sweep());
+/* Trust page: live counts of the platform's own checks, and what it never does. */
+app.get('/api/trust', async (req, res) => { try { const wk = new Date(Date.now() - 7 * 86400000).toISOString(); const c = async (t, f) => { try { const { count } = await f(admin().from(t).select('id', { count: 'exact', head: true })); return count || 0; } catch (e) { return 0; } }; const [rulesVerifiedWeek, rulesTotal, employersVerified, institutions, closedWeek, fraudFlagged, consents, policyWeek, offersChecked] = await Promise.all([c('visa_rules', q => q.eq('status', 'verified').gte('verified_at', wk)), c('visa_rules', q => q.neq('status', 'superseded')), c('institutions', q => q.eq('verified', true)), c('institutions', q => q), c('opportunities', q => q.eq('status', 'closed').gte('updated_at', wk)), c('opportunities', q => q.not('eligibility_flag', 'is', null)), c('consent_ledger', q => q), c('policy_updates', q => q.gte('detected_at', wk)), c('audit_log', q => q.eq('event', 'OFFER_VERIFIED').gte('created_at', wk))]); res.set('Cache-Control', 'public, max-age=600'); res.json({ as_of: new Date().toISOString(), rules: { verified_this_week: rulesVerifiedWeek, total: rulesTotal }, employers_verified: employersVerified, institutions, postings_closed_this_week: closedWeek, postings_flagged_restrictions: fraudFlagged, offers_checked_this_week: offersChecked, policy_changes_this_week: policyWeek, consents_recorded: consents, never: ['charge a worker a recruitment fee, or a fee for a visa, a job or a permit', 'send anything in your name without your tap', 'invent a document, a fact, a grade or a result', 'hide that an institution is a partner: partners with a signed MOU are shown first among the options you qualify for, and are labelled', 'read your personal email or connect to it', 'promise a result'] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Client import for consultancies moving from another CRM: CSV with name, phone, email, lane, stage. */
+app.post('/api/org/:id/clients/import', auth, express.text({ type: ['text/csv', 'text/plain'], limit: '2mb' }), async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.write'); if (!(await orgFeature(req.params.id, 'imports'))) return res.status(403).json({ error: 'Imports are switched off for this organisation by the platform; see Team → Audit.' }); const rows = require('./lib/sponsors').parseCsv(String(req.body || '')); if (rows.length < 2) return res.status(400).json({ error: 'CSV needs a header and at least one row' }); const head = rows[0].map(h => h.toLowerCase().trim()); const ix = k => head.findIndex(h => h === k || h.includes(k)); const iN = ix('name'), iP = ix('phone'), iE = ix('email'), iL = ix('lane'), iS = ix('stage'); if (iN < 0) return res.status(400).json({ error: 'A "name" column is required' }); let n = 0, skipped = 0; for (const r of rows.slice(1)) { const full_name = (r[iN] || '').trim(); if (!full_name) { skipped++; continue; } try { await ORGS.createClient(req.params.id, req.userId, { full_name, phone: iP >= 0 ? r[iP] : '', email: iE >= 0 ? r[iE] : '', lane: iL >= 0 && /work|job/i.test(r[iL] || '') ? 'work' : 'study', stage: iS >= 0 && r[iS] ? String(r[iS]).toLowerCase() : 'lead' }); n++; } catch (e) { skipped++; } } await orgAudit(req.params.id, req.userId, 'CLIENTS_IMPORTED', n + ' imported, ' + skipped + ' skipped'); res.json({ imported: n, skipped }); } catch (e) { orgErr(res, e); } });
+/* ============================================================================================ */
+/* ================= GUEST PREVIEW: three real matches before an account (identity scrubbed), no AI cost ================= */
+app.get('/api/preview', async (req, res) => { try { const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || 'x'; const n = await LIMITER.hit('preview:' + ip, 3600); if (n > 20) return res.status(429).json({ error: 'Preview limit reached; create a free account to keep searching.' }); const lane = req.query.lane === 'work' ? 'work' : req.query.lane === 'labour' ? 'labour' : 'study'; const cc = String(req.query.cc || '').toUpperCase(); const text = String(req.query.q || '').slice(0, 80).replace(/[%,]/g, ' ');
+    let q = admin().from('opportunities').select('id,title,institution,country_code,city,level,kind,category,funding_type,salary_note,deadline,eligibility_flag,employer_verified,verified_at').eq('status', 'verified'); if (lane === 'work' || lane === 'labour') q = q.eq('kind', 'work'); else q = q.neq('kind', 'work'); if (lane === 'labour') q = q.in('category', ['labour', 'care']); if (cc) q = q.eq('country_code', cc); if (text) q = q.or('title.ilike.%' + text + '%,institution.ilike.%' + text + '%,req_field.ilike.%' + text + '%'); q = q.is('eligibility_flag', null).order('verified_at', { ascending: false }).limit(12); const { data } = await q; const rows = (data || []).slice(0, 3).map(o => ({ title: (typeof generalTitle === 'function' ? generalTitle(o) : String(o.title || '').split(',')[0]), country_code: o.country_code, city: o.city, level: o.level, category: o.category, funding: o.funding_type, salary_hint: o.salary_note ? 'salary stated' : null, deadline: o.deadline, verified: !!o.verified_at, employer_verified: o.employer_verified === true, institution_hidden: true }));
+    if (!rows.length) { try { if (lane === 'study') { const SC = require('./lib/scholarships_seed').SCHOLARSHIPS.filter(x => (!cc || x.cc === cc || x.cc === 'EU') && (!text || (x.name + ' ' + x.note).toLowerCase().includes(text.toLowerCase()))).slice(0, 3); for (const x of SC) rows.push({ title: x.name, country_code: x.cc === 'EU' ? 'EU' : x.cc, level: x.levels[0], funding: x.funding, deadline: null, verified: true, source: 'official programme page', institution_hidden: false, window: x.window }); } else { const L = require('./lib/visa_seed6').seed.filter(r => r.rule_type === 'eligibility' && (!cc || r.country_code === cc)).slice(0, 3); for (const r of L) rows.push({ title: r.route_name, country_code: r.country_code, level: null, category: (r.value.categories || [])[0] || null, funding: null, deadline: null, verified: true, source: 'official route, ' + (r.source_title || 'government page'), institution_hidden: false }); } } catch (e) {} }
+    res.set('Cache-Control', 'public, max-age=300'); res.json({ lane, cc, count: (data || []).length, preview: rows, unlock: 'Create a free account to see the institution, the official link, your match score and the requirements checklist.' }); }
+  catch (e) { res.status(400).json({ error: e.message }); } });
+/* ============================================================================================================= */
+/* Consultancies declare the institutions and employers they consider their own; ForiForeign's prospecting agent never approaches them. */
+app.get('/api/org/:id/protected-partners', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.read'); const { data } = await admin().from('app_settings').select('value').eq('key', 'protected_partners:' + req.params.id).maybeSingle(); res.json({ names: (data && data.value && data.value.names) || [] }); } catch (e) { orgErr(res, e); } });
+app.put('/api/org/:id/protected-partners', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'org.write'); const names = [...new Set(((req.body || {}).names || []).map(x => String(x).trim()).filter(Boolean))].slice(0, 500); await admin().from('app_settings').upsert({ key: 'protected_partners:' + req.params.id, value: { names } }); const { data: all } = await admin().from('app_settings').select('key,value').like('key', 'protected_partners:%'); const merged = [...new Set((all || []).flatMap(r => (r.value && r.value.names) || []))]; await admin().from('app_settings').upsert({ key: 'protected_partners', value: { names: merged } }); await orgAudit(req.params.id, req.userId, 'PROTECTED_PARTNERS_SET', names.length + ' names'); res.json({ names }); } catch (e) { orgErr(res, e); } });
+/* The consultancy behind an applicant, for the applicant's own screens: name, contact, address. Nothing about the platform. */
+app.get('/api/me/consultancy', auth, async (req, res) => { try { const { data: cl } = await admin().from('clients').select('org_id,owner_user_id').eq('user_id', req.userId).eq('status', 'active').limit(1); if (!cl || !cl[0]) return res.json({ consultancy: null }); const { data: og } = await admin().from('organisations').select('name,kind,settings').eq('id', cl[0].org_id).maybeSingle(); if (!og || og.kind !== 'agency') return res.json({ consultancy: null }); let consultant = null; try { const { data: c } = await admin().from('profiles').select('full_name').eq('id', cl[0].owner_user_id).maybeSingle(); consultant = c && c.full_name; } catch (e) {} const st = og.settings || {}; res.json({ consultancy: { name: og.name, consultant, contact_email: st.contact_email || st.email || null, phone: st.phone || null, whatsapp: st.whatsapp || null, address: st.address || null, website: st.website || null } }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/lanes', auth, perm('overview.read'), async (req, res) => { try { const st = QUEUE.laneStatus(); const names = {}; for (const t of st.tripped) { if (t.lane !== 'platform') { const { data: o } = await admin().from('organisations').select('name').eq('id', t.lane).maybeSingle(); names[t.lane] = o ? o.name : t.lane; } } res.json(Object.assign(st, { names })); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/lanes/:lane/resume', auth, perm('settings.write'), async (req, res) => { try { QUEUE.laneResume(req.params.lane); await admin().from('job_queue').update({ run_after: new Date().toISOString() }).eq('status', 'queued').eq('org_id', req.params.lane === 'platform' ? null : req.params.lane); res.json({ resumed: req.params.lane }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ================= COMMITMENTS TO CONSULTANCIES · PER-ORGANISATION CONTROLS ================= */
+app.get('/api/commitments', async (req, res) => { res.set('Cache-Control', 'public, max-age=600'); res.json({ title: 'Our commitments to consultancies', items: [
+  { q: 'You also do business with applicants. Will you take our clients?', a: 'No. Your clients are yours. The platform\'s staff see your client list only as counts and stages; names, phones and emails are masked unless you grant time-limited support access. Our staff never contact your client with an offer to switch. A client of yours who later signs up directly stays attributed to you for the engagement term recorded on the platform. These are enforced in code and logged, not just promised.', enforced: ['masking', 'support grant', 'attribution', 'audit log'] },
+  { q: 'Will you take our university or employer commissions?', a: 'No. We take no share of your commissions. You pay your plan and nothing else. Our own MOUs with institutions cover only files that say on their face they were prepared on ForiForeign; your files carry your name and are governed by your own agreements.', enforced: ['MOU channel clause', 'no commission share in the ledger'] },
+  { q: 'Will you approach our partner universities?', a: 'Not if you tell us who they are. List them under Team → Your clients are yours; our outreach agent refuses to approach any name on the list, any organisation already on the platform, and any institution linked to a customer workspace, and records the refusal.', enforced: ['protected partners', 'prospecting refusal log'] },
+  { q: 'Will our clients see your brand?', a: 'Not on your domain, and not on their files. On your domain the interface carries your name, logo, colour, address and contact; notification emails come from your name with your reply-to; applications sign off with your name; WhatsApp messages carry your name. The platform\'s names cannot even be used in an organisation name.', enforced: ['white label', 'brand-aware mail', 'reserved names'] },
+  { q: 'Can another consultancy see our clients?', a: 'No. Every organisation route is scoped server-side and audited by the build; one plan per consultancy; no cross-membership; the isolation check in Team lets you verify it yourself.', enforced: ['scoping', 'resale locks', 'isolation check'] },
+  { q: 'Who owns the data?', a: 'You own your clients\' data and your organisation\'s data. Export it any time as CSV; delete a client and their files are removed; the consent ledger records what each client agreed to. We are the processor under the DPA on the legal page.', enforced: ['export', 'deletion', 'consent ledger', 'DPA'] },
+  { q: 'What if we leave?', a: 'Export everything, cancel the plan at the end of the period, and your clients keep their own accounts and files. No lock-in, no exit fee.', enforced: ['export', 'no exit fee'] },
+  { q: 'What if your platform has a problem?', a: 'Your work lane is isolated: one organisation\'s failures never stop another; a paused lane resumes itself; backups run nightly; the daily brief and self-heal catch stalls; the status of your lane is visible to the platform admin.', enforced: ['bulkhead', 'backups', 'self-heal'] },
+  { q: 'Can your staff log into our workspace?', a: 'No. Platform staff cannot be members of any consultancy. The only way in is the time-limited support grant you give, which shows contact details to platform support for the hours you choose and is logged.', enforced: ['membership exclusion', 'support grant'] },
+  { q: 'Do you rank our clients below your own applicants?', a: 'No. One engine, one scoring, one preflight for everyone; nothing about channel enters the score. The only priority that exists is institutional: universities with a countersigned MOU are shown first among the options an applicant qualifies for, labelled as partners, for your clients and for direct applicants alike.', enforced: ['single engine', 'labelled partner priority'] },
+  { q: 'What do you keep for yourselves?', a: 'Our own public pages, our outreach and proposal agents, our acquisition of institutions, our cost and economics screens, and our direct-channel MOUs. None of it touches your clients or your files.', enforced: ['feature scoping'] },
+  { q: 'What can you do to our account?', a: 'Suspend it for abuse under the terms, adjust plan limits you agreed to, review a logo for legality, and set a storage quota. Every such action is logged and visible to you under Team → Audit.', enforced: ['org audit'] }
+] }); });
+/* Per-organisation controls for the platform admin: feature flags, storage quota, logo review, notes. Logged to the organisation's own audit. */
+app.get('/api/admin/orgs/:id/controls', auth, perm('users.read'), superOnly, async (req, res) => { try { const { data: o } = await admin().from('organisations').select('name,settings').eq('id', req.params.id).maybeSingle(); if (!o) return res.status(404).json({ error: 'Not found' }); const c = (o.settings || {}).controls || {}; let storage = 0; try { const { data: cl } = await admin().from('clients').select('user_id').eq('org_id', req.params.id).limit(5000); const ids = (cl || []).map(x => x.user_id).filter(Boolean); if (ids.length) { const { count } = await admin().from('documents').select('id', { count: 'exact', head: true }).in('user_id', ids.slice(0, 1000)); storage = count || 0; } } catch (e) {} res.json({ name: o.name, controls: Object.assign({ features: { whitelabel: true, table_view: true, imports: true, exports: true, bulk_search: true, leads: true, licences: true, portal_watch: true }, storage_quota_docs: 5000, logo_status: 'unreviewed', note: '' }, c), storage_docs: storage }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.put('/api/admin/orgs/:id/controls', auth, perm('settings.write'), superOnly, async (req, res) => { try { const b = req.body || {}; const { data: o } = await admin().from('organisations').select('settings').eq('id', req.params.id).maybeSingle(); if (!o) return res.status(404).json({ error: 'Not found' }); const cur = (o.settings || {}).controls || {}; const next = Object.assign({}, cur, { features: Object.assign({}, cur.features || {}, b.features || {}), storage_quota_docs: b.storage_quota_docs != null ? Math.max(100, Number(b.storage_quota_docs) || 5000) : cur.storage_quota_docs, logo_status: ['unreviewed', 'approved', 'rejected'].includes(b.logo_status) ? b.logo_status : cur.logo_status, note: b.note != null ? String(b.note).slice(0, 500) : cur.note }); await admin().from('organisations').update({ settings: Object.assign({}, o.settings || {}, { controls: next }) }).eq('id', req.params.id); await orgAudit(req.params.id, req.userId, 'PLATFORM_CONTROLS_CHANGED', JSON.stringify({ features: b.features || null, storage_quota_docs: b.storage_quota_docs || null, logo_status: b.logo_status || null }).slice(0, 300)); res.json({ controls: next }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Feature flags enforced where they matter: imports, exports, bulk search, white label. */
+async function orgFeature(orgId, key) { try { const { data: o } = await admin().from('organisations').select('settings').eq('id', orgId).maybeSingle(); const f = (((o && o.settings) || {}).controls || {}).features || {}; return f[key] !== false; } catch (e) { return true; } }
+/* ========================================================================================= */
+/* ================= PARTNER SYSTEM (autopilot) ================= */
+const PENGINE = require('./lib/partners_engine');
+app.get('/api/admin/partnerships', auth, perm('settings.read'), async (req, res) => { try { const [{ data: partners }, { data: inv }, { data: disputes }, { data: refs }] = await Promise.all([admin().from('institutions').select('id,name,country_code,partner_tier,partner_since,partner_terms,office,reputation').not('partner_tier', 'is', null).order('partner_since', { ascending: false }).limit(300), admin().from('partner_invoices').select('*').order('created_at', { ascending: false }).limit(200), admin().from('partner_disputes').select('*').order('opened_at', { ascending: false }).limit(100), admin().from('partner_referrals').select('stage,share_usd,institution_name').limit(2000)]); const totals = { referrals: (refs || []).length, enrolled: (refs || []).filter(r => r.stage === 'enrolled').length, receivable_usd: (inv || []).filter(i => ['sent', 'reminded', 'pending'].includes(i.status)).reduce((a, i) => a + Number(i.amount_usd || 0), 0), paid_usd: (inv || []).filter(i => i.status === 'paid').reduce((a, i) => a + Number(i.amount_usd || 0), 0), disputed: (disputes || []).filter(d => d.status !== 'resolved').length }; res.json({ partners: partners || [], invoices: inv || [], disputes: disputes || [], totals, rules: PENGINE.NEGOTIATION }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/partnerships/log', auth, perm('settings.read'), async (req, res) => { try { let q = admin().from('partner_liaison_log').select('*').order('id', { ascending: false }).limit(200); if (req.query.institution) q = q.eq('institution_id', req.query.institution); const { data } = await q; res.json({ log: data || [] }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/partnerships/pipeline', auth, perm('settings.write'), async (req, res) => { try { const cc = String((req.body || {}).cc || '').toUpperCase(); const cap = Math.min(25, Number((req.body || {}).cap) || 10); if (!cc) return res.status(400).json({ error: 'cc' }); await QUEUE.enqueue('partner_pipeline', { cc, cap }, { maxAttempts: 1 }); res.json({ queued: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/partnerships/:id/office', auth, perm('settings.write'), async (req, res) => { try { res.json({ office: await PENGINE.findOffice(req.params.id) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/partnerships/onboard/:documentId', auth, perm('settings.write'), async (req, res) => { try { res.json(await PENGINE.onboard(req.params.documentId)); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/partnerships/referrals/:applicationId/stage', auth, perm('cases.write'), async (req, res) => { try { const b = req.body || {}; res.json({ referral: await PENGINE.updateReferralStage(req.params.applicationId, String(b.stage || 'sent'), { tuition_usd: b.tuition_usd }) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/partnerships/invoices/:id/clear', auth, perm('payments.write'), async (req, res) => { try { await PENGINE.clear(req.params.id, (req.body || {}).paid_ref); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/partnerships/invoices/:id/send', auth, perm('payments.write'), async (req, res) => { try { await PENGINE.sendInvoice(req.params.id); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/partnerships/disputes', auth, perm('settings.write'), async (req, res) => { try { res.json({ dispute: await PENGINE.openDispute(req.body || {}) }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/partnerships/disputes/:id/resolve', auth, perm('settings.write'), async (req, res) => { try { const b = req.body || {}; await PENGINE.resolveDispute(req.params.id, b.resolution, b.outcome); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* Applicants (or their consultancy) confirm an enrolment at a partner: this is the verification gate before any share is invoiced. */
+app.post('/api/applications/:id/enrolled', auth, async (req, res) => { try { const { data: a } = await admin().from('applications').select('id,user_id').eq('id', req.params.id).maybeSingle(); if (!a || a.user_id !== req.userId) return res.status(404).json({ error: 'Case not found' }); await admin().from('applications').update({ status: 'enrolled', outcome: 'enrolled' }).eq('id', a.id); await CONSENT.record(req, req.userId, 'terms', { v: 'enrolment_confirmation' }, { application_id: a.id, tuition_usd: (req.body || {}).tuition_usd || null }); await PENGINE.updateReferralStage(a.id, 'enrolled', { tuition_usd: (req.body || {}).tuition_usd }); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+QUEUE.register('partner_pipeline', async (p) => PENGINE.pipeline(String(p.cc).toUpperCase(), Number(p.cap) || 10));
+QUEUE.register('partner_receivables', async () => PENGINE.receivablesSweep());
+QUEUE.register('partner_liaison', async () => { const { data } = await admin().from('institutions').select('id').eq('partner_tier', 'mou').limit(500); let n = 0; for (const i of (data || [])) { try { await PENGINE.liaison(i.id); n++; } catch (e) {} } return { sent: n }; });
+QUEUE.register('partner_referral_record', async (p) => PENGINE.recordReferral(p.applicationId));
+/* ============================================================ */
+/* ================= ADMISSION EVIDENCE · INSTITUTION CONFIRMATION · PARTNER DISPUTES FROM THE WORKSPACE · CONSULTANCY LEDGER ================= */
+QUEUE.register('admission_evidence', async (p) => PENGINE.evidenceFromDocument(p.docId));
+QUEUE.register('partner_overdue', async () => PENGINE.accrueInterest());
+QUEUE.register('partner_renewals', async () => PENGINE.renewalSweep());
+app.post('/api/org/:id/enrolments/confirm', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.write'); res.json(await PENGINE.institutionConfirm(req.params.id, (req.body || {}).items || [], req.userId)); } catch (e) { orgErr(res, e); } });
+app.post('/api/org/:id/partner-dispute', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'clients.write'); const { data: inst } = await admin().from('institutions').select('id').eq('partner_org_id', req.params.id).maybeSingle(); if (!inst) return res.status(400).json({ error: 'Not a partner workspace' }); res.json({ dispute: await PENGINE.openDispute({ institution_id: inst.id, invoice_id: (req.body || {}).invoice_id || null, referral_id: (req.body || {}).referral_id || null, raised_by: 'institution', reason: (req.body || {}).reason }) }); } catch (e) { orgErr(res, e); } });
+app.get('/api/org/:id/partner-ledger', auth, async (req, res) => { try { await ORGS.requireOrg(req, req.params.id, 'finance.read'); const { data: inst } = await admin().from('institutions').select('id,name,partner_terms').eq('partner_org_id', req.params.id).maybeSingle(); if (inst) { const [{ data: refs }, { data: inv }] = await Promise.all([admin().from('partner_referrals').select('id,application_id,stage,admission_number,tuition_usd,share_usd,created_at').eq('institution_id', inst.id).order('created_at', { ascending: false }).limit(500), admin().from('partner_invoices').select('id,ref,amount_usd,status,due_on,paid_at').eq('institution_id', inst.id).order('created_at', { ascending: false }).limit(200)]); return res.json({ role: 'institution', institution: inst.name, terms: inst.partner_terms, referrals: refs || [], invoices: inv || [] }); }
+    /* A consultancy sees, for its own clients, which cases reached enrolment at a partner with the admission number and evidence: the proof it needs for its own commission. */
+    const { data: refs } = await admin().from('partner_referrals').select('id,application_id,user_id,institution_name,stage,admission_number,evidence,created_at,updated_at').eq('org_id', req.params.id).order('updated_at', { ascending: false }).limit(500); res.json({ role: 'consultancy', referrals: refs || [] }); } catch (e) { orgErr(res, e); } });
+app.get('/api/admin/partnerships/types', auth, perm('settings.read'), (req, res) => res.json({ types: PENGINE.PARTNER_TYPES, rules: PENGINE.NEGOTIATION }));
+/* ======================================================================================================= */
+/* ================= THE DUMMY CASE: run every step of every lane in minutes, find errors before a real person does ================= */
+const SIMU = require('./lib/simulation');
+QUEUE.register('simulation_run', async (p) => SIMU.run(p.mode === 'full' ? 'full' : 'fast', p.adminId || null));
+app.post('/api/admin/simulate', auth, perm('settings.write'), async (req, res) => { try { const mode = (req.body || {}).mode === 'full' ? 'full' : 'fast'; if ((req.body || {}).inline) { const r = await SIMU.run(mode, req.userId); return res.json(r); } await QUEUE.enqueue('simulation_run', { mode, adminId: req.userId }, { maxAttempts: 1 }); res.json({ queued: true, mode }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.get('/api/admin/simulate/latest', auth, perm('settings.read'), async (req, res) => { try { const { data } = await admin().from('app_settings').select('value').eq('key', 'simulation:latest').maybeSingle(); res.json({ report: (data && data.value) || null }); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post('/api/admin/simulate/purge', auth, perm('settings.write'), async (req, res) => { try { res.json(await SIMU.purge()); } catch (e) { res.status(400).json({ error: e.message }); } });
+/* ============================================================================================================================ */
 app.get('/api/config', (req, res) => {
   res.json({ supabaseUrl: process.env.SUPABASE_URL || '', supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '' });
 });
@@ -417,6 +1852,9 @@ app.get('/api/site-config', async (req, res) => {
   try {
     const cfg = await siteSettings.getConfig();
     const pub = siteSettings.publicView(cfg);
+    // Local-currency approximation for USD prices (PKR by default; per-user currency comes from /api/pay/quote).
+    try { const { perUsd } = require('./lib/pay'); const f = await perUsd('PKR'); pub.fx = { currency: 'PKR', rate: f.rate || null, live: !!f.live }; } catch (e) {}
+    try { const o = await orgForHost(req.headers['x-forwarded-host'] || req.headers.host); if (o) pub.whitelabel = { org_id: o.id, name: o.name, kind: o.kind, brand_color: (o.settings || {}).brand_color || null, logo_url: (o.settings || {}).logo_url || null, whatsapp: (o.settings || {}).whatsapp || null, phone: (o.settings || {}).phone || null, contact_email: (o.settings || {}).contact_email || (o.settings || {}).email || null, address: (o.settings || {}).address || null, website: (o.settings || {}).website || null, tagline: (o.settings || {}).tagline || null }; } catch (e) {}
     pub.fx = { usd_to_pkr: Number(cfg.ai && cfg.ai.usd_to_pkr) || 278 };
     // Real, admin-entered stories only - never fabricated defaults.
     pub.stories = Array.isArray(cfg.success_stories) ? cfg.success_stories.slice(0, 3).map(x => ({ name: String(x.name || '').slice(0, 40), text: String(x.text || '').slice(0, 140) })).filter(x => x.name && x.text) : [];
@@ -429,6 +1867,8 @@ let _stats = { at: 0, data: null };
 app.get('/api/stats', async (req, res) => {
   if (_stats.data && Date.now() - _stats.at < 600e3) return res.json(_stats.data);
   const out = { opportunities: 0, countries: 0, added7: 0 };
+  // Never hang a public endpoint on a slow database: answer the last good numbers (or zeros) after 4 seconds.
+  const guard = setTimeout(() => { if (!res.headersSent) res.json(_stats.data || out); }, 4000);
   try {
     const { count: n } = await admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified');
     out.opportunities = n || 0;
@@ -438,7 +1878,7 @@ app.get('/api/stats', async (req, res) => {
     const { count: a7 } = await admin().from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'verified').gte('created_at', wk);
     out.added7 = a7 || 0;
   } catch (e) {}
-  _stats = { at: Date.now(), data: out };
+  clearTimeout(guard); if (res.headersSent) return; _stats = { at: Date.now(), data: out };
   res.json(out);
 });
 app.get('/api/admin/settings', auth, perm('settings.read'), async (req, res) => {
@@ -473,7 +1913,7 @@ function pkrText(txt, rate) {
   const mult = cur === '€' || cur === 'EUR' ? 1.08 : cur === '£' || cur === 'GBP' ? 1.27 : 1;
   const pkr = amt * mult * (rate || 278);
   const nice = pkr >= 1e7 ? (pkr / 1e7).toFixed(1) + ' crore' : pkr >= 1e5 ? (pkr / 1e5).toFixed(1) + ' lakh' : Math.round(pkr).toLocaleString();
-  return '≈ Rs ' + nice;
+  return '';   // USD only on public pages; local approximations are off by policy
 }
 const seoPage = (title, desc, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | ForiForeign</title><meta name="description" content="${desc}"><link rel="canonical" href=""><style>body{margin:0;background:#050d1f;color:#eef4ff;font:15px/1.6 system-ui,Segoe UI,Arial}a{color:#00D4FF}.wrap{max-width:760px;margin:0 auto;padding:28px 16px}h1{font-size:26px;margin:6px 0}h2{font-size:18px;margin:18px 0 6px;color:#fff}.sub{color:#9db8e8;font-size:13px}.card{background:rgba(8,18,40,.92);border:1px solid rgba(140,178,255,.3);border-radius:14px;padding:14px;margin:10px 0}.chip{display:inline-block;border:1px solid rgba(140,178,255,.4);border-radius:999px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0;color:#cfe1ff}.g{color:#2dd4bf;font-weight:700}.cta{display:inline-block;background:linear-gradient(90deg,#1683FF,#00D4FF);color:#04101f;font-weight:800;padding:12px 22px;border-radius:12px;text-decoration:none;margin-top:14px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}</style></head><body><div class="wrap"><div class="top"><a href="/" style="font-weight:800;text-decoration:none;color:#fff">ForiForeign</a><a href="/" class="sub">Open the app →</a></div>${body}<a class="cta" href="/">See my matches - free CV analysis</a><div class="sub" style="margin-top:16px">Every opportunity verified on the official page before you see it. You review, you press Send. Built in Pakistan.</div></div></body></html>`;
 app.get('/s/:slug', async (req, res) => {
@@ -516,14 +1956,8 @@ app.get('/guide/:c', async (req, res) => {
   if (!g) return res.redirect('/');
   res.set('Cache-Control', 'public, max-age=3600');
   const links = SEO_SLUGS.filter(sl => { for (const [n, c] of Object.entries(SEO_COUNTRIES)) if (sl.endsWith(n) && c === g.cc) return true; return false; }).map(sl => `<a href="/s/${sl}">${sl.replace(/-/g, ' ')}</a>`).join(' · ');
-  res.send(seoPage(g.title, g.title + ' - real costs in PKR, visa steps and funding names, plus live verified opportunities.', `<h1>${g.title}</h1>${g.body}${links ? '<h2>Live openings</h2><div>' + links + '</div>' : ''}`));
+  res.send(seoPage(g.title, g.title + ' - real costs in USD, visa steps and funding names, plus live verified opportunities.', `<h1>${g.title}</h1>${g.body}${links ? '<h2>Live openings</h2><div>' + links + '</div>' : ''}`));
 });
-app.get('/sitemap.xml', (req, res) => {
-  const base = 'https://foriforeign.com';
-  const urls = ['/', ...SEO_SLUGS.map(x => '/s/' + x), ...Object.keys(SEO_GUIDES).map(x => '/guide/' + x)];
-  res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls.map(u => '<url><loc>' + base + u + '</loc></url>').join('') + '</urlset>');
-});
-app.get('/robots.txt', (req, res) => res.type('text/plain').send('User-agent: *\nAllow: /\nSitemap: https://foriforeign.com/sitemap.xml\n'));
 /* ---------- RBAC: my permissions + user role management ---------- */
 /* ---------- Spec 35/36: Complete Opportunity Intelligence report ---------- */
 app.get('/api/opportunities/:id/report', auth, async (req, res) => {
@@ -1018,7 +2452,7 @@ async function ensureAdminAllowance(userId) {
     const bal = await balance(userId);
     const top = ADMIN_ALLOWANCE - bal;
     if (top <= 0) return false;
-    await admin().from('credit_ledger').insert({
+    await ledgerWrite({
       user_id: userId, delta: top, reason: 'admin_allowance',
       note: 'Admin working allowance (' + ADMIN_ALLOWANCE + ' cases)'
     });
@@ -1034,8 +2468,14 @@ app.post('/api/admin/users/:id/role', auth, perm('users.write'), async (req, res
   const grantingAdmin = require('./lib/rbac').isAdminRole(role) && role !== 'user';
   if (grantingAdmin && !grantorFull) return res.status(403).json({ error: 'Only a super admin can assign admin roles' });
   if (req.params.id === req.userId && role === 'user') return res.status(400).json({ error: 'You cannot remove your own admin access' });
-  const { error } = await admin().from('profiles').update({ role }).eq('id', req.params.id);
+  /* THE PLATFORM ADMIN IS UNTOUCHABLE. A protected super_admin (the founder) cannot be demoted by anyone;
+     super_admin may only be granted or changed by a super_admin; organisation roles never map to platform roles. */
+  const { data: target } = await admin().from('profiles').select('role,protected_admin,email').eq('id', req.params.id).maybeSingle();
+  if (target && (target.protected_admin || OWNER_EMAILS.includes(String(target.email || '').toLowerCase())) && role !== 'super_admin') return res.status(403).json({ error: 'This account is the protected platform owner and cannot be changed.' });
+  if ((role === 'super_admin' || (target && target.role === 'super_admin')) && req.userRole !== 'super_admin') return res.status(403).json({ error: 'Only a super admin can change super admin accounts.' });
+  const { error } = await admin().from('profiles').update({ role, role_changed_at: new Date().toISOString() }).eq('id', req.params.id);
   if (error) return res.status(400).json({ error: error.message });
+  try { await admin().auth.admin.signOut(req.params.id, 'global'); } catch (e) {}
   // A newly promoted admin receives the working allowance immediately.
   let granted = false;
   if (grantingAdmin) granted = await ensureAdminAllowance(req.params.id);
@@ -1050,6 +2490,10 @@ app.post('/api/support', auth, async (req, res) => {
     user_id: req.userId, email: req.userEmail, subject, message, status: 'new'
   }).select().single();
   if (error) return res.status(400).json({ error: /support_tickets|relation/.test(error.message) ? 'Support is not set up yet (run migration 0013)' : error.message });
+  /* A consultancy's client is the consultancy's client: the ticket goes to the consultancy's members and its contact address; the platform's
+     responder does not read it. Direct applicants' tickets go to the platform. */
+  let routed = false; try { const { data: cl } = await admin().from('clients').select('org_id').eq('user_id', req.userId).eq('status', 'active').limit(1); if (cl && cl[0]) { const { data: og } = await admin().from('organisations').select('name,kind,settings').eq('id', cl[0].org_id).maybeSingle(); if (og && og.kind === 'agency') { routed = true; await admin().from('support_tickets').update({ org_id: cl[0].org_id, status: 'routed' }).eq('id', data.id); const { data: mem } = await admin().from('org_members').select('user_id').eq('org_id', cl[0].org_id).eq('status', 'active').in('role', ['owner', 'manager']).limit(20); for (const m of (mem || [])) await NOTIFY.push(m.user_id, 'support', 'Client question: ' + subject, message.slice(0, 300), 'work', cl[0].org_id); const to = (og.settings || {}).support_email || (og.settings || {}).contact_email || (og.settings || {}).email; if (to) { const M = require('./lib/mailer'); await M.send(to, '[' + og.name + '] Client question: ' + subject, M.wrap('Client question', message, 'work', { name: og.name, color: (og.settings || {}).brand_color || null }), { name: og.name, reply_to: req.userEmail }); } } } } catch (e) {}
+  if (!routed) { QUEUE.enqueue('support_respond', { ticketId: data.id }, { userId: req.userId, maxAttempts: 1 }).catch(() => {}); QUEUE.enqueue('support_triage', { ticketId: data.id }, { userId: req.userId, maxAttempts: 2 }).catch(() => {}); }
   res.json({ ok: true, ticket: { id: data.id } });
 });
 app.get('/api/support/mine', auth, async (req, res) => {
@@ -1121,7 +2565,7 @@ async function claimPromo(req, res) {
     const note = 'promo:' + promo.ends_at;
     const { data: prior } = await admin().from('credit_ledger').select('id').eq('user_id', req.userId).eq('note', note).limit(1);
     if (prior && prior.length) return res.status(409).json({ error: 'You already claimed this promo. Enjoy your free case!' });
-    await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 1, reason: 'promo_grant', note });
+    await ledgerWrite({ user_id: req.userId, delta: 1, reason: 'promo_grant', note });
     await admin().from('audit_log').insert({ actor: req.userId, event: 'PROMO_CLAIM', detail: note }).then(() => {}, () => {});
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -1136,9 +2580,10 @@ app.post('/api/admin/support/:id/grant-free-case', auth, perm('support.write'), 
     const grantNote = 'Free case via support ' + t.id;
     const { data: prior } = await admin().from('credit_ledger').select('id').eq('user_id', t.user_id).eq('note', grantNote).limit(1);
     if (prior && prior.length) return res.status(409).json({ error: 'Already granted for this ticket' });
-    await admin().from('credit_ledger').insert({ user_id: t.user_id, delta: 1, reason: 'support_grant', note: grantNote });
+    await ledgerWrite({ user_id: t.user_id, delta: 1, reason: 'support_grant', note: grantNote });
     const reply = 'Good news! We have added 1 free case to your account as a one-time gift. Run your search, view your best matches and choose the one you want, your case will be prepared completely, end to end. We wish you success!';
     await admin().from('support_tickets').update({ reply, status: 'answered', handled_by: req.userId }).eq('id', req.params.id);
+    try { const { data: tk } = await admin().from('support_tickets').select('user_id,email,subject').eq('id', req.params.id).maybeSingle(); const M = require('./lib/mailer'); if (tk && M.enabled()) { const { data: pu } = await admin().from('profiles').select('email').eq('id', tk.user_id).maybeSingle(); const to = (pu && pu.email) || tk.email; if (to) await M.send(to, 'Re: ' + (tk.subject || 'your message to ForiForeign'), M.wrap('Reply from ForiForeign Support', reply, 'home')); } } catch (e) {}
     await admin().from('audit_log').insert({ actor: req.userId, event: 'SUPPORT_GRANT_SOLO', detail: 'ticket ' + t.id + ' -> user ' + t.user_id }).then(() => {}, () => {});
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -1332,7 +2777,7 @@ app.get('/api/admin/ai-costs', auth, perm('aicost.read'), async (req, res) => {
     const override = Number(cfg.ai && cfg.ai.pkr_override_per_case);
     res.json({
       rate,
-      usd: { total: totalUsd.toFixed(4), today: todayUsd.toFixed(4), month: monthUsd.toFixed(4), perCase: perCaseUsd.toFixed(4) },
+      usd: { total: totalUsd.toFixed(4), today: todayUsd.toFixed(4), month: monthUsd.toFixed(4), perCase: perCaseUsd.toFixed(4) }, byModel,
       pkr: {
         total: toPkr(totalUsd), today: toPkr(todayUsd), month: toPkr(monthUsd),
         perCase: (isFinite(override) && override > 0) ? override : toPkr(perCaseUsd),
@@ -1453,10 +2898,11 @@ app.get('/api/me', auth, async (req, res) => {
   if (error && error.code === 'PGRST116') {
     // first login: create the profile row
     const isFounder = OWNER_EMAILS.includes((req.userEmail || '').toLowerCase());
-    let signupName = '';
-    try { const { data: ud } = await admin().auth.getUser((req.headers.authorization || '').replace(/^Bearer /, '')); signupName = ((ud && ud.user && ud.user.user_metadata) || {}).full_name || ''; } catch (e) {}
-    const ins = await admin().from('profiles').insert({ id: req.userId, full_name: signupName || req.userEmail.split('@')[0], role: isFounder ? 'super_admin' : 'user' }).select().single();
-    if (isFounder) await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 999, reason: 'grant', note: 'Founder account' });
+    let signupName = '', signupOrigin = 'PK', signupWa = '';
+    try { const { data: ud } = await admin().auth.getUser((req.headers.authorization || '').replace(/^Bearer /, '')); const md = ((ud && ud.user && ud.user.user_metadata) || {}); signupName = md.full_name || ''; signupWa = md.whatsapp || ''; if (require('./lib/i18n').ORIGINS[md.origin_country]) signupOrigin = md.origin_country; } catch (e) {}
+    let ins = await admin().from('profiles').insert({ id: req.userId, full_name: signupName || req.userEmail.split('@')[0], role: isFounder ? 'super_admin' : 'user', origin_country: signupOrigin, whatsapp: signupWa || null }).select().single();
+    if (ins.error) ins = await admin().from('profiles').insert({ id: req.userId, full_name: signupName || req.userEmail.split('@')[0], role: isFounder ? 'super_admin' : 'user' }).select().single();
+    if (isFounder) await ledgerWrite({ user_id: req.userId, delta: 999, reason: 'grant', note: 'Founder account' });
     data = ins.data;
   }
   if (!data) return res.status(500).json({ error: 'Profile unavailable' });
@@ -1467,10 +2913,11 @@ app.get('/api/me', auth, async (req, res) => {
     const isFounder2 = OWNER_EMAILS.includes((req.userEmail || '').toLowerCase());
     if (isFounder2) {
       if (!['admin', 'super_admin'].includes(data.role)) { await admin().from('profiles').update({ role: 'admin' }).eq('id', req.userId); data.role = 'admin'; }
+    if (!data.protected_admin) admin().from('profiles').update({ protected_admin: true }).eq('id', req.userId).then(() => {}, () => {});
       const bal2 = await balance(req.userId);
       if (bal2 < 100) {
         const { data: prior } = await admin().from('credit_ledger').select('id').eq('user_id', req.userId).eq('reason', 'founder_restore').limit(1);
-        if (!prior || !prior.length) await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 999 - bal2, reason: 'founder_restore', note: 'Founder account credit restore' });
+        if (!prior || !prior.length) await ledgerWrite({ user_id: req.userId, delta: 999 - bal2, reason: 'founder_restore', note: 'Founder account credit restore' });
       }
     }
   } catch (e) {}
@@ -1480,7 +2927,29 @@ app.get('/api/me', auth, async (req, res) => {
   let appCount = 0;
   try { const { count } = await admin().from('applications').select('id', { count: 'exact', head: true }).eq('user_id', req.userId); appCount = count || 0; } catch (e) {}
   data.used_free_case = appCount > 0;
-  res.json({ me: data, credits: await balance(req.userId) });
+  /* Phase 0 of the Global Mobility OS: every user belongs to an organisation (a personal
+     one by default) and is a client with a journey stage. Additive; nothing else changes. */
+  let org = null, client = null;
+  try { const t = require('./lib/tenancy'); org = await t.ensurePersonalOrg(req.userId, data); client = await t.selfClient(req.userId); } catch (e) {}
+  // forimail backbone: every account gets its unique address automatically; the user can pause/close it in Profile.
+  try { if (!data.apply_email) { const r = await require('./lib/casebrain').provisionApplyEmail(req.userId); data.apply_email = r.email; await CONSENT.record(req, req.userId, 'mailbox', {}, { apply_email: r.email }); } } catch (e) {}
+  try { if (data.origin_country && !data.timezone) { const tz = require('./lib/world').tzOf(data.origin_country); await admin().from('profiles').update({ timezone: tz }).eq('id', req.userId); data.timezone = tz; } } catch (e) {}
+  try { const { count: hasTerms } = await admin().from('consent_ledger').select('id', { count: 'exact', head: true }).eq('user_id', req.userId).eq('kind', 'terms'); if (!hasTerms) await CONSENT.record(req, req.userId, 'terms', {}, { via: 'first_login' }); } catch (e) {}
+  // Day 2: a pending team invitation for this email becomes a membership at login.
+  try { const n = await ORGS.acceptInvites(req.userId, data.email); if (n) data.joined_orgs = n; } catch (e) {}
+  res.json({ me: data, credits: await balance(req.userId), org: org && org.org ? { id: org.org.id, kind: org.org.kind, name: org.org.name, plan: org.org.plan, role: org.role } : null,
+    journey: client ? { client_id: client.id, stage: client.stage, stages: require('./lib/tenancy').STAGES } : null });
+});
+/* Organisation context for the coming consultant workspace. */
+app.get('/api/org/me', auth, async (req, res) => {
+  try {
+    const t = require('./lib/tenancy');
+    const { data: prof } = await admin().from('profiles').select('full_name,email').eq('id', req.userId).single();
+    const o = await t.ensurePersonalOrg(req.userId, prof || {});
+    if (!o) return res.status(500).json({ error: 'Organisation could not be loaded. Run migration 0033.' });
+    const { count } = await admin().from('clients').select('id', { count: 'exact', head: true }).eq('org_id', o.org.id).then(r => r, () => ({ count: 0 }));
+    res.json({ org: o.org, role: o.role, memberships: o.memberships, clients: count || 0, stages: t.STAGES });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 /* ---------- journey state for the state-driven post-login home (Stage 2) ----------
    Returns ONE state + the single next action the home should show. */
@@ -1570,6 +3039,7 @@ app.get('/api/home', auth, async (req, res) => {
     admin().from('payments').select('id,credits,amount_pkr,created_at').eq('user_id', uid).eq('status', 'pending').order('created_at', { ascending: false }).limit(1).then(r => r, () => ({ data: [] }))
   ]);
   try { out.support = { answered: (supR && supR.count) || 0 }; } catch (e) {}
+  try { const { data: pn } = await admin().from('profiles').select('next_action,journey_stage').eq('id', uid).maybeSingle(); out.next = pn && pn.next_action; out.journey_stage = pn && pn.journey_stage; if (!out.next) JE.recompute(uid); } catch (e) {}
   try {
     // Referral identity: every user gets a permanent code; balance rides along.
     const me = meR && meR.data;
@@ -1619,6 +3089,29 @@ app.put('/api/me', auth, async (req, res) => {
 });
 
 /* ---------- credits ---------- */
+/* ONE DOOR INTO THE LEDGER. The live table carries a CHECK constraint on `reason` that
+   predates most of the reasons this server writes ("admin_bypass", "admin_allowance",
+   "promo_grant", "referral_reward", ...). Every one of those inserts was silently
+   rejected, and the customer or admin saw nothing change. Every ledger write goes
+   through here: the original reason is tried first, then the canonical one the
+   constraint accepts ("grant" for a credit, "consume" for a debit), then no reason at
+   all. The original reason is preserved in the note so the audit trail stays complete. */
+async function ledgerWrite(row) {
+  const base = { ...row };
+  const attempts = [base];
+  const canon = Number(base.delta) < 0 ? 'consume' : (base.reason === 'refund' ? 'refund' : (base.reason === 'purchase' ? 'purchase' : 'grant'));
+  if (base.reason && base.reason !== canon) attempts.push({ ...base, reason: canon, note: ((base.note ? base.note + ' ' : '') + '[' + base.reason + ']').slice(0, 250) });
+  attempts.push({ user_id: base.user_id, delta: base.delta, reason: canon });
+  attempts.push({ user_id: base.user_id, delta: base.delta });
+  let last = null;
+  for (const a of attempts) {
+    const r = await ledgerWrite(a);
+    if (!r.error) return r;
+    last = r;
+  }
+  try { require('./lib/oblog').errlog('ledger:write', new Error(last && last.error && last.error.message || 'ledger insert failed'), { userId: base.user_id, reason: base.reason }); } catch (e) {}
+  return last;
+}
 async function balance(userId) {
   /* If the credit_balance() SQL function is missing or errors, the old code returned 0
      for everyone: a confirmed payment landed in the ledger and the customer still saw
@@ -1809,6 +3302,7 @@ function complexity(o) {
 }
 function lockTease(o) {
   const _tk = identityTokens(o);
+  /* Day 7: a partner-posted opening is labelled, never boosted; the label is the only difference. */
   const S = v => v == null ? null : (scrubIdentity(String(v), o, _tk) || null);
   return {
     id: o.id, kind: o.kind, country_code: o.country_code, deadline: o.deadline,
@@ -1817,6 +3311,10 @@ function lockTease(o) {
     general_title: generalTitle(o),
     hint: hintLabel(o), relevance_line: relevanceLine(o), complexity: complexity(o),
     remote_scope: remoteScope(o), remote: (o.remote === true || o.remote === false) ? o.remote : null,
+    partner: !!o.is_partner,
+    sponsor_verified: o.sponsor_verified == null ? null : !!o.sponsor_verified,
+    quality: (typeof DQ !== 'undefined' && DQ) ? DQ.score(o) : null, eligibility_flag: o.eligibility_flag || null, category: o.category || null,
+    employer_verified: o.employer_verified == null ? null : !!o.employer_verified,
     field: S(o.req_field || o.field),
     funding: S(o.funding), funding_type: o.funding_type || null, level: o.level || null,
     /* MONEY IS THE FIRST QUESTION EVERY APPLICANT ASKS, and the locked payload was
@@ -2013,6 +3511,7 @@ app.post('/api/payments', auth, async (req, res) => {
       try { require('./lib/oblog').errlog('payments:proof-upload', new Error(up.error.message || 'upload failed'), { userId: req.userId }); } catch (e) {}
     }
   } catch (e) {}
+  try { const t = require('./lib/tenancy'); const c = await t.selfClient(req.userId); if (c) await t.advanceStage(c.id, 'decide'); } catch (e) {}
   try { await admin().from('audit_log').insert({ actor: req.userId, event: 'PAYMENT_DECLARED', detail: data.id + ' ' + pack.credits + 'cr Rs' + Math.max(0, pack.pkr - discount) + (data.proof_path ? ' screenshot attached' : ' NO screenshot') }); } catch (e) {}
   res.json({ payment: data, amount_pkr: Math.max(0, pack.pkr - discount), list_pkr: pack.list_pkr || pack.pkr,
     promo_applied: !!pack.list_pkr, discount_pkr: discount,
@@ -2031,9 +3530,8 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
      still had nothing, and nobody was told. It is verified now, retried with a minimal
      row, and if it still fails the confirmation is rolled back so it can be retried. */
   const creditsN = Math.max(1, Math.round(Number(p.credits) || 0));
-  let led = await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: creditsN, reason: 'purchase', payment_id: p.id, note: 'Payment ' + p.id });
-  if (led.error) led = await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: creditsN, reason: 'purchase' });
-  if (led.error) led = await admin().from('credit_ledger').insert({ user_id: p.user_id, delta: creditsN });
+  let led = await ledgerWrite({ user_id: p.user_id, delta: creditsN, reason: 'purchase', payment_id: p.id, note: 'Payment ' + p.id });
+  if (led.error) led = await ledgerWrite({ user_id: p.user_id, delta: creditsN, reason: 'purchase' });
   if (led.error) {
     await admin().from('payments').update({ status: 'pending', confirmed_by: null, confirmed_at: null }).eq('id', p.id).then(() => {}, () => admin().from('payments').update({ status: 'pending' }).eq('id', p.id));
     try { require('./lib/oblog').errlog('payments:confirm-ledger', new Error(led.error.message || 'ledger insert failed'), { paymentId: p.id }); } catch (e) {}
@@ -2078,6 +3576,9 @@ app.post('/api/payments/:id/confirm', auth, perm('payments.write'), async (req, 
     status: 'answered'
   }).then(() => {}, () => {});
   await admin().from('audit_log').insert({ actor: req.userId, event: 'PAYMENT_CONFIRMED', detail: p.id + ' +' + p.credits + 'cr' });
+  if (p.addon_key) { await admin().from('user_addons').insert({ user_id: p.user_id, addon_key: p.addon_key, payment_id: p.id, expires_at: p.addon_key === 'residence_year' ? new Date(Date.now() + 365 * 86400000).toISOString() : null }).then(() => {}, () => {}); }
+  accrueCommission(p).catch(() => {}); JE.recompute(p.user_id);
+  NOTIFY.push(p.user_id, 'payment_approved', 'Payment approved: ' + creditsN + ' case' + (creditsN === 1 ? '' : 's') + ' active', 'Open your matches and choose the positions to prepare.', 'home').catch(() => {});
   const newBal = await balance(p.user_id).catch(() => null);
   res.json({ ok: true, credits_added: creditsN, balance: newBal });
 });
@@ -2120,7 +3621,7 @@ app.post('/api/admin/bypass-activate', auth, async (req, res) => {
     const want = isFinite(asked) && asked > 0 ? Math.max(999, Math.round(asked)) : 999;
     const bal0 = await balance(req.userId).catch(() => 0);
     const topUp = Math.max(1, want - bal0);
-    const { error } = await admin().from('credit_ledger').insert({ user_id: req.userId, delta: topUp, reason: 'admin_bypass', note: 'Staff activation, no payment' });
+    const { error } = await ledgerWrite({ user_id: req.userId, delta: topUp, reason: 'admin_bypass', note: 'Staff activation, no payment' });
     if (error) return res.status(400).json({ error: error.message });
     try { await resetSearchAllowance(req.userId); } catch (e) {}
     try { await admin().from('audit_log').insert({ actor: req.userId, event: 'ADMIN_BYPASS_ACTIVATE', detail: '+' + topUp + ' credits, no payment' }); } catch (e) {}
@@ -2392,8 +3893,19 @@ app.get('/api/opportunities', auth, async (req, res) => {
       } catch (e) {}
       const wantedCountries = multi(req.query.country).map(x => String(x).toUpperCase());
       const m = await matchMany(req.userId, opportunities, wantedLevels, wantedCountries);
+      /* Day 6 · outcome learning: a bounded nudge (±4) from verified outcomes of applicants in
+         the same field at the same destination, always with a sentence explaining it. */
+      try {
+        const LEARN = require('./lib/learning'); const learn = await LEARN.current();
+        if (learn && learn.groups && learn.groups.length) {
+          const { data: pf } = await admin().from('profiles').select('field,profession').eq('id', req.userId).maybeSingle();
+          const fb = LEARN.bucketField(pf && (pf.field || pf.profession));
+          const oppOf = Object.fromEntries(opportunities.map(o => [o.id, o]));
+          for (const x of m) { if (x.status === 'not_eligible' || x.pct == null) continue; const n = LEARN.nudge(learn, oppOf[x.id], fb); if (n.delta) { x.pct = Math.max(0, Math.min(99, x.pct + n.delta)); x.outcome_note = n.note; } }
+        }
+      } catch (e) {}
       const byId = {}; m.forEach(x => { byId[x.id] = x; });
-      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct, dims: byId[o.id].dims, overqualified: byId[o.id].overqualified, fieldMismatch: byId[o.id].fieldMismatch, wrongTarget: byId[o.id].wrongTarget, levelUnknown: byId[o.id].levelUnknown, adjacentRole: byId[o.id].adjacentRole, adjacentEvidence: byId[o.id].adjacentEvidence } : null }));
+      opportunities = opportunities.map(o => ({ ...o, match: byId[o.id] ? { status: byId[o.id].status, pct: byId[o.id].pct, dims: byId[o.id].dims, outcome_note: byId[o.id].outcome_note || null, overqualified: byId[o.id].overqualified, fieldMismatch: byId[o.id].fieldMismatch, wrongTarget: byId[o.id].wrongTarget, levelUnknown: byId[o.id].levelUnknown, adjacentRole: byId[o.id].adjacentRole, adjacentEvidence: byId[o.id].adjacentEvidence } : null }));
       // HARD RELEVANCE GATE (never show the user anything that is not a real fit):
       //  - below the applicant's own level (PhD holder must never see MPhil/Masters/Bachelors)
       //  - a clear field/profession mismatch (pharmacist must not see biochemistry-only roles)
@@ -2590,7 +4102,7 @@ async function createApplication(req, res) {
   if (!isAdmin) {
     const balNow = await balance(req.userId);
     if (balNow < 1) return res.status(402).json({ error: 'Your matches are ready. Choose a package to start this case.' });
-    const { error: dErr } = await admin().from('credit_ledger').insert({ user_id: req.userId, delta: -1, reason: 'consume', note: opp.institution });
+    const { error: dErr } = await ledgerWrite({ user_id: req.userId, delta: -1, reason: 'consume', note: opp.institution });
     if (dErr) return res.status(400).json({ error: 'Could not start this case. Please try again.' });
     debited = true;
   }
@@ -2598,7 +4110,7 @@ async function createApplication(req, res) {
     .insert({ user_id: req.userId, opportunity_id: opp.id, case_no: caseNo, stage: 'preparing', credits_consumed: isAdmin ? 0 : 1 })
     .select().single();
   if (error) {
-    if (debited) { try { await admin().from('credit_ledger').insert({ user_id: req.userId, delta: 1, reason: 'refund', note: 'Case could not be created' }); } catch (e) {} }
+    if (debited) { try { await ledgerWrite({ user_id: req.userId, delta: 1, reason: 'refund', note: 'Case could not be created' }); } catch (e) {} }
     return res.status(400).json({ error: error.message.includes('duplicate') ? 'You already have an application for this opportunity' : error.message });
   }
   if (debited) { try { await admin().from('credit_ledger').update({ application_id: appRow.id }).eq('user_id', req.userId).eq('reason', 'consume').is('application_id', null); } catch (e) {} }
@@ -2628,6 +4140,8 @@ app.post('/api/documents', auth, up.array('files', 20), enforceUploadLimits, asy
     }
     const ok = results.some(r => !r.error);
     res.json({ ok, results, autofill: ok });
+    // Phase 1: every upload is read by the document reader on the queue (type, dates, expiry, cross-checks).
+    for (const r of results) if (r.id) QUEUE.enqueue('vault_read', { docId: r.id, userId: req.userId }, { userId: req.userId, maxAttempts: 2 }).catch(() => {});
     // A referred user uploading a document is the qualification event: check the
     // referrer's milestones now so rewards issue automatically, never manually.
     try {
@@ -2636,14 +4150,8 @@ app.post('/api/documents', auth, up.array('files', 20), enforceUploadLimits, asy
         require('./lib/referral').syncRewards(prof.referred_by).catch(() => {});
       }
     } catch (e) {}
-    if (ok) setTimeout(() => {
-      // Extraction rides the same surge gate as search and prepare: even 50
-      // simultaneous uploads queue fairly instead of storming the AI provider.
-      require('./lib/jobs').runJob('prepare', 'autofill:' + req.userId + ':' + Date.now(), req.userId,
-        () => extractProfile(req.userId),
-        { retries: 0, timeoutMs: 300000 }
-      ).catch(e => admin().from('audit_log').insert({ actor: req.userId, event: 'AUTOFILL_FAIL', detail: String(e.message).slice(0, 200) }).then(() => {}, () => {}));
-    }, 1200);
+    // Day 9: profile extraction is a durable queue job (retried, survives a restart) instead of a timer.
+    if (ok) QUEUE.enqueue('profile_extract', { userId: req.userId }, { userId: req.userId, maxAttempts: 2 }).catch(e => admin().from('audit_log').insert({ actor: req.userId, event: 'AUTOFILL_FAIL', detail: String(e.message).slice(0, 200) }).then(() => {}, () => {}));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 /* ---------- profile avatar (private bucket, signed URL) ---------- */
@@ -2918,6 +4426,7 @@ app.get('/api/applications/:id/package', auth, async (req, res) => {
     licInfo.license_number = x.license_number || '';
     licInfo.profession = (x.professions && x.professions[0]) || x.profession || pr.field || '';
   } catch (e) {}
+  try { const { data: pe } = await admin().from('profiles').select('apply_email').eq('id', req.userId).maybeSingle(); pkg.from_mailbox = pe && pe.apply_email || null; pkg.mailbox_sending = require('./lib/mailer').enabled(); pkg.attach_doc_ids = (pkg.attachments || []).map(x => x.id).filter(Boolean); } catch (e) {}
   pkg.profile = { full_name: pr.full_name, email: pr.email, phone: pr.phone, city: pr.city, address: pr.address,
     last_institution: pr.last_institution, degree_level: pr.degree_level, field: pr.field, cgpa: pr.cgpa,
     experience_years: pr.experience_years, language_scores: pr.language_scores, linkedin: pr.linkedin,
@@ -2987,6 +4496,7 @@ app.post('/api/opportunities/:id/reject', auth, async (req, res) => {
 /* Has this account ever paid? Referral rewards are for paying customers only, so the
    programme cannot be farmed by accounts that never buy anything. */
 async function hasEverPaid(userId) {
+  if (await isPlatformStaff(userId)) return true;   // FF staff are never blocked by a payment page
   try {
     const { data } = await admin().from('payments').select('id').eq('user_id', userId).eq('status', 'confirmed').limit(1);
     if (data && data.length) return true;
@@ -3072,6 +4582,7 @@ app.post('/api/run/topup', auth, async (req, res) => {
     (async () => {
       try {
         const { discoverForUser } = require('./lib/engine');
+        if (req._freeTier) prefs.maxPasses = 1;
         const added = await discoverForUser(req.userId, kind, prefs);
         await admin().from('app_settings').upsert({ key: prefs.progressKey, value: {
           status: 'done', found: added, kind, target: prefs.target, finishedAt: new Date().toISOString() } });
@@ -3142,7 +4653,7 @@ app.post('/api/referral/redeem', auth, (req, res) => withUserLock(req.userId, as
     const credit = await R.redeem(req.userId, 'solo_activation');
     if (!credit) return res.status(400).json({ error: 'You have no active free credits right now.' });
     // Grant exactly one case credit through the normal ledger.
-    await admin().from('credit_ledger').insert({
+    await ledgerWrite({
       user_id: req.userId, delta: 1, reason: 'referral_reward',
       note: 'Free case credit from referral milestone ' + credit.milestone
     });
@@ -3936,6 +5447,9 @@ async function fairUse(req, res, next) {
     const everPaid = await hasEverPaid(req.userId).catch(() => false);
     const dayMax = everPaid ? (Number(fu.paid_daily_searches) || 5) : (Number(fu.daily_searches) || 3);
     const { day } = await searchCounts(req.userId);
+    /* FREE TIER ECONOMICS: an unpaid account gets a lifetime allowance of full searches (default 10, Settings → fair_use.free_lifetime_searches)
+       and each free search runs one discovery pass instead of three. Cost per free user is therefore bounded; see Admin → Economics. */
+    if (!everPaid) { const { data: pf } = await admin().from('profiles').select('free_searches_used').eq('id', req.userId).maybeSingle(); const used = (pf && pf.free_searches_used) || 0; const life = Number(fu.free_lifetime_searches) || 10; if (used >= life) return res.status(402).json({ error: 'You have used your ' + life + ' free searches. Your matches are saved; a package unlocks unlimited daily searches and prepares your applications.', fair_use: true, scope: 'lifetime', used, limit: life, paid: false, offer: 'package' }); await admin().from('profiles').update({ free_searches_used: used + 1 }).eq('id', req.userId); req._freeTier = true; }
     if (day >= dayMax) {
       try { await admin().from('audit_log').insert({ actor: req.userId, event: 'SEARCH_LIMIT_DAY', detail: day + '/' + dayMax }); } catch (e) {}
       // Tell them exactly when it refills, in their own timezone, not a vague "tomorrow".
@@ -4265,7 +5779,9 @@ try {
 // Boot sweeper: a restart mid-job leaves rows stuck 'running' forever. Sweep them
 // to 'failed' so retries work and the failed-jobs metric stays truthful.
 (async () => { try { await admin().from('jobs').update({ status: 'failed', last_error: 'server restarted mid-job', updated_at: new Date().toISOString() }).eq('status', 'running'); } catch (e) {} })();
-app.listen(PORT, () => {
+const _server = app.listen(PORT, () => {
   console.log('ForiForeign core on :' + PORT);
   try { require('./lib/agents').startAgents(); } catch (e) { console.error('[agents]', e.message); }
 });
+/* Graceful shutdown (Railway sends SIGTERM on deploy): stop taking requests, let in-flight work finish, then exit. */
+try { _server.setTimeout(120000); process.on('SIGTERM', () => { console.log('[shutdown] SIGTERM'); try { _server.close(() => process.exit(0)); } catch (e) { process.exit(0); } setTimeout(() => process.exit(0), 25000).unref(); }); } catch (e) {}

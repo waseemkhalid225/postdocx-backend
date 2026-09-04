@@ -1,0 +1,20 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ForiForeign API</title>
+<style>body{font-family:Inter,system-ui,sans-serif;background:#070F22;color:#D6E9FF;margin:0;padding:24px;line-height:1.55}h1,h2{color:#fff}code,pre{font-family:ui-monospace,monospace;font-size:13px}pre{background:#0E1F42;border:1px solid #2B4A80;border-left:5px solid #00D4FF;padding:12px;border-radius:8px;overflow:auto}table{border-collapse:collapse;width:100%;font-size:13.5px}th,td{border:1px solid #2B4A80;padding:6px 8px;text-align:left;vertical-align:top}th{background:#0E1F42;color:#fff}a{color:#7EE6FF}.wrap{max-width:900px;margin:0 auto}</style></head><body><div class="wrap">
+<h1>ForiForeign API <span style="font-size:14px;color:#8FA9CE">v1</span></h1>
+<p>Read access to your own organisation's data, and signed webhooks for events. Keys are created by an organisation owner under <b>Workspace → Team → API keys</b>. Send the key in the <code>x-api-key</code> header. All responses are JSON. Base URL: <code>https://foriforeign.com</code>.</p>
+<h2>Endpoints</h2>
+<table><tr><th>Method · Path</th><th>Returns</th></tr>
+<tr><td><code>GET /api/v1/clients</code></td><td>Your clients: id, name, contact, lane, journey stage, branch, timestamps (max 200, newest first).</td></tr>
+<tr><td><code>GET /api/v1/openings</code></td><td>Your posted openings (institutions/employers): title, kind, country, deadline, status.</td></tr>
+<tr><td><code>GET /api/v1/applicants</code></td><td>Applications to your openings. Applicant identity appears only after the applicant consents.</td></tr></table>
+<pre>curl -H "x-api-key: ffk_..." https://foriforeign.com/api/v1/clients</pre>
+<h2>Webhooks</h2><p>Created under <b>Workspace → Team → Webhooks</b>. Each delivery is a POST with JSON body and these headers: <code>x-ff-event</code>, <code>x-ff-delivery</code>, <code>x-ff-signature</code> (<code>sha256=</code> + HMAC-SHA256 of the raw body using your webhook secret). Reply 2xx within 10 seconds; failures retry with backoff up to 5 times.</p>
+<table><tr><th>Event</th><th>When</th></tr><tr><td>client.created</td><td>A consultant creates a client.</td></tr><tr><td>client.stage_changed</td><td>A client moves along the journey (lead → … → PR).</td></tr><tr><td>task.created</td><td>A task is added to a client.</td></tr><tr><td>offer.recorded</td><td>An admission or job offer is recorded for a client.</td></tr><tr><td>applicant.status_changed</td><td>You (a partner) change an applicant's status.</td></tr><tr><td>commission.accrued</td><td>A package sold through your client earned commission.</td></tr><tr><td>visa.case_updated</td><td>A client's visa file changes status.</td></tr></table>
+<pre>// Node.js verification
+const crypto = require('crypto');
+function verify(rawBody, header, secret) {
+  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  return header.length === expected.length && crypto.timingSafeEqual(Buffer.from(header), Buffer.from(expected));
+}</pre>
+<h2>White-label</h2><p>Owners can attach their own domain under <b>Workspace → Team → Domain</b>. Add a DNS TXT record <code>_foriforeign.yourdomain.com</code> with the token shown, point the domain (CNAME) at <code>foriforeign.com</code>, and verify. Visitors on your domain see your name, colour and logo; people who sign up there become your clients.</p>
+<p style="color:#8FA9CE;margin-top:24px">Rate limit: 600 requests per hour per key. Questions: admin@foriforeign.com</p></div></body></html>

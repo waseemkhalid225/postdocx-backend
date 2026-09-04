@@ -5,7 +5,12 @@
   "scripts": {
     "start": "node server.js",
     "test": "node test/oppfilter.test.js && node test/lockdown.test.js && node test/search.test.js && node test/paywall.test.js && node test/resilience.test.js && node test/profile.test.js && node test/pdf.test.js && node test/extension.test.js && node test/referral.test.js && node test/e2e.test.js && node tools/audit-wiring.js",
-    "audit": "node tools/audit-wiring.js"
+    "audit": "node tools/audit-wiring.js",
+    "backup": "node tools/backup.js",
+    "restore": "node tools/restore.js",
+    "build:web": "node tools/build-web.js",
+    "prestart": "node tools/build-web.js || true",
+    "build:sql": "node tools/build-sql.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
@@ -13,13 +18,18 @@
     "compression": "^1.7.4",
     "dotenv": "^16.6.1",
     "express": "^4.22.2",
+    "ioredis": "^5.11.1",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.6.0",
+    "otplib": "^12.0.1",
     "pdfkit": "^0.15.0",
     "sharp": "^0.35.4",
     "ws": "^8.21.3"
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "terser": "^5.51.2"
   }
 }

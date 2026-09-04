@@ -1,0 +1,30 @@
+// tools/browser-worker.js — run on a separate Railway service with a Playwright base image
+// (mcr.microsoft.com/playwright:v1.4x-jammy) and the same env. Rename to browser-worker.js to activate.
+// It exposes watch({login_url,status_url,username,password,portal_key}) → {status_text, extracted}.
+// Portal adapters are added per portal (selectors for username/password/submit and the status container).
+const { chromium } = require('playwright');
+const ADAPTERS = { default: { user: 'input[type=email],input[name*=user],input[name*=email]', pass: 'input[type=password]', submit: 'button[type=submit],input[type=submit]', status: 'main,body' } };
+async function watch(p) {
+  const a = ADAPTERS[p.portal_key] || ADAPTERS.default; const browser = await chromium.launch({ headless: true }); const page = await browser.newPage();
+  try { await page.goto(p.login_url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    if (p.username && p.password) { await page.fill(a.user, p.username); await page.fill(a.pass, p.password); await page.click(a.submit); await page.waitForLoadState('networkidle', { timeout: 45000 }); }
+    if (p.status_url) await page.goto(p.status_url, { waitUntil: 'networkidle', timeout: 45000 });
+    const text = (await page.locator(a.status).first().innerText()).replace(/\s+/g, ' ').slice(0, 4000);
+    return { status_text: text, extracted: { url: page.url() } };
+  } finally { await browser.close(); }
+}
+module.exports = { watch };
+
+
+/* ---------- FILL PLAN (R6400): stronger data filling with the person kept in the loop ----------
+   1. Read the form: collect visible labels/placeholders/names of inputs on the page.
+   2. Ask the server for a plan: POST /api/portal/:id/fill-plan { fields:[...] } with header x-worker-token.
+   3. Fill every field with a value and confidence >= 0.8; leave the rest.
+   4. STOP before payment, captcha, declarations, signatures and the final submit; the server has already notified the
+      person that their presence is needed (WhatsApp + in-app). Report back with /api/portal/:id/needs-you { why }.
+   Example (Playwright):
+   const fields = await page.$$eval('input,select,textarea', els => els.map(e => ({ label: (e.labels && e.labels[0] && e.labels[0].innerText) || e.placeholder || e.name || e.id, type: e.type, name: e.name })).filter(f => f.label));
+   const plan = await (await fetch(BASE + '/api/portal/' + id + '/fill-plan', { method: 'POST', headers: { 'content-type': 'application/json', 'x-worker-token': TOKEN }, body: JSON.stringify({ fields }) })).json();
+   for (const p of plan.plan) if (p.value && p.confidence >= 0.8 && !p.needs_person) { const el = await page.$(`[name="${p.field}"], [placeholder="${p.field}"]`); if (el) await el.fill(String(p.value)); }
+   if (plan.notify_sent) await fetch(BASE + '/api/portal/' + id + '/needs-you', { method: 'POST', headers: { 'content-type': 'application/json', 'x-worker-token': TOKEN }, body: JSON.stringify({ why: 'payment / captcha / declaration step' }) });
+*/

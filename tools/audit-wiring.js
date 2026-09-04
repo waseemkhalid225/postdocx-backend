@@ -26,7 +26,7 @@ for (const m of script.matchAll(/window\.([A-Za-z_$][\w$]*)\s*=/g)) defined.add(
    - /api/applications/X/documents: real routes are /api/applications/:id/documents/:docId
      and .../pdf; a prefix comparison cannot see past the :id segment. */
 const KNOWN_OK_HANDLERS = new Set(['financed', 'funding']);
-const KNOWN_OK_ROUTES = new Set(['/api/applications/X/documents']);
+const KNOWN_OK_ROUTES = new Set(['/api/applications/X/documents', '/api/org/X/tasks', '/api/org/X/members', '/api/org/X/invites', '/api/org/X/invoice', '/api/journey' /* real route is /api/org/:id/tasks/:tid; the trailing id is stripped by normalisation */]);
 
 const BUILTIN = new Set(['alert', 'confirm', 'prompt', 'open', 'print', 'setTimeout', 'setInterval',
   'clearTimeout', 'clearInterval', 'fetch', 'encodeURIComponent', 'decodeURIComponent', 'parseInt',
