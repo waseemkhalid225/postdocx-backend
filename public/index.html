@@ -986,6 +986,22 @@ body.cc-client .stage-offers,body.cc-client #spotlightRail,body.cc-client .refer
 .brand{display:inline-flex;align-items:center;gap:9px;text-decoration:none;color:#0B1B3A}.brand img{width:34px;height:34px;display:block;flex:none}.brand span{font-size:22px;font-weight:800;letter-spacing:-.01em}
 @media (max-width:640px){.brand span{display:none}.brand img{width:32px;height:32px}}
 body.light .auth-brand-lg{display:inline-flex;align-items:center;gap:12px}body.light .auth-brand-lg img{width:56px;height:56px}
+
+/* ===== SCROLLBARS: black and thick, app-wide ===== */
+html{scrollbar-color:#0B1B3A #E3E9F6;scrollbar-width:auto}
+*::-webkit-scrollbar{width:14px;height:14px}*::-webkit-scrollbar-track{background:#E3E9F6}*::-webkit-scrollbar-thumb{background:#0B1B3A;border-radius:8px;border:3px solid #E3E9F6}*::-webkit-scrollbar-thumb:hover{background:#000}
+/* jet-black readable forms and lists */
+body.light input,body.light select,body.light textarea{color:#000!important;font-size:15px}body.light label{color:#0B1B3A!important;font-weight:700;letter-spacing:.03em}body.light .card b,body.light .card strong{color:#0B1B3A}
+.vbox{border:1px solid #E3E9F6;border-radius:14px;padding:10px 12px;margin-top:10px;background:#fff}.vbox.must{border-color:#1683FF}.vbox.can{border-color:#E3E9F6}.vbox-h{font:800 12px Inter;letter-spacing:.05em;text-transform:uppercase;color:#0B1B3A;margin-bottom:4px}.vbox.must .vbox-h{color:#1683FF}
+
+/* ===== CONTRAST II: no whitish or silver text anywhere. Labels blue, values black, inactive nav slate. ===== */
+body.light .sub[style*="font:700 11px"],body.light .sub[style*="letter-spacing"],body.light .k,body.light .lbl,body.light label,body.light th{color:#1256B8!important;font-weight:700}
+body.light .sub{color:#3B4B6B!important}body.light .card .sub b{color:#0B1B3A}
+body.light #nav button{color:#2F3E5C!important;opacity:1!important}body.light #nav button.on,body.light #nav button.active{color:#0B1B3A!important;background:#EAF1FE}
+body.light .pf-row td:first-child,body.light .profile-k{color:#1256B8!important}
+body.light .pid-card{background:linear-gradient(135deg,#0B1B3A,#1256B8)!important}body.light .pid-card h2,body.light .pid-card .pid-head,body.light .pid-card .sub,body.light .pid-card span{color:#fff!important;text-shadow:none!important;opacity:1}body.light .pid-card .chip{background:rgba(255,255,255,.16)!important;border-color:rgba(255,255,255,.4)!important;color:#fff!important;font-weight:700}
+body.light [style*="color:#8FA9CE"],body.light [style*="color:#6B7A99"],body.light [style*="color:#7B88A3"],body.light [style*="color:#5C6B8A"],body.light [style*="color:#9aa"],body.light [style*="color:#aab"]{color:#3B4B6B!important}
+body.light input::placeholder{color:#7B88A3!important}
 </style></head>
 <body>
 <div id="worldBg"></div>
@@ -1159,7 +1175,8 @@ function laneChooser(){try{if(ME&&ME.lane_pref){try{localStorage.setItem('ffLane
 function laneSet(l){try{localStorage.setItem('ffLaneChosen',l);localStorage.setItem('ffLane',l);window._lane=l;window._ex=Object.assign(window._ex||{},{kind:l});api('/api/me',{method:'PUT',body:{lane_pref:l}}).catch(()=>{})}catch(e){}document.querySelectorAll('.ff-ack').forEach(x=>x.remove());go('home')}
 async function afterLogin(){
   document.querySelector('header').style.display='flex';
-  document.body.classList.add('authed');setTimeout(()=>{try{if(ME&&ME.role==='user')laneChooser()}catch(e){}},900);try{api('/api/fx').then(d=>{window._fx=d.rates||d||{};window._fxAsOf=d.as_of||null;try{localStorage.setItem('ffOrigin',(ME&&ME.origin_country)||'')}catch(e){}}).catch(()=>{})}catch(e){}try{const it=localStorage.getItem('ffIntent');if(it&&it!=='applicant'){localStorage.removeItem('ffIntent');setTimeout(()=>{const wb=document.querySelector('#nav button[data-t=work]');if(wb)wb.style.display='';toast(it==='agency'?'Open your FF-CRM: name it and invite your team.':'Open your partner workspace: name your institution.');go('work')},1200)}}catch(e){}placeNav();$('nav').style.display='flex';$('outBtn').style.display='inline-block';
+  document.body.classList.add('authed');setTimeout(()=>{try{if(ME&&ME.role==='user')laneChooser()}catch(e){}},900);
+  try{if(ME&&isAdminRole(ME.role)&&!localStorage.getItem('ffAdminView')){window._adminTab='overview';setTimeout(()=>go('adminx'),80);const b=$('outBtn');if(b&&!$('viewSwitch')){b.insertAdjacentHTML('beforebegin','<button id="viewSwitch" class="btn b-line" style="padding:6px 10px;font-size:12px;margin-right:6px" onclick="const on=localStorage.getItem(\'ffAdminView\')===\'applicant\';if(on){localStorage.removeItem(\'ffAdminView\');this.textContent=\'Applicant view\';window._adminTab=\'overview\';go(\'adminx\')}else{localStorage.setItem(\'ffAdminView\',\'applicant\');this.textContent=\'Admin view\';go(\'home\')}">Applicant view</button>')}}else if(ME&&isAdminRole(ME.role)){const b=$('outBtn');if(b&&!$('viewSwitch'))b.insertAdjacentHTML('beforebegin','<button id="viewSwitch" class="btn b-line" style="padding:6px 10px;font-size:12px;margin-right:6px" onclick="localStorage.removeItem(\'ffAdminView\');window._adminTab=\'overview\';go(\'adminx\')">Admin view</button>')}}catch(e){}try{api('/api/fx').then(d=>{window._fx=d.rates||d||{};window._fxAsOf=d.as_of||null;try{localStorage.setItem('ffOrigin',(ME&&ME.origin_country)||'')}catch(e){}}).catch(()=>{})}catch(e){}try{const it=localStorage.getItem('ffIntent');if(it&&it!=='applicant'){localStorage.removeItem('ffIntent');setTimeout(()=>{const wb=document.querySelector('#nav button[data-t=work]');if(wb)wb.style.display='';toast(it==='agency'?'Open your FF-CRM: name it and invite your team.':'Open your partner workspace: name your institution.');go('work')},1200)}}catch(e){}placeNav();$('nav').style.display='flex';$('outBtn').style.display='inline-block';
   /* SPEED: the dashboard payload is requested in the same breath as the profile, not
      after it. One round-trip instead of two before the first real paint. */
   try{window._homePrefetch=api('/api/home').catch(()=>null)}catch(e){}
@@ -2222,7 +2239,7 @@ async function exploreInstitution(name){
   }catch(e){el.innerHTML='<div class="card">'+esc(e.message)+'</div>'}
 }
 /* ---------- Gap 12 · Profile grouped into tabs (About · Documents · Journey · Settings) ---------- */
-const PTABS=[['about','About me',['Global Mobility Profile','My profile','My referees','Profile']],['docs','Documents',['Document vault','My documents']],['journey','Journey',['Visa readiness','After the visa','My offers & interviews','Family & long-term residence','Portal watch']],['settings','Settings',['My ForiForeign mailbox','Language']]];
+const PTABS=[['about','About me',['Global Mobility Profile','My profile','My referees','Profile']],['docs','Documents',['Document vault','My documents']],['journey','Journey',['Visa readiness','After the visa','Offers & interviews','Offers &amp; interviews','Family & long-term residence','Portal watch']],['settings','Settings',['My ForiForeign mailbox','Language']]];
 function profileTabs(){
   const cards=[...document.querySelectorAll('#view > .card, #view .card')].filter(c=>c.parentElement&&c.parentElement.id==='view');if(cards.length<6)return;
   const groupOf=c=>{const h=(c.querySelector('h3,h2,b')||{}).textContent||'';for(const [k,l,names] of PTABS)if(names.some(n=>h.startsWith(n)))return k;return 'about'};
@@ -4396,18 +4413,13 @@ async function vProfile(){
   ${(m.publications||[]).length?`<div class="card"><h3>Publications</h3>
   ${(m.publications||[]).map(p=>`<div class="sub" style="padding:4px 0;border-bottom:1px solid var(--line)">${esc(typeof p==='string'?p:(p.title||''))}</div>`).join('')}</div>`:''}
 
-  <div class="card" style="border-color:var(--gold)"><h3>My documents</h3>
-  <div class="sub" style="margin:4px 0 10px;line-height:1.6">A detailed CV is all we need to begin. Adding degrees, transcripts or certificates further sharpens your matches, and you can always provide them later, during the application itself. Entirely up to you.</div>
-  <button class="btn b-gold" onclick="window._uploadKind=null;document.getElementById('doc-files').click()">Upload documents (select up to 20)</button>
-  <div class="sub" style="margin-top:8px">The agent reads every upload automatically and keeps your profile updated. No extra steps needed. Generally useful: CV, degrees, transcripts, experience letters, license, passport.</div>
-  <div id="uploadProgress" style="margin-top:8px"></div>
-  <div id="docList" style="margin-top:8px"></div></div>
+  <div id="docList" style="display:none"></div>
 
   <div class="card" style="border-color:var(--cyan)"><div class="spread"><h3 style="margin:0">Document vault</h3><div class="row" style="gap:6px">
     <button class="btn b-line" style="padding:4px 10px;font-size:12px" onclick="loadVault('study')">Study checklist</button>
     <button class="btn b-line" style="padding:4px 10px;font-size:12px" onclick="loadVault('work')">Work checklist</button></div></div>
   <div class="sub" style="margin:6px 0 8px;line-height:1.6">Every upload is read automatically: what it is, its dates, whether it has expired, and whether its facts agree with your profile. Bank statements, visa papers and other confidential items are never stored unless you switch that on below.</div>
-  <div id="vaultDrop" style="border:2px dashed var(--hair-2);border-radius:14px;padding:16px;text-align:center;margin:6px 0 10px;cursor:pointer;transition:border-color .15s" onclick="$('doc-files').click()" ondragover="event.preventDefault();this.style.borderColor='#00D4FF'" ondragleave="this.style.borderColor=''" ondrop="event.preventDefault();this.style.borderColor='';vaultDropFiles(event.dataTransfer.files)"><b style="color:#EAF2FF">Drop files here</b> <span class="sub">or tap to choose · PDF, JPG, PNG, DOCX · several at once · attested copies, never originals · when you get in, drop the <b>admission letter</b> and the <b>fee receipt</b> here too: they close your case and start your arrival plan</span></div>
+  <div id="vaultDrop" role="button" tabindex="0" aria-label="Drop files here or tap to choose" onclick="window._uploadKind=null;document.getElementById('doc-files').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}" style="border:2px dashed var(--hair-2);border-radius:14px;padding:16px;text-align:center;margin:6px 0 10px;cursor:pointer;transition:border-color .15s" onclick="$('doc-files').click()" ondragover="event.preventDefault();this.style.borderColor='#00D4FF'" ondragleave="this.style.borderColor=''" ondrop="event.preventDefault();this.style.borderColor='';vaultDropFiles(event.dataTransfer.files)"><b style="color:#EAF2FF">Drop files here</b> <span class="sub">or tap to choose · PDF, JPG, PNG, DOCX · several at once · attested copies, never originals · when you get in, drop the <b>admission letter</b> and the <b>fee receipt</b> here too: they close your case and start your arrival plan</span></div>
   <div id="vaultSummary" class="sub" style="margin:4px 0 8px;font-size:13px"></div>
   <div id="vaultChecklist"></div><div id="vaultList" class="sub" style="margin-top:8px">Loading…</div></div>
 
@@ -4424,8 +4436,8 @@ async function vProfile(){
   <div class="sub" style="margin:6px 0 4px;line-height:1.6">Your own address on our domain, used on every application. Replies land here automatically and are read by your case brain the moment they arrive; a copy goes to your personal email. You read and send from here with one tap, always in your own name. Pause, export or close it any time.</div>
   <div id="mbxBody" class="sub"></div></div>
 
-  <div class="card" style="border-color:var(--teal, #2dd4bf)"><div class="spread"><h3 style="margin:0" data-i18n="offers">My offers & interviews</h3><button class="btn b-line" style="padding:4px 10px;font-size:12px" onclick="offerForm('',true)">+ Record an offer</button></div>
-  <div class="sub" style="margin:6px 0 4px;line-height:1.6">Got an admission or a job offer? Record it: every condition and deadline is tracked, and we prepare your interview from the actual posting and your own CV.</div>
+  <div class="card" style="border-color:var(--teal, #2dd4bf)"><div class="spread"><h3 style="margin:0">Offers &amp; interviews, read from your mail</h3><button class="btn b-line" style="padding:4px 10px;font-size:12px" onclick="offerForm('',true)">Add one we missed</button></div>
+  <div class="sub" style="margin:6px 0 4px;line-height:1.6">Offers and interview invitations are recorded automatically from replies to your ForiForeign address; every condition and deadline is tracked and your interview pack is prepared from the posting and your own CV.</div>
   <div id="myOfferForm"></div><div id="myOffers" class="sub" style="margin-top:6px">Loading…</div></div>
 
   <div class="card" style="border-color:#7EE6FF"><div class="spread"><h3 style="margin:0">Visa readiness</h3><div class="row" style="gap:6px"><select id="vzCountry" style="width:auto;padding:5px 8px" onchange="visaRoutes()"><option value="">Country…</option></select><select id="vzRoute" style="width:auto;padding:5px 8px;display:none" onchange="visaAssess()"></select></div></div>
@@ -4449,12 +4461,6 @@ async function vProfile(){
   <div class="sub" style="margin:6px 0 8px;line-height:1.6">Entered once, used everywhere: search, matching, documents, visa and settlement. Fields read from your CV or documents are marked; anything you type wins.</div>
   <div id="mobForm">Loading…</div></div>
 
-  <div class="card" id="verifyCard"><div class="spread"><h3>Verified information</h3><button class="btn b-line" style="padding:5px 10px" onclick="runVerify(this)">Cross-check my documents</button></div>
-  <div class="sub" style="margin:6px 0">Every document you upload is read automatically and its facts are cross-checked against each other. Agreeing facts become verified; any disagreement is flagged for you.</div>
-  <div id="verifyList"><span class="sub">Runs automatically after every upload.</span></div></div>
-
-  <div class="card"><h3>Approve &amp; Apply, your way</h3>
-  <div class="sub" style="margin:6px 0">By email: with our free extension, every draft and attachment is prepared in your own inbox, you review and press Send. By portal: the Apply Assistant fills the official website for you. Your credentials always remain yours; we never access them.</div></div>
 
   <div class="card"><h3>Edit details</h3>
   <div id="profEdit" style="display:none"><label>Full name</label><input id="p-name" value="${esc(m.full_name)}">
@@ -4506,7 +4512,7 @@ async function vWorkspace(){
     <div class="sub" style="line-height:1.65;margin-bottom:12px">Enter a client once. ForiForeign searches 54 countries, verifies every position, prepares the complete application, and keeps the file moving through visa, travel and settlement. You approve; the AI does the work.</div>
     <div class="card"><h3>Create your agency</h3><label>Agency or consultancy name</label><input id="orgName" placeholder="e.g. Bright Future Consultants, Lahore">
       <label>What is this workspace?</label><select id="orgKind" onfocus="if(window._orgKindPreset){this.value=window._orgKindPreset;window._orgKindPreset=null}"><option value="agency">Consultancy / agency (I work for applicants)</option><option value="institution">University / college (I receive applicants)</option><option value="employer">Employer / recruiter (I hire)</option><option value="partner">Service partner (insurance, housing, visa desk…)</option></select>
-      <label>Country</label><select id="orgCC"><option value="PK">Pakistan</option><option value="IN">India</option><option value="BD">Bangladesh</option><option value="AE">UAE</option><option value="SA">Saudi Arabia</option><option value="GB">United Kingdom</option></select>
+      <label>Country</label><select id="orgCC">${Object.entries((window._i18n&&window._i18n.origins)||{PK:{name:'Pakistan'}}).sort((a,b)=>String(a[1].name||a[0]).localeCompare(String(b[1].name||b[0]))).map(([k,v])=>`<option value="${k}" ${k==='PK'?'selected':''}>${esc(v.name||k)}</option>`).join('')}</select>
       <div class="row" style="margin-top:10px"><button class="btn b-gold" onclick="createOrg(this)">Create workspace</button></div></div>
     ${tiers.length?`<div class="card"><h3>Agency plans</h3><div class="sub" style="margin-bottom:8px">Priced per agency, never per seat. Your first 14 days are free; the plan starts when you take your first paying client.</div>
       <div class="row" style="gap:10px;flex-wrap:wrap">${tiers.map(t=>`<div style="flex:1;min-width:200px;padding:12px;border:1px solid ${t.featured?'var(--gold)':'var(--line)'};border-radius:12px"><b style="font-size:16px">${esc(t.name)}</b><div style="font:800 20px Inter;color:var(--cyan);margin:4px 0">$${Number(t.usd_month||0).toLocaleString()}<span class="sub" style="font-weight:400;font-size:12px"> / month</span></div>
@@ -4577,7 +4583,7 @@ async function clientOffers(cid,userId){
   const box=document.createElement('div');box.className='card';box.style.marginTop='10px';el.appendChild(box);
   const hist=document.createElement('div');hist.className='card';hist.style.marginTop='10px';el.appendChild(hist);
   hist.innerHTML=`<div class="spread"><h3 style="margin:0">History · finance · portals</h3><div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn b-line" style="padding:4px 10px;font-size:12px" onclick="clientHistory('${cid}')">Full history</button><button class="btn b-line" style="padding:4px 10px;font-size:12px" onclick="clientFinance('${cid}')">Finance</button>${userId?`<button class="btn b-line" style="padding:4px 10px;font-size:12px" onclick="clientAppointment('${cid}')">+ Appointment</button>`:''}</div></div><div id="cExtra" class="sub" style="margin-top:6px"></div>`;
-  box.innerHTML=`<div class="spread"><h3 style="margin:0">Plan, offers & interviews</h3><div class="row" style="gap:6px;flex-wrap:wrap">${userId?`<button class="btn b-gold" style="padding:4px 10px;font-size:12px" onclick="grantFromPlan('${cid}')">⚡ Activate cases from plan</button><button class="btn b-line" style="padding:4px 10px;font-size:12px" onclick="offerForm('${cid}')">+ Record an offer</button>`:'<span class="sub">Client needs a login first.</span>'}</div></div><div id="cOfferForm"></div><div id="cOffers" class="sub" style="margin-top:6px">Loading offers…</div>`;
+  box.innerHTML=`<div class="spread"><h3 style="margin:0">Plan, offers & interviews</h3><div class="row" style="gap:6px;flex-wrap:wrap">${userId?`<button class="btn b-gold" style="padding:4px 10px;font-size:12px" onclick="grantFromPlan('${cid}')">⚡ Activate cases from plan</button><button class="btn b-line" style="padding:4px 10px;font-size:12px" onclick="offerForm('${cid}')">Add one we missed</button>`:'<span class="sub">Client needs a login first.</span>'}</div></div><div id="cOfferForm"></div><div id="cOffers" class="sub" style="margin-top:6px">Loading offers…</div>`;
   if(!userId){$('cOffers').textContent='';return}
   try{const d=await api('/api/org/'+window._orgId+'/clients/'+cid+'/offers');(d.offers||[]).forEach(o=>window._offerCache[o.id]=o);$('cOffers').innerHTML=(d.offers||[]).map(o=>OFFER_HTML(o,false)).join('')||'<div class="sub">No offers recorded yet.</div>'}catch(e){$('cOffers').textContent=e.message}
 }
@@ -4599,7 +4605,7 @@ async function offerSave(cid,mine,btn){
 async function loadMyOffers(){
   const el=$('myOffers');if(!el)return;
   try{const [d,p]=await Promise.all([api('/api/offers'),api('/api/interview/preps')]);(d.offers||[]).forEach(o=>window._offerCache[o.id]=o);
-    el.innerHTML=((d.offers||[]).map(o=>OFFER_HTML(o,true)).join('')||'<div class="sub">No offers yet. When a university or employer replies, record it here and we track every condition and deadline.</div>')
+    el.innerHTML=((d.offers||[]).map(o=>OFFER_HTML(o,true)).join('')||'<div class="sub">No offers yet. When a university or employer replies to your ForiForeign address, it appears here by itself.</div>')
       +((p.preps||[]).length?`<div class="sub" style="font:700 11px Inter;letter-spacing:.05em;margin-top:10px">INTERVIEW PACKS</div>${p.preps.map(x=>`<div class="spread" style="padding:5px 0;border-bottom:1px solid var(--line)"><span>${esc(x.role_title||'Interview')} <span class="sub" style="font-size:11px">· ${esc(String(x.created_at).slice(0,10))}</span></span><button class="btn b-line" style="padding:3px 9px;font-size:11.5px" onclick="openPrep('${x.id}')">Open</button></div>`).join('')}`:'');
   }catch(e){el.innerHTML='<div class="sub">'+esc(e.message)+'</div>'}
 }
@@ -4757,19 +4763,21 @@ async function loadVault(purpose){
   const cl=$('vaultChecklist'),li=$('vaultList');if(!cl||!li)return;
   try{
     const [v,c]=await Promise.all([api('/api/vault'),api('/api/vault/checklist?for='+encodeURIComponent(window._vaultFor))]);
-    try{const req=(c.required||[]);const ready=req.filter(r=>r.state==='ok').length;const sm=$('vaultSummary');if(sm)sm.innerHTML=`<b style="color:#0B1B3A">${ready} of ${req.length} required documents ready</b>${req.length&&ready<req.length?' · '+(req.length-ready)+' to add':''}`}catch(e){}
-    const rowH=r=>{const st=VSTATE[r.state]||VSTATE.missing;const six=r.state==='ok'?'Ready':r.state==='expiring'||r.state==='needs_review'?'Needs correction':r.state==='uploaded'?'Uploaded':'Missing';return `<div class="spread" style="padding:7px 0;border-bottom:1px solid var(--line)"><span>${docStateChip(six)} ${esc(r.label)}${r.expiry_date?` <span class="sub" style="font-size:11px">· valid to ${esc(r.expiry_date)}</span>`:''}</span><span style="font:700 11.5px Inter;color:${st[1]}">${st[0]}</span></div>`};
+    try{const req=(c.required||[]);const ready=req.filter(r=>r.state==='ok').length;const sm=$('vaultSummary');if(sm)sm.innerHTML=`<b style="color:#0B1B3A">${ready} of ${req.length} must-have documents ready</b>${req.length&&ready<req.length?' · '+(req.length-ready)+' to add':''} · drop or tap above; each file is read and filed automatically`}catch(e){}
+    const HOW={passport:'Bio page (photo page); all four corners visible; valid 6+ months',cnic:'Front and back, both sides readable',degree:'Highest degree first; the certificate, not the marksheet',transcript:'All pages, all semesters, one file per degree',cv:'Your current CV (we never use the email inside it)',certificate:'Professional certificates: registration, licence, training',experience_letter:'On letterhead: dates, role, duties, signature',english_test:'IELTS / OET / PTE / TOEFL report, all bands',photo:'Passport-size, white background, no glasses',bank_statement:'Last 6 months; kept only if you allow it below',police_certificate:'From your country of residence, dated within 6 months',medical:'Only when the route asks for it',birth_certificate:'For dependants and some PR routes',marriage_certificate:'If a spouse travels with you',admission_letter:'When you get in: closes the case and starts your arrival plan',fee_receipt:'Tuition or deposit receipt: proves enrolment'};window._docHow=HOW;
+    const rowH=r=>{const st=VSTATE[r.state]||VSTATE.missing;const six=r.state==='ok'?'Ready':r.state==='expiring'||r.state==='needs_review'?'Needs correction':r.state==='uploaded'?'Uploaded':'Missing';const how=(window._docHow||{})[r.key||r.doc_type||'']||'';return `<div class="spread" style="padding:7px 0;border-bottom:1px solid var(--line);align-items:flex-start"><span>${docStateChip(six)} <b style="color:#0B1B3A">${esc(r.label)}</b>${how?`<div class="sub" style="font-size:11.5px;margin-left:2px">${esc(how)}</div>`:''}${r.expiry_date?` <span class="sub" style="font-size:11px">· valid to ${esc(r.expiry_date)}</span>`:''}</span><span style="font:700 11.5px Inter;color:${st[1]}">${st[0]}</span></div>`};
     cl.innerHTML=`<div style="padding:8px 12px;border-radius:10px;background:${c.ready?'rgba(74,222,128,.08)':'rgba(245,184,65,.08)'};border:1px solid ${c.ready?'rgba(74,222,128,.5)':'rgba(245,184,65,.5)'};margin-bottom:8px">
       <b style="color:${c.ready?'#4ade80':'#FFD070'}">${c.ready?'Your '+esc(c.purpose)+' document set is complete.':(c.missing.length?c.missing.length+' required document'+(c.missing.length===1?'':'s')+' missing':'Required documents need attention')+' for the '+esc(c.purpose)+' lane.'}</b></div>
-      <div class="sub" style="font:700 11px Inter;letter-spacing:.04em;margin-top:6px">REQUIRED</div>${(c.required||[]).map(rowH).join('')}
-      <div class="sub" style="font:700 11px Inter;letter-spacing:.04em;margin-top:10px">STRENGTHENS YOUR CASE</div>${(c.recommended||[]).map(rowH).join('')}`;
+      <div class="vbox must"><div class="vbox-h">Must have for this case</div>${(c.required||[]).map(rowH).join('')||'<div class="sub">Nothing required yet; pick a lane and a destination.</div>'}</div>
+      <div class="vbox can"><div class="vbox-h">Can strengthen your case · optional now, may be asked later</div>${(c.recommended||[]).map(rowH).join('')||'<div class="sub">Nothing extra suggested for this case.</div>'}</div>`;
     const docs=v.documents||[];
     if(!docs.length){li.innerHTML='<div class="sub">No documents yet. Upload above; the reader files each one automatically.</div>';}
-    else li.innerHTML=docs.map(d=>{
+    else{const ORDER={phd:0,mphil:1,masters:2,bachelors:3,diploma:4,intermediate:5,matric:6};const rank=d=>{const t=String(d.doc_type||'');if(t==='degree'||t==='transcript'){const lv=String((d.extracted&&d.extracted.fields&&(d.extracted.fields.level||d.extracted.fields.degree))||d.name||'').toLowerCase();const k=/phd|doctor/.test(lv)?'phd':/mphil/.test(lv)?'mphil':/master|msc|mba|pharm/.test(lv)?'masters':/bachelor|bsc|bs\b/.test(lv)?'bachelors':/diploma/.test(lv)?'diploma':/inter|fsc|hssc/.test(lv)?'intermediate':/matric|ssc/.test(lv)?'matric':'diploma';return 10+(ORDER[k]||5)}if(t==='cv')return 0;if(t==='passport'||t==='cnic')return 5;if(t==='experience_letter')return 20;if(t==='certificate'||t==='english_test')return 30;return 50};const reqSet=new Set([...(c.required||[]),...(c.recommended||[])].map(r=>r.key||r.doc_type));docs.sort((a,b)=>rank(a)-rank(b));docs.forEach(d=>{d._optional=!reqSet.has(d.doc_type)});}
+    if(docs.length)li.innerHTML=docs.map(d=>{
       const st={read:['Ready','#16A34A'],uploaded:['Uploaded','#7B88A3'],reading:['Reading…','#1683FF'],needs_review:['Needs correction','#B7791F'],expired:['Needs correction','#DC2626'],failed:['Needs correction','#DC2626']}[d.doc_status]||['Uploaded','#7B88A3'];
       const iss=(d.issues||[]).filter(i=>i.code!=='note'||true).map(i=>`<div class="sub" style="font-size:11px;color:${/expired|mismatch|illegible/.test(i.code)?'#fb7185':'#B4CDF0'}">• ${esc(i.text)}</div>`).join('');
       const att=d.attestation_status&&d.attestation_status!=='unknown'?`<span class="chip" style="font-size:9.5px;${d.attestation_status==='plain'?'border-color:#FFD070;color:#FFD070':'border-color:#4ade80;color:#4ade80'}">${esc(d.attestation_status.replace(/_/g,' '))}</span>`:'';const soon=d.expiry_date&&(new Date(d.expiry_date)-Date.now())<90*86400000&&(new Date(d.expiry_date)-Date.now())>0?`<span class="chip c-red" style="font-size:9.5px">expires in ${Math.ceil((new Date(d.expiry_date)-Date.now())/86400000)} days</span>`:'';
-      return `<div style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="spread"><div><b style="color:#EAF2FF">${esc(d.label)}</b> ${att}${soon} <span class="sub" style="font-size:11px">· ${esc(d.name||'')}${d.compressed?' · compressed':''}</span>${d.expiry_date?` <span class="sub" style="font-size:11px">· valid to ${esc(d.expiry_date)}</span>`:''}</div>
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="spread"><div><b style="color:#EAF2FF">${esc(d.label)}</b> ${att}${soon}${d._optional?'<span class="st st-grey" title="Not needed for the current case; kept safe in case a later step asks for it">not required now · may be asked later</span>':''} <span class="sub" style="font-size:11px">· ${esc(d.name||'')}${d.compressed?' · compressed':''}</span>${d.expiry_date?` <span class="sub" style="font-size:11px">· valid to ${esc(d.expiry_date)}</span>`:''}</div>
         <span style="font:700 11.5px Inter;color:${st[1]}">${st[0]}</span></div>${iss}
         <div class="row" style="gap:6px;margin-top:5px;flex-wrap:wrap"><select style="padding:3px 6px;font-size:11.5px;width:auto" onchange="vaultSetType('${d.id}',this.value)">${(v.types||[]).map(t=>`<option value="${t}" ${t===d.doc_type?'selected':''}>${esc((v.labels||{})[t]||t)}</option>`).join('')}</select>
         ${d.doc_status==='needs_review'?`<button class="btn b-line" style="padding:3px 9px;font-size:11.5px;border-color:#4ade80;color:#4ade80" onclick="vaultConfirm('${d.id}')">Looks right</button>`:''}
@@ -5205,12 +5213,15 @@ function simBanner(){
   document.body.appendChild(b);
 }
 function assistStatus(el){
-  el.innerHTML='<span class="chip c-gray">Checking…</span>';
+  if(!el)return;el.innerHTML='<span class="chip c-gray">Checking…</span>';
   try{window.postMessage({type:'FF_ASSIST_PING'},location.origin)}catch(e){}
   setTimeout(()=>{el.innerHTML=FF_ASSIST
     ?'<span class="chip c-green">Connected — extension is active on this page</span>'
     :'<span class="chip c-red">Not detected</span> <span class="sub">Install below, then reload this page and check again.</span>'},700);
 }
+async function adminCockpit(){try{const d=await api('/api/admin/cockpit');const S=d.sections||{};const box=document.createElement('div');box.id='cockpit';box.innerHTML=`<div class="card" style="border-top-color:#1683FF"><div class="sub" style="font:700 11px Inter;letter-spacing:.08em;text-transform:uppercase">Today, in one paragraph</div><div style="font-size:14.5px;color:#0B1B3A;margin:6px 0 10px;line-height:1.55">${esc(d.summary||'')}</div>
+    ${(d.needs||[]).length?`<div class="sub" style="font:700 11px Inter;letter-spacing:.08em;text-transform:uppercase;margin-top:6px">Needs a decision</div><div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">${d.needs.map(n=>`<button class="btn b-line tiny" style="border-color:#B7791F;color:#7A5A16" onclick="window._adminTab='${n.tab}';vAdmin()"><b>${n.n}</b>&nbsp;${esc(n.text)}</button>`).join('')}</div>`:'<div class="st st-green" style="margin-top:4px">Nothing waiting on you</div>'}
+    <div class="glance" style="grid-template-columns:repeat(6,1fr);margin-top:12px">${[['Direct applicants',S.applicants&&S.applicants.total,'users'],['Cases in preparation',S.applicants&&S.applicants.draft,'cases'],['At offer / interview',S.applicants&&S.applicants.offer,'cases'],['Visa files open',S.applicants&&S.applicants.visa,'cases'],['FF-CRM organisations',S.crm&&S.crm.organisations,'orgs'],['Revenue 30 d',S.money?'$'+Number(S.money.revenue30).toLocaleString():'–','payments'],['Partners (MOU)',S.outreach&&S.outreach.partners,'partners'],['Prospects in play',S.outreach&&S.outreach.prospects,'prospects'],['Unread replies',S.mail&&S.mail.unread,'cases'],['Open tickets',S.ops&&S.ops.tickets,'support'],['Dead jobs',S.ops&&S.ops.dead_jobs,'selfheal'],['Consultancies on trial',S.crm&&S.crm.trial14,'orgs']].map(([l,v,t])=>`<a onclick="window._adminTab='${t}';vAdmin()"><b>${v==null?'–':v}</b><span>${l}</span></a>`).join('')}</div></div>`;const host=$('adminBody');if(host)host.insertBefore(box,host.firstChild)}catch(e){}}
 async function adminOverview(){
   let M=null;try{M=await api('/api/admin/metrics')}catch(e){}
   /* AI diagnostics belong on the first screen an admin sees. They were previously
@@ -5281,6 +5292,7 @@ async function adminOverview(){
   <span class="chip c-red">${esc(f.reason.replace(/_/g,' '))}</span> <span class="sub">user ${esc((f.user_id||'').slice(0,8))}… matches ${esc((f.matched_user_id||'').slice(0,8))}… · ${esc((f.created_at||'').slice(0,16).replace('T',' '))}</span>
   <div class="sub">${esc(f.detail||'')}</div></div>`).join('')
   :'<div class="sub">No open flags.</div>'}</div>`;
+  adminCockpit();
 }
 async function adminSettings(){
   let d;try{d=await api('/api/admin/settings')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
@@ -5991,6 +6003,7 @@ async function saveTicket(id,btn){
   try{await api('/api/admin/support/'+id,{method:'POST',body:{reply,status}});toast('Saved.');vAdmin();}
   catch(e){toast(e.message);btn.disabled=false}
 }
+async function adminStartCase(userId,name){try{const q=prompt('Search an opportunity for '+name+' (title, country, employer):');if(!q)return;const ex=await api('/api/explore?text='+encodeURIComponent(q)+'&per=8');const rows=ex.rows||[];if(!rows.length){toast('Nothing found; widen the words');return}const pick=prompt(rows.map((o,i)=>(i+1)+'. '+o.title+' · '+o.institution+' · '+o.country_code).join('\n')+'\n\nNumber to start:');const o=rows[Number(pick)-1];if(!o)return;const r=await api('/api/admin/cases/start',{method:'POST',body:{user_id:userId,opportunity_id:o.id}});toast(r.existing?'That case already exists':'Case '+(r.case_no||'')+' started in the applicant\u2019s name; preparation running')}catch(e){toast(e.message)}}
 async function adminUsers(){
   let d;try{d=await api('/api/admin/users')}catch(e){$('adminBody').innerHTML='<div class="empty">'+esc(e.message)+'</div>';return}
   let dem=null,aud=null,inv=null;
@@ -6011,6 +6024,7 @@ async function adminUsers(){
   ${(d.users||[]).map(u=>`<div class="card"><div class="spread"><div><b>${esc(u.full_name||'(no name)')}</b><div class="sub">${esc((u.id||'').slice(0,8))}… · joined ${esc((u.created_at||'').slice(0,10))}${u.role&&u.role!=='user'?' · <span style="color:#F5B841">'+esc(u.role)+'</span>':''}</div></div>
   <div class="row" style="flex-wrap:wrap;gap:6px"><select id="role-${u.id}">${roles.map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${r}</option>`).join('')}</select>
   <button class="btn b-gold" style="padding:5px 12px" onclick="saveRole('${u.id}',this)">Set</button>
+  ${u.role==='user'&&!u.masked?`<button class="btn b-gold" style="padding:5px 12px" onclick="adminStartCase('${u.id}','${escAttr(u.full_name||'this applicant')}')">Start a case for them</button>`:''}
   <button class="btn b-green" style="padding:5px 12px" onclick="waOpen('${escAttr(u.whatsapp||'')}','Assalam o Alaikum ${escAttr((u.full_name||'').split(' ')[0])}! ForiForeign se: ')">WhatsApp</button>
   ${u.role==='super_admin'?'':`<button class="btn b-line" style="padding:5px 12px;color:#fb7185;border-color:#fb7185" onclick="deleteUser('${u.id}','${escAttr(u.full_name||'this user')}',this)">Delete</button>`}</div></div></div>`).join('')||'<div class="empty">No users.</div>'}`;
 }
