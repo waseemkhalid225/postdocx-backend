@@ -2526,3 +2526,51 @@ alter table if exists public.partner_invoices drop column if exists interest_usd
 -- ForiForeign — 0072 · the applicant's chosen lane (study | work) drives navigation, search and recommendations.
 alter table if exists public.profiles add column if not exists lane_pref text;
 
+-- ===== 0073_subscription_lifecycle.sql =====
+-- ForiForeign — 0073 · Subscription lifecycle for FF-CRM: renewal reminders, 3-day grace, invoices, renewals, all traceable.
+alter table if exists public.org_subscriptions add column if not exists reminded_7 timestamptz;
+alter table if exists public.org_subscriptions add column if not exists reminded_3 timestamptz;
+alter table if exists public.org_subscriptions add column if not exists reminded_0 timestamptz;
+alter table if exists public.org_subscriptions add column if not exists grace_until timestamptz;
+alter table if exists public.org_subscriptions add column if not exists renewed_from uuid;
+alter table if exists public.org_subscriptions add column if not exists gateway_subscription_id text;
+create table if not exists public.org_invoices (
+  id uuid primary key default gen_random_uuid(), ref text unique,
+  org_id uuid, subscription_id uuid, payment_id uuid,
+  tier_key text, tier_name text, billing_period text, amount_usd numeric not null default 0, currency text not null default 'USD',
+  period_start timestamptz, period_end timestamptz, status text not null default 'paid',   -- paid | refunded | void
+  gateway text, gateway_ref text, pdf_path text, emailed_to text, emailed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+alter table if exists public.org_invoices add column if not exists ref text;
+alter table if exists public.org_invoices add column if not exists org_id uuid;
+alter table if exists public.org_invoices add column if not exists subscription_id uuid;
+alter table if exists public.org_invoices add column if not exists payment_id uuid;
+alter table if exists public.org_invoices add column if not exists tier_key text;
+alter table if exists public.org_invoices add column if not exists tier_name text;
+alter table if exists public.org_invoices add column if not exists billing_period text;
+alter table if exists public.org_invoices add column if not exists amount_usd numeric default 0 not null;
+alter table if exists public.org_invoices add column if not exists currency text default 'USD' not null;
+alter table if exists public.org_invoices add column if not exists period_start timestamptz;
+alter table if exists public.org_invoices add column if not exists period_end timestamptz;
+alter table if exists public.org_invoices add column if not exists status text default 'paid' not null;
+alter table if exists public.org_invoices add column if not exists gateway text;
+alter table if exists public.org_invoices add column if not exists gateway_ref text;
+alter table if exists public.org_invoices add column if not exists pdf_path text;
+alter table if exists public.org_invoices add column if not exists emailed_to text;
+alter table if exists public.org_invoices add column if not exists emailed_at timestamptz;
+alter table if exists public.org_invoices add column if not exists created_at timestamptz default now() not null;
+create index if not exists idx_org_invoices_org on public.org_invoices(org_id, created_at desc);
+
+-- ===== 0075_strict_separation.sql =====
+-- ForiForeign — 0075 · STRICT SEPARATION. Direct applicants and FF-CRM clients are two populations that never meet.
+-- An account records where it was created: the platform itself, or one consultancy's domain. Only accounts created on a
+-- consultancy's domain can ever be attached to that consultancy. The consent-link experiment is retired.
+alter table if exists public.profiles add column if not exists signup_org_id uuid;          -- null = created on foriforeign.com
+alter table if exists public.profiles add column if not exists signup_host text;
+alter table if exists public.clients drop column if exists pending_user_id;
+alter table if exists public.clients drop column if exists link_status;
+alter table if exists public.clients drop column if exists link_requested_at;
+alter table if exists public.clients drop column if exists link_decided_at;
+create index if not exists idx_profiles_signup_org on public.profiles(signup_org_id) where signup_org_id is not null;
+
