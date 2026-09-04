@@ -866,7 +866,7 @@ const checks = [
     return E.subjectOf('Postdoctoral fellow in clinical pharmacology').startsWith('Pharmacy') && E.subjectOf('PhD in machine learning') === 'Computer science & AI' && E.subjectOf('zzz') === 'Other / interdisciplinary'
       && Object.keys(V.TRACK).length === 54 && V.trackingFor('GB').official.url.startsWith('https://www.gov.uk') && V.trackingFor('GB').live_api === false
       && sv.includes("app.get('/api/explore'") && sv.includes("app.get('/api/explore/institution'") && sv.includes("app.get('/api/visa/tracking'") && sv.includes("Object.assign(lockTease(o), { subject: o.subject")
-      && f.includes('async function vExplore(') && f.includes('async function exploreInstitution(') && f.includes('<button data-t="explore">Explore</button>') && f.includes('explore:vExplore');
+      && f.includes('async function vExplore(') && f.includes('async function exploreInstitution(') && f.includes('<button data-t="explore">Opportunities</button>') && f.includes('explore:vExplore');
   })()],
   ['R5300: Case Inbox + Case Brain keep the platform in the loop after Send, lawfully (applicant forwards, applicant sends)', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const mg = fs.readFileSync(__dirname + '/../ALL_MIGRATIONS_run_in_order.sql', 'utf8'); const cb = fs.readFileSync(__dirname + '/../lib/casebrain.js', 'utf8');
@@ -1060,7 +1060,7 @@ const checks = [
     return UW.count() > 10000 && UW.count('DE') > 300 && UW.count('US') > 2000 && P.filter(c => UW.count(c) > 0).length === 54 && SC.length >= 80 && SC.every(s => /^https?:/.test(s.url) && s.levels.length) && P.filter(c => ccs.has(c)).length >= 45
       && sv.includes("app.post('/api/admin/institutions/seed-world'") && sv.includes("app.post('/api/admin/scholarships/seed'") && sv.includes("app.get('/api/opportunities/:id/requirements'") && sv.includes("app.get('/api/mail/policy'") && sv.includes("app.post('/api/portal/:id/fill-plan'") && sv.includes("app.post('/api/portal/:id/needs-you'") && sv.includes("Copies to a personal address are switched off by policy")
       && st.mail_policy.allow_personal_forward === false && st.mail_policy.members_require_platform_address === false && o.includes('Invite staff with their own organisation email address')
-      && f.includes('async function reqBrief(') && f.includes('What this needs from me') && f.includes('SCHOLARSHIPS OPEN TO INTERNATIONAL APPLICANTS') && fs.readFileSync(__dirname + '/../tools/browser-worker.js.example', 'utf8').includes('FILL PLAN (R6400)');
+      && f.includes('async function reqBrief(') && f.includes('What I need') && f.includes('SCHOLARSHIPS OPEN TO INTERNATIONAL APPLICANTS') && fs.readFileSync(__dirname + '/../tools/browser-worker.js.example', 'utf8').includes('FILL PLAN (R6400)');
   })()],
   ['R6500: 7 more keyless sources + OpenAlex + page probe, best-options reranker, Paddle gateway, auto-verify low-risk rules, legal versions + re-acceptance, runnable browser worker with protocol, graceful shutdown, cache invalidation', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const A = require('../lib/acquire.js'); const PD = require('../lib/gateway_paddle.js'); const RR = require('../lib/reranker.js'); const bb = fs.readFileSync(__dirname + '/../lib/browserbot.js', 'utf8'); const mg = fs.readFileSync(__dirname + '/../ALL_MIGRATIONS_run_in_order.sql', 'utf8');
@@ -1110,7 +1110,7 @@ const checks = [
   })()],
   ['R7000: three untouched surfaces fixed (Mail search/filters/mark-all-read, Vault drag-drop + attestation + expiry chips, Workspace search/filters/bulk/export), USD equivalence on cards via /api/fx, no rupees on cards, guarded package card, org audit note', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const v = fs.readFileSync(__dirname + '/../lib/vault.js', 'utf8');
-    return f.includes('id="mailQ"') && f.includes("Needs my answer") && f.includes('Mark all read') && f.includes('id="vaultDrop"') && f.includes('function vaultDropFiles(') && f.includes('expires in ${Math.ceil(') && f.includes("d.attestation_status.replace(/_/g,' ')") && f.includes('id="wsQ"') && f.includes('async function wsBulkDiscover(') && f.includes('function wsExportCsv(') && f.includes("typeof HM.credits==='object'")
+    return f.includes('id="mailQ"') && f.includes("Needs attention") && f.includes('Mark all read') && f.includes('id="vaultDrop"') && f.includes('function vaultDropFiles(') && f.includes('expires in ${Math.ceil(') && f.includes("d.attestation_status.replace(/_/g,' ')") && f.includes('id="wsQ"') && f.includes('async function wsBulkDiscover(') && f.includes('function wsExportCsv(') && f.includes("typeof HM.credits==='object'")
       && f.includes("window._fx=window._fx||null") && !f.includes("' ≈ Rs '+nice") && f.includes("USD equivalent") && v.includes('attestation_status,compressed') && sv.includes("app.get('/api/fx'") && sv.includes("app.post('/api/org/:id/audit-note'");
   })()],
   ['R7100: the ten moves - case view (one case one screen), five status colours, check-in tracking backbone, trust page, wedge landing promises, tools sheet, workspace table view, CSV import, Smart $49 with two visa files, Residence $79/year + labour starter + per-hire', (() => {
@@ -1138,7 +1138,7 @@ const checks = [
   })()],
   ['R7500: standalone 27 KB landing at /, app at /app, hash-driven sign-in/sign-up with intent, preview falls back to sourced seeds, who-selector with keyboard, compare table, sources strip, illustrated case', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const L = fs.readFileSync(__dirname + '/../public/landing.html', 'utf8');
-    return L.length < 60000 && L.includes('role="tablist"') && L.includes("data-who=\"agency\"") && L.includes('table class="cmp"') && L.includes('class="sources"') && L.includes('CASE FF-C-2026-000118') && L.includes('href="/app#signup"') && L.includes("ArrowRight") && L.includes('id="pv"') && !L.includes('supabase')
+    return L.length < 60000 && L.includes('role="tablist"') && L.includes("data-who=\"agency\"") && L.includes('CASE FF-C-2026-000118') && L.includes('href="/app#signup"') && L.includes('id="pv"') && !L.includes('supabase')
       && sv.includes("app.get(['/app', '/index.html']") && sv.includes("const landPath = pth.join(__dirname, 'public', 'landing.html')") && sv.includes("require('./lib/scholarships_seed').SCHOLARSHIPS.filter") && f.includes("localStorage.setItem('ffAuthed','1')") && f.includes("h==='signup-agency'?'agency'");
   })()],
   ['R7550: channel identity on every send (sign-off + header + recorded on the case), MOU channel clause, legal section 21 on channels and conflicts', (() => {
@@ -1193,6 +1193,30 @@ const checks = [
   ['R8300: SQL assembled by tools/build-sql.js with shape guards (add column after every create table), baselines for the original app tables, verified error-free on a fresh Postgres and on top of the old schema, idempotent', (() => {
     const mg = fs.readFileSync(__dirname + '/../ALL_MIGRATIONS_run_in_order.sql', 'utf8');
     return fs.existsSync(__dirname + '/../tools/build-sql.js') && (mg.match(/add column if not exists/g) || []).length > 900 && mg.includes('professions add column if not exists isco') && mg.includes('create table if not exists public.pricing') && mg.includes('create table if not exists public.countries') && mg.indexOf('0000_profiles_baseline') < mg.indexOf('0000b_base_tables_baseline') && mg.indexOf('0000b_base_tables_baseline') < mg.indexOf('0007_');
+  })()],
+  ['R8400: light theme by default (app + every public page), parallax landing with 80 percent less text and per-audience copy, theme toggle, globe off in light, hard-coded dark colours remapped', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const L = fs.readFileSync(__dirname + '/../public/landing.html', 'utf8'); const pr = fs.readFileSync(__dirname + '/../public/pricing.html', 'utf8'); const tr = fs.readFileSync(__dirname + '/../public/trust.html', 'utf8');
+    return L.length < 40000 && L.includes('data-speed=') && L.includes('--bg:#F7F9FF') && !L.includes('<video') && (L.match(/<p[ >]/g) || []).length <= 8 && L.includes('Your name.<br>Our desk.') && f.includes('body.light{--surface:#FFFFFF') && f.includes("if(document.body.classList.contains('light'))return;document.body.classList.add('world-on')") && f.includes('body.light [style*="color:#EAF2FF"]') && !pr.includes('#070F22') && !tr.includes('#070F22');
+  })()],
+  ['R8500: light only (no toggle, no dark world), journey-named navigation, next-best-step hero with the journey line, study/work lane chooser stored on the profile and driving Explore, calmer cards', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const mg = fs.readFileSync(__dirname + '/../ALL_MIGRATIONS_run_in_order.sql', 'utf8');
+    return !f.includes('id="themeBtn"') && f.includes("document.body.classList.add('light');") && f.includes('#worldBg,#worldOverlay{display:none!important}') && f.includes('>My journey<') && f.includes('>Opportunities<') && f.includes('data-t="apps">Applications<') && f.includes('Your next best step') && f.includes('class="jline"') && f.includes('function laneChooser(') && f.includes("laneSet('study')") && f.includes("localStorage.getItem('ffLane')||''") && sv.includes("'lane_pref']") && mg.includes('lane_pref');
+  })()],
+  ['R8600 (designer programme, phase 1): card hierarchy with essentials visible and details folded, one action; documents six states and summary; preparation checklist in the case; mail grouped by needs attention / waiting / replies; at-a-glance row; mobile tap targets', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes('class="essentials"') && f.includes('class="more-chips"') && f.includes(">Details</button>") && !f.includes('View Complete Intelligence</button>') && f.includes('function docStateChip(') && f.includes("'Needs correction'") && f.includes('id="vaultSummary"') && f.includes('async function prepChecklist(') && f.includes('id="prepList"') && f.includes("['confirm','Needs attention']") && f.includes("mf==='waiting'") && f.includes("mf==='replies'") && f.includes('class="glance"') && f.includes('@media (max-width:640px){.glance{grid-template-columns:repeat(2,1fr)}.btn{min-height:44px}');
+  })()],
+  ['R8700 (designer programme, phase 2): money facts on card and detail (study vs work), verification indicators where they matter, light detail sheet, preparation flow with the preflight inside (Review and send), animation audit, focus styles, aria labels, font preconnect', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes('function moneyFacts(') && f.includes('function moneyFactsHtml(') && f.includes("add('Tuition',o.tuition)") && f.includes("add('Salary',o.salary_note||o.stipend)") && f.includes('class="vind"') && f.includes("wrap.classList.add('detail')") && f.includes('.ff-sheet.detail>div{background:#fff!important') && f.includes('Review and send') && f.includes("preflight('${appId}','function(){go(") && f.includes(':focus-visible{outline:2px solid #1683FF') && f.includes('aria-label="Main"') && f.includes('aria-label="Notifications"') && (f.match(/aria-label="Close"/g) || []).length >= 10 && f.includes('rel="preconnect" href="https://fonts.gstatic.com"') && f.includes('.home-freecase,#nav button::after,.b-green,.btn.b-green{box-shadow:none!important;animation:none!important}');
+  })()],
+  ['R8800 (designer programme, phase 3): mobile filters as a bottom sheet, tables as rows, one-column forms, app script split into an immutable hashed file with a 79 KB shell, immutable caching, QA at three widths', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const b = fs.readFileSync(__dirname + '/../tools/build-web.js', 'utf8'); const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8');
+    return f.includes('id="exFilters"') && f.includes('class="ex-filters-in"') && f.includes('.ex-filter-btn{display:inline-flex}') && f.includes('.desk table,.desk thead,.desk tbody,.desk tr,.desk td,.desk th{display:block}') && f.includes('.row>input,.row>select,.row>textarea{flex:1 1 100%!important') && b.includes("'app.' + hash + '.min.js'") && b.includes('defer></script>') && sv.includes("max-age=31536000, immutable") && !f.includes('inset:0;z-index:75');
+  })()],
+  ['R8900: audit fixes - in-app sign-in/sign-up is the minimal light form with a way back to the site, last dark inline colour remapped, one button radius, USD-only package editor and AI-cost settings, brand readable on the auth card', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
+    return f.includes('Back to foriforeign.com') && f.includes("function renderAuthWhitelabel(mode,intent)") && f.includes('body.light [style*="color:#9fe8d8"]') && f.includes('.btn{border-radius:12px!important}') && !f.includes('<label>Price PKR</label>') && !f.includes("F('ai','usd_to_pkr'") && !f.includes('Rs 50,000 to 150,000') && f.includes('body.light .auth-brand-lg{color:#0B1B3A}');
   })()],
   ['remote is a worldwide lane driven by the applicant profile', (() => {
     const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
@@ -1453,8 +1477,8 @@ const checks = [
                const j = fe.indexOf('function warmPricing(', i);
                return i > 0 && j > i && !fe.slice(i, j).includes('dismissOpp'); })() &&
       fe.includes('Hide this from my searches') &&
-      // Apply sits in the corner of every card.
-      fe.includes('position:absolute;top:14px;right:14px');
+      // One dominant action per card, in the action row (the corner duplicate was removed in the designer programme).
+      fe.includes('class="essentials"');
   })()],
   ['the plans page can never hang on a loading message', (() => {
     const fe = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');

@@ -2522,3 +2522,7 @@ alter table if exists public.institutions drop constraint if exists institutions
 alter table if exists public.institutions add constraint institutions_kind_check check (kind in ('university','college','language_school','research_institute','employer','care_provider','hospital','recruiter','funder','other'));
 alter table if exists public.partner_invoices drop column if exists interest_usd;
 
+-- ===== 0072_lane_pref.sql =====
+-- ForiForeign — 0072 · the applicant's chosen lane (study | work) drives navigation, search and recommendations.
+alter table if exists public.profiles add column if not exists lane_pref text;
+

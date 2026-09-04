@@ -123,7 +123,7 @@ const MATCH_MAX = 60;
 /* Build stamp: proves WHICH code is actually running in production. */
 const DQ = require('./lib/discovery_quality');
 const { callAI } = require('./lib/router');   // QA R5950: employer outreach and support triage call this at module scope
-const FF_BUILD = '2026-09-05-R8300';
+const FF_BUILD = '2026-09-05-R8900';
 console.log('[boot] ForiForeign build ' + FF_BUILD);
 /* THE DOWNLOADABLE EXTENSION MUST BE THE EXTENSION WE WROTE. public/foriforeign-apply-
    assistant.zip was a file committed by hand, and it had drifted: users were downloading
@@ -336,7 +336,7 @@ function enforceUploadLimits(req, res, next) {
 /* The shell, the worker and the manifest must always be revalidated, or a phone will
    happily run a week-old build from its own HTTP cache no matter what the worker does.
    Everything else (video, icons) keeps the long cache, since those rarely change. */
-app.use(express.static('public', { maxAge: '7d', etag: true, lastModified: true, setHeaders: (res, p) => {
+app.use(express.static('public', { maxAge: '7d', etag: true, lastModified: true, setHeaders: (res, p) => { if (/app\.[0-9a-f]{10}\.min\.js$/.test(p)) res.set('Cache-Control', 'public, max-age=31536000, immutable');
   if (p.endsWith('.html') || p.endsWith('sw.js') || p.endsWith('manifest.json')) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   }
@@ -3078,7 +3078,7 @@ app.get('/api/run/status', auth, async (req, res) => {
   } catch (e) { res.json({ status: 'idle' }); }
 });
 app.put('/api/me', auth, async (req, res) => {
-  const allowed = ['full_name','phone','mode','headline','field','methods','publications','education','experience','licenses','links','send_mode','annual_budget_pkr','funded_only','profession'];
+  const allowed = ['full_name','phone','mode','headline','field','methods','publications','education','experience','licenses','links','send_mode','annual_budget_pkr','funded_only','profession','lane_pref'];
   const patch = {};
   for (const k of allowed) if (k in req.body) patch[k] = req.body[k];
   patch.updated_at = new Date().toISOString();
