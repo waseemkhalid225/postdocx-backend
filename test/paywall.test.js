@@ -18,7 +18,7 @@ const checks = [
   // delivery target and no daily search gate.
   ['no cooldown exists and staff bypass the daily gate',
     !src.includes('searchCooldown') && src.includes('There is no cooldown between searches') &&
-    src.includes("['admin', 'super_admin', 'staff'].includes(req.userRole)) return next();") &&
+    src.includes("STAFF_ROLES.includes(req.userRole)) return next();") &&
     src.includes('isAdminRun')]
 ];
 let fail = 0;

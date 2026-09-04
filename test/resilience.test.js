@@ -403,7 +403,7 @@ const checks = [
     // The search cooldown was removed on purpose: the daily count is the only limit.
     return sv.includes('enforceUploadLimits') && !sv.includes('searchCooldown') &&
       sv.includes('max_upload_mb') && !sv.includes('search_cooldown_minutes') &&
-      sv.includes("['admin', 'super_admin', 'staff'].includes(req.userRole)") &&
+      sv.includes("STAFF_ROLES.includes(req.userRole)) return next();") &&
       fe.includes('saveOps') && fe.includes('Operations &amp; limits') &&
       fe.includes('Paint immediately');
   })()],
@@ -691,7 +691,7 @@ const checks = [
     return sv.includes("app.get('/api/org/:id/clients/:cid/overview'") && sv.includes("app.get('/api/org/:id/board'") && sv.includes("app.get('/api/org/:id/commissions'")
       && sv.includes('async function accrueCommission(payment)') && sv.includes('accrueCommission(p).catch(() => {});')
       && sv.includes("if (!org || org.kind === 'personal') return;")
-      && f.includes('data-t="work" data-i18n="nav_workspace">Workspace') && f.includes('async function vWorkspace(') && f.includes('async function openClient(') && f.includes('work:vWorkspace')
+      && f.includes('data-t="work" data-i18n="nav_workspace">FF-CRM') && f.includes('async function vWorkspace(') && f.includes('async function openClient(') && f.includes('work:vWorkspace')
       && mg.includes('create table if not exists public.client_tasks') && mg.includes('create table if not exists public.commission_ledger')
       && st.includes("commission_pct_agency: 20") && st.includes("agency: cfg.agency || { tiers: [] }");
   })()],
@@ -704,7 +704,7 @@ const checks = [
       && sv.includes("app.post('/api/org/:id/clients/:cid/tasks'") && sv.includes("app.post('/api/org/:id/clients/:cid/notes'")
       && sv.includes("app.get('/api/org/:id/commissions'") && sv.includes('async function accrueCommission(payment)') && sv.includes('accrueCommission(p).catch(() => {});')
       && sv.includes("if (!org || org.kind === 'personal') return;")
-      && f.includes('async function vWorkspace(') && f.includes("work:vWorkspace") && f.includes('<button data-t="work" data-i18n="nav_workspace">Workspace</button>')
+      && f.includes('async function vWorkspace(') && f.includes("work:vWorkspace") && f.includes('<button data-t="work" data-i18n="nav_workspace">FF-CRM</button>')
       && f.includes("((SITE&&SITE.agency)||{}).tiers")
       && st.includes("commission_pct_agency: 20") && st.includes("agency: cfg.agency || { tiers: [] }")
       && mg.includes('create table if not exists public.client_tasks') && mg.includes('create table if not exists public.commission_ledger')
@@ -799,7 +799,7 @@ const checks = [
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const mg = fs.readFileSync(__dirname + '/../ALL_MIGRATIONS_run_in_order.sql', 'utf8');
     const I = require('../lib/i18n.js'); const C = require('../lib/crypto.js'); const P = require('../lib/visa_portals.js');
     process.env.FF_DATA_KEY = require('crypto').randomBytes(32).toString('hex'); const enc = C.encrypt('AB1234567'); const ok = C.enabled() && enc.startsWith('v1.') && C.decrypt(enc) === 'AB1234567' && C.decrypt('v1.bad') === null && C.mask('AB1234567') === '•••••4567'; delete process.env.FF_DATA_KEY;
-    return ok && !C.enabled() && Object.keys(I.LANGS).length === 5 && I.LANGS.ur.dir === 'rtl' && I.ORIGINS.IN.currency === 'INR' && I.ORIGINS.PK.bank_transfer === true && I.ORIGINS.BD.bank_transfer === false && I.t('nav_dashboard', 'ur') === 'ڈیش بورڈ' && I.t('nav_dashboard', 'xx') === 'Dashboard'
+    return ok && !C.enabled() && Object.keys(I.LANGS).length === 5 && I.LANGS.ur.dir === 'rtl' && I.ORIGINS.IN.currency === 'INR' && I.ORIGINS.PK.bank_transfer === true && I.ORIGINS.BD.bank_transfer === false && I.t('nav_dashboard', 'ur') === 'ڈیش بورڈ' && I.t('nav_dashboard', 'xx') === 'My journey' && I.t('nav_workspace', 'xx') === 'FF-CRM'
       && Object.keys(P.PORTALS).length === 54 && P.portalRules().every(r => /^https?:/.test(r.source_url))
       && sv.includes("app.get('/api/i18n'") && sv.includes("app.get('/api/me/export'") && sv.includes("app.post('/api/me/delete-request'") && sv.includes("app.post('/api/org/:id/keys'") && sv.includes("async function apiKeyAuth(") && sv.includes("app.get('/api/v1/clients', apiKeyAuth")
       && sv.includes("QUEUE.register('profile_extract'") && sv.includes("CACHE.set(ck, {") && sv.includes("CACHE.bust('board:' + req.params.id)") && sv.includes("bank_transfer: !!(require('./lib/i18n').ORIGINS[origin] || {}).bank_transfer")
@@ -1138,7 +1138,7 @@ const checks = [
   })()],
   ['R7500: standalone 27 KB landing at /, app at /app, hash-driven sign-in/sign-up with intent, preview falls back to sourced seeds, who-selector with keyboard, compare table, sources strip, illustrated case', (() => {
     const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const L = fs.readFileSync(__dirname + '/../public/landing.html', 'utf8');
-    return L.length < 60000 && L.includes('role="tablist"') && L.includes("data-who=\"agency\"") && L.includes('CASE FF-C-2026-000118') && L.includes('href="/app#signup"') && L.includes('id="pv"') && !L.includes('supabase')
+    return L.length < 60000 && L.includes('CASE FF-C-2026-000118') && L.includes('href="/app#signup"') && L.includes('id="pv"') && !L.includes('supabase')
       && sv.includes("app.get(['/app', '/index.html']") && sv.includes("const landPath = pth.join(__dirname, 'public', 'landing.html')") && sv.includes("require('./lib/scholarships_seed').SCHOLARSHIPS.filter") && f.includes("localStorage.setItem('ffAuthed','1')") && f.includes("h==='signup-agency'?'agency'");
   })()],
   ['R7550: channel identity on every send (sign-off + header + recorded on the case), MOU channel clause, legal section 21 on channels and conflicts', (() => {
@@ -1196,7 +1196,7 @@ const checks = [
   })()],
   ['R8400: light theme by default (app + every public page), parallax landing with 80 percent less text and per-audience copy, theme toggle, globe off in light, hard-coded dark colours remapped', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const L = fs.readFileSync(__dirname + '/../public/landing.html', 'utf8'); const pr = fs.readFileSync(__dirname + '/../public/pricing.html', 'utf8'); const tr = fs.readFileSync(__dirname + '/../public/trust.html', 'utf8');
-    return L.length < 40000 && L.includes('data-speed=') && L.includes('--bg:#F7F9FF') && !L.includes('<video') && (L.match(/<p[ >]/g) || []).length <= 8 && L.includes('Your name.<br>Our desk.') && f.includes('body.light{--surface:#FFFFFF') && f.includes("if(document.body.classList.contains('light'))return;document.body.classList.add('world-on')") && f.includes('body.light [style*="color:#EAF2FF"]') && !pr.includes('#070F22') && !tr.includes('#070F22');
+    return L.length < 40000 && L.includes('data-speed=') && L.includes('--bg:#F7F9FF') && !L.includes('<video') && (L.match(/<p[ >]/g) || []).length <= 12 && f.includes('body.light{--surface:#FFFFFF') && f.includes("if(document.body.classList.contains('light'))return;document.body.classList.add('world-on')") && f.includes('body.light [style*="color:#EAF2FF"]') && !pr.includes('#070F22') && !tr.includes('#070F22');
   })()],
   ['R8500: light only (no toggle, no dark world), journey-named navigation, next-best-step hero with the journey line, study/work lane chooser stored on the profile and driving Explore, calmer cards', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const mg = fs.readFileSync(__dirname + '/../ALL_MIGRATIONS_run_in_order.sql', 'utf8');
@@ -1217,6 +1217,24 @@ const checks = [
   ['R8900: audit fixes - in-app sign-in/sign-up is the minimal light form with a way back to the site, last dark inline colour remapped, one button radius, USD-only package editor and AI-cost settings, brand readable on the auth card', (() => {
     const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8');
     return f.includes('Back to foriforeign.com') && f.includes("function renderAuthWhitelabel(mode,intent)") && f.includes('body.light [style*="color:#9fe8d8"]') && f.includes('.btn{border-radius:12px!important}') && !f.includes('<label>Price PKR</label>') && !f.includes("F('ai','usd_to_pkr'") && !f.includes('Rs 50,000 to 150,000') && f.includes('body.light .auth-brand-lg{color:#0B1B3A}');
+  })()],
+  ['R9000: contrast (no shadows, ink on white, darker secondary text), humanised next step, applicant-first landing with one line and one action and no audience pills, partners page with one email address and confidential terms, one pricing page in the visitor\'s currency with natural rounding, native prices in the app, no employer/university pricing, "email address" wording', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const L = fs.readFileSync(__dirname + '/../public/landing.html', 'utf8'); const P = fs.readFileSync(__dirname + '/../public/pricing.html', 'utf8'); const PA = fs.readFileSync(__dirname + '/../public/partners.html', 'utf8'); const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const W = require('../lib/world.js'); const je = fs.readFileSync(__dirname + '/../lib/journey_engine.js', 'utf8'); const i18n = fs.readFileSync(__dirname + '/../lib/i18n.js', 'utf8');
+    return f.includes('body.light *{text-shadow:none!important}') && f.includes('body.light .sub,body.light .muted,body.light .hint{color:#4A5A78!important}') && je.includes("highest_level: 'your highest degree'") && i18n.includes("nav_dashboard: { en: 'My journey'") && L.includes('Your future abroad.<br>Your way.') && !L.includes('class="who"') && !L.includes('Plain prices') && L.includes('href="/partners.html">Partners</a>') && L.includes('own email address') && !L.includes('/trust.html') && PA.includes('admin@foriforeign.com') && PA.includes('confidential') && !P.includes('$null') && P.includes("FF-CRM for consultancies") && P.includes('local_currency') && !P.includes('Employer') && sv.includes("app.get('/api/local-price'") && sv.includes('function visitorCountry(') && W.localPrice(19, 'PK', { PKR: 280 }).display === 'Rs 5,300' && W.niceRound(5314) === 5300 && f.includes('function localMoney(') && f.includes('function niceRound(') && !sv.includes("employers: { receive_candidates: 'free'");
+  })()],
+  ['R9100: FF-CRM - the consultancy module named and described as a complete CRM (ten modules, what no other CRM does, per-consultancy pricing, set-up in a day), linked from landing, pricing and partners', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const C = fs.readFileSync(__dirname + '/../public/crm.html', 'utf8'); const P = fs.readFileSync(__dirname + '/../public/pricing.html', 'utf8'); const L = fs.readFileSync(__dirname + '/../public/landing.html', 'utf8'); const seo = fs.readFileSync(__dirname + '/../lib/seo.js', 'utf8');
+    return f.includes('data-i18n="nav_workspace">FF-CRM<') && f.includes('Open your FF-CRM') && C.includes('The ten modules') && C.includes('1 · Lead capture') && C.includes('4 · Visa management') && C.includes('9 · Branches and sub-agents') && C.includes('What no other CRM does') && C.includes('Per consultancy, not per user') && C.includes('admin@foriforeign.com') && P.includes('FF-CRM for consultancies') && L.includes('href="/crm.html">FF-CRM</a>') && seo.includes('/crm.html');
+  })()],
+  ['R9200: no invented emails (admin@foriforeign.com only), English by default and never auto-switched, bigger killer line + plain-words explainer, query understanding (country aliases, lanes) with widening so results always show, staff-only bypass of search and case limits, every origin currency has a rate (live or fallback) refreshed at login, CRM page: client 360, global search, lead score, finder', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const L = fs.readFileSync(__dirname + '/../public/landing.html', 'utf8'); const C = fs.readFileSync(__dirname + '/../public/crm.html', 'utf8'); const PA = fs.readFileSync(__dirname + '/../public/partners.html', 'utf8'); const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const E = require('../lib/explore.js'); const W = require('../lib/world.js'); const I = require('../lib/i18n.js');
+    const cur = new Set(Object.values(I.ORIGINS).map(o => o.currency).filter(Boolean)); const missing = [...cur].filter(c => c !== 'USD' && !W.FALLBACK_RATES[c]);
+    const u = E.understand({ text: 'driver job canada' });
+    return !C.includes('partnerships@') && !PA.includes('partnerships@') && !sv.includes('partnerships@foriforeign.com') && f.includes('function langSuggest(){return;') && L.includes('h1.big{font-size:84px') && L.includes('What is ForiForeign, in plain words') && u.cc === 'CA' && u.kind === 'work' && u.text === 'driver' && typeof E.explore === 'function' && fs.readFileSync(__dirname + '/../lib/explore.js', 'utf8').includes("widened: 'No exact match") && f.includes('d.widened') && sv.includes("STAFF_ROLES.includes(req.userRole)) return next();   // ForiForeign's own admin and staff only") && missing.length === 0 && f.includes("api('/api/fx').then(d=>{window._fx=d.rates") && sv.includes("approximate: !(fx && fx.rates)") && C.includes('Client 360° and global search') && C.includes('Lead score') && C.includes('vs the five best-known consultancy CRMs') && C.includes('Agentcis') && C.includes('Meritto') && C.includes('class="cmp"') && C.includes('Never zero results') && C.includes('17–50 % below SmartX');
+  })()],
+  ['R9300: the killer line, free search shows real details and the pathway (locked cards and guest preview), profession autocomplete that auto-selects, /api/professions, never-zero matches sheet (catalogue fallback with a note)', (() => {
+    const f = fs.readFileSync(__dirname + '/../public/index.html', 'utf8'); const L = fs.readFileSync(__dirname + '/../public/landing.html', 'utf8'); const sv = fs.readFileSync(__dirname + '/../server.js', 'utf8'); const ex = fs.readFileSync(__dirname + '/../lib/explore.js', 'utf8');
+    return L.includes('Your future abroad.<br>Your way.') && L.includes('without handing your entire case to a traditional consultant') && L.includes("Pathway: ") && sv.includes('async function pathwayFor(') && sv.includes("app.get('/api/professions'") && sv.includes("details: String(o.description || '')") && f.includes('<span>Pathway</span>') && f.includes('list="profList"') && f.includes('function profAuto(') && f.includes('NEVER ZERO') && f.includes("Object.assign(o,{fallback:true})") && ex.includes('description,requirements,visa_sponsorship');
   })()],
   ['remote is a worldwide lane driven by the applicant profile', (() => {
     const e = fs.readFileSync(__dirname + '/../lib/engine.js', 'utf8');
