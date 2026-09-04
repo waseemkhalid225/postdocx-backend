@@ -9,8 +9,9 @@
     "backup": "node tools/backup.js",
     "restore": "node tools/restore.js",
     "build:web": "node tools/build-web.js",
-    "prestart": "node tools/build-web.js || true",
-    "build:sql": "node tools/build-sql.js"
+    "prestart": "(node tools/build-web.js || true) && (node tools/build-guides.js || true)",
+    "build:sql": "node tools/build-sql.js",
+    "build:guides": "node tools/build-guides.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

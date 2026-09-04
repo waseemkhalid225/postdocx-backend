@@ -2592,3 +2592,189 @@ alter table if exists public.profiles add column if not exists driving_licence t
 -- Applicant "plus" packages: after an offer, one payment covers the whole rest of the journey.
 alter table if exists public.user_addons add column if not exists bundle text;
 
+-- ===== 0077_client_mailbox.sql =====
+-- ForiForeign — 0077 · Every FF-CRM client gets a ForiForeign address the moment the record is created, account or not.
+alter table if exists public.clients add column if not exists apply_email text;
+create unique index if not exists idx_clients_apply_email on public.clients(apply_email) where apply_email is not null;
+alter table if exists public.case_messages add column if not exists client_id uuid;
+alter table if exists public.case_messages add column if not exists org_id uuid;
+create index if not exists idx_case_messages_client on public.case_messages(client_id) where client_id is not null;
+
+-- ===== 0078_agency_full_solution.sql =====
+-- ForiForeign — 0078 · FF-CRM full-solution: the consultancy's own partner universities (priority + terms), finance (bank accounts,
+-- expenses, disputes, P&L by branch), lead capture (own WhatsApp number and AI key, lead email address, public API).
+create table if not exists public.org_partners (
+  id uuid primary key default gen_random_uuid(), org_id uuid not null,
+  name text not null, country_code text, domain text, kind text not null default 'university',   -- university | college | employer | other
+  contact_name text, contact_email text, contact_phone text,
+  terms jsonb not null default '{}'::jsonb,      -- {fee_pct, fixed, currency, payment_days, intakes}
+  agreement_from date, agreement_to date, priority integer not null default 1, status text not null default 'active',
+  notes text, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+alter table if exists public.org_partners add column if not exists org_id uuid;
+alter table if exists public.org_partners add column if not exists name text;
+alter table if exists public.org_partners add column if not exists country_code text;
+alter table if exists public.org_partners add column if not exists domain text;
+alter table if exists public.org_partners add column if not exists kind text default 'university' not null;
+alter table if exists public.org_partners add column if not exists contact_name text;
+alter table if exists public.org_partners add column if not exists contact_email text;
+alter table if exists public.org_partners add column if not exists contact_phone text;
+alter table if exists public.org_partners add column if not exists terms jsonb default '{}'::jsonb not null;
+alter table if exists public.org_partners add column if not exists agreement_from date;
+alter table if exists public.org_partners add column if not exists agreement_to date;
+alter table if exists public.org_partners add column if not exists priority integer default 1 not null;
+alter table if exists public.org_partners add column if not exists status text default 'active' not null;
+alter table if exists public.org_partners add column if not exists notes text;
+alter table if exists public.org_partners add column if not exists created_at timestamptz default now() not null;
+alter table if exists public.org_partners add column if not exists updated_at timestamptz default now() not null;
+create index if not exists idx_org_partners_org on public.org_partners(org_id, status);
+create table if not exists public.org_bank_accounts (
+  id uuid primary key default gen_random_uuid(), org_id uuid not null, label text, bank text, account_title text, account_no text, iban text, swift text, currency text not null default 'PKR', is_default boolean not null default false, created_at timestamptz not null default now()
+);
+alter table if exists public.org_bank_accounts add column if not exists org_id uuid;
+alter table if exists public.org_bank_accounts add column if not exists label text;
+alter table if exists public.org_bank_accounts add column if not exists bank text;
+alter table if exists public.org_bank_accounts add column if not exists account_title text;
+alter table if exists public.org_bank_accounts add column if not exists account_no text;
+alter table if exists public.org_bank_accounts add column if not exists iban text;
+alter table if exists public.org_bank_accounts add column if not exists swift text;
+alter table if exists public.org_bank_accounts add column if not exists currency text default 'PKR' not null;
+alter table if exists public.org_bank_accounts add column if not exists is_default boolean default false not null;
+alter table if exists public.org_bank_accounts add column if not exists created_at timestamptz default now() not null;
+create table if not exists public.org_expenses (
+  id uuid primary key default gen_random_uuid(), org_id uuid not null, branch text, category text, amount numeric not null default 0, currency text not null default 'PKR', occurred_on date not null default current_date, note text, created_by uuid, created_at timestamptz not null default now()
+);
+alter table if exists public.org_expenses add column if not exists org_id uuid;
+alter table if exists public.org_expenses add column if not exists branch text;
+alter table if exists public.org_expenses add column if not exists category text;
+alter table if exists public.org_expenses add column if not exists amount numeric default 0 not null;
+alter table if exists public.org_expenses add column if not exists currency text default 'PKR' not null;
+alter table if exists public.org_expenses add column if not exists occurred_on date default current_date not null;
+alter table if exists public.org_expenses add column if not exists note text;
+alter table if exists public.org_expenses add column if not exists created_by uuid;
+alter table if exists public.org_expenses add column if not exists created_at timestamptz default now() not null;
+create index if not exists idx_org_expenses_org on public.org_expenses(org_id, occurred_on);
+create table if not exists public.org_disputes (
+  id uuid primary key default gen_random_uuid(), org_id uuid not null, ref text, with_kind text not null default 'client',   -- client | partner | staff
+  client_id uuid, partner_id uuid, amount numeric, currency text, reason text, status text not null default 'open', resolution text, opened_at timestamptz not null default now(), resolved_at timestamptz
+);
+alter table if exists public.org_disputes add column if not exists org_id uuid;
+alter table if exists public.org_disputes add column if not exists ref text;
+alter table if exists public.org_disputes add column if not exists with_kind text default 'client' not null;
+alter table if exists public.org_disputes add column if not exists client_id uuid;
+alter table if exists public.org_disputes add column if not exists partner_id uuid;
+alter table if exists public.org_disputes add column if not exists amount numeric;
+alter table if exists public.org_disputes add column if not exists currency text;
+alter table if exists public.org_disputes add column if not exists reason text;
+alter table if exists public.org_disputes add column if not exists status text default 'open' not null;
+alter table if exists public.org_disputes add column if not exists resolution text;
+alter table if exists public.org_disputes add column if not exists opened_at timestamptz default now() not null;
+alter table if exists public.org_disputes add column if not exists resolved_at timestamptz;
+alter table if exists public.client_finance add column if not exists branch text;
+alter table if exists public.client_finance add column if not exists bank_account_id uuid;
+alter table if exists public.commission_ledger add column if not exists partner_id uuid;
+alter table if exists public.commission_ledger add column if not exists received_on date;
+alter table if exists public.commission_ledger add column if not exists branch text;
+alter table if exists public.clients add column if not exists source text;          -- whatsapp | email | web | walk-in | referral | api | csv
+alter table if exists public.clients add column if not exists source_detail text;
+
+-- ===== 0079_portal_assist_crm_gaps.sql =====
+-- ForiForeign — 0079 · Portal Assist (one button, human-completed security, status + screenshot back) and CRM gaps.
+alter table if exists public.portal_runs add column if not exists screenshot_key text;
+alter table if exists public.portal_runs add column if not exists page_url text;
+alter table if exists public.portal_runs add column if not exists status_label text;
+alter table if exists public.portal_runs add column if not exists by_user_id uuid;
+alter table if exists public.portal_runs add column if not exists on_behalf_org_id uuid;
+alter table if exists public.clients add column if not exists lost_reason text;
+alter table if exists public.clients add column if not exists assigned_to uuid;
+alter table if exists public.clients add column if not exists last_activity_at timestamptz;
+alter table if exists public.clients add column if not exists followup_step integer not null default 0;
+alter table if exists public.clients add column if not exists sub_agent_user_id uuid;
+alter table if exists public.clients add column if not exists sub_agent_share_pct numeric;
+alter table if exists public.commission_ledger add column if not exists sub_agent_user_id uuid;
+alter table if exists public.commission_ledger add column if not exists sub_agent_share_pct numeric;
+create table if not exists public.org_broadcasts (
+  id uuid primary key default gen_random_uuid(), org_id uuid not null, channel text not null default 'email', filter jsonb, template text, sent integer not null default 0, created_by uuid, created_at timestamptz not null default now()
+);
+alter table if exists public.org_broadcasts add column if not exists org_id uuid;
+alter table if exists public.org_broadcasts add column if not exists channel text default 'email' not null;
+alter table if exists public.org_broadcasts add column if not exists filter jsonb;
+alter table if exists public.org_broadcasts add column if not exists template text;
+alter table if exists public.org_broadcasts add column if not exists sent integer default 0 not null;
+alter table if exists public.org_broadcasts add column if not exists created_by uuid;
+alter table if exists public.org_broadcasts add column if not exists created_at timestamptz default now() not null;
+
+-- ===== 0080_smart_visa_status.sql =====
+-- ForiForeign — 0080 · Smart visa status: decision from mail first, manual update second, one automated check after the country's usual time, never a second attempt.
+alter table if exists public.visa_cases add column if not exists manual_status_at timestamptz;
+alter table if exists public.visa_cases add column if not exists manual_note text;
+alter table if exists public.visa_cases add column if not exists auto_checked_at timestamptz;
+alter table if exists public.visa_cases add column if not exists auto_check_result text;
+alter table if exists public.visa_cases add column if not exists decision_from_mail_at timestamptz;
+alter table if exists public.profiles add column if not exists province text;
+alter table if exists public.profiles add column if not exists postal_code text;
+alter table if exists public.profiles add column if not exists birth_place text;
+alter table if exists public.profiles add column if not exists passport_issue text;
+alter table if exists public.profiles add column if not exists passport_expiry text;
+alter table if exists public.profiles add column if not exists father_name text;
+alter table if exists public.profiles add column if not exists mother_name text;
+alter table if exists public.profiles add column if not exists previous_refusals text;
+
+-- ===== 0080_visa_status_strategy.sql =====
+-- ForiForeign — 0080 · Visa status strategy: email first, manual second, one portal check after the country's usual processing time, never daily, never a second attempt.
+alter table if exists public.visa_cases add column if not exists check_after date;
+alter table if exists public.visa_cases add column if not exists check_attempts integer not null default 0;
+alter table if exists public.visa_cases add column if not exists decision_source text;      -- email | manual | portal | none
+alter table if exists public.visa_cases add column if not exists check_note text;
+alter table if exists public.visa_cases add column if not exists manual_note text;
+
+-- ===== 0081_pr_pathways.sql =====
+-- ForiForeign — 0081 · PR pathways: one structured, sourced row per destination; nightly policy watch re-verifies the source page.
+create table if not exists public.pr_pathways (
+  id uuid primary key default gen_random_uuid(), country_code text not null unique,
+  pr_route text, years_to_pr numeric, years_to_citizenship numeric, language text, requirement text, absence_rule text, dependants text, dual_nationality text, notes text,
+  source_url text, confidence text not null default 'verify', status text not null default 'active', last_verified_at timestamptz, changed_at timestamptz, updated_at timestamptz not null default now()
+);
+alter table if exists public.pr_pathways add column if not exists country_code text;
+alter table if exists public.pr_pathways add column if not exists pr_route text;
+alter table if exists public.pr_pathways add column if not exists years_to_pr numeric;
+alter table if exists public.pr_pathways add column if not exists years_to_citizenship numeric;
+alter table if exists public.pr_pathways add column if not exists language text;
+alter table if exists public.pr_pathways add column if not exists requirement text;
+alter table if exists public.pr_pathways add column if not exists absence_rule text;
+alter table if exists public.pr_pathways add column if not exists dependants text;
+alter table if exists public.pr_pathways add column if not exists dual_nationality text;
+alter table if exists public.pr_pathways add column if not exists notes text;
+alter table if exists public.pr_pathways add column if not exists source_url text;
+alter table if exists public.pr_pathways add column if not exists confidence text default 'verify' not null;
+alter table if exists public.pr_pathways add column if not exists status text default 'active' not null;
+alter table if exists public.pr_pathways add column if not exists last_verified_at timestamptz;
+alter table if exists public.pr_pathways add column if not exists changed_at timestamptz;
+alter table if exists public.pr_pathways add column if not exists updated_at timestamptz default now() not null;
+
+-- ===== 0082_pathway_membership.sql =====
+-- ForiForeign — 0082 · Pathway Membership: free discovery and readiness for everyone; a low-friction recurring membership for
+-- personalised analysis, monitoring and human help. Events are detected from the profile, documents, visa files and policy watch.
+create table if not exists public.pathway_events (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null, country_code text, kind text not null,   -- experience | qualification | language | visa | document_expiry | rule_change | eligibility | residence
+  title text, detail text, delta jsonb, score_before integer, score_after integer, next_move text, priority text not null default 'normal',
+  seen_at timestamptz, created_at timestamptz not null default now()
+);
+alter table if exists public.pathway_events add column if not exists user_id uuid;
+alter table if exists public.pathway_events add column if not exists country_code text;
+alter table if exists public.pathway_events add column if not exists kind text;
+alter table if exists public.pathway_events add column if not exists title text;
+alter table if exists public.pathway_events add column if not exists detail text;
+alter table if exists public.pathway_events add column if not exists delta jsonb;
+alter table if exists public.pathway_events add column if not exists score_before integer;
+alter table if exists public.pathway_events add column if not exists score_after integer;
+alter table if exists public.pathway_events add column if not exists next_move text;
+alter table if exists public.pathway_events add column if not exists priority text default 'normal' not null;
+alter table if exists public.pathway_events add column if not exists seen_at timestamptz;
+alter table if exists public.pathway_events add column if not exists created_at timestamptz default now() not null;
+create index if not exists idx_pathway_events_user on public.pathway_events(user_id, created_at desc);
+alter table if exists public.profiles add column if not exists pathway_cc text;              -- the destination the person is tracking
+alter table if exists public.profiles add column if not exists pathway_connected boolean not null default true;
+alter table if exists public.profiles add column if not exists pathway_last_check timestamptz;
+alter table if exists public.support_tickets add column if not exists kind text;
+
