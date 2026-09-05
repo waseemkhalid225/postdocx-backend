@@ -2778,3 +2778,36 @@ alter table if exists public.profiles add column if not exists pathway_connected
 alter table if exists public.profiles add column if not exists pathway_last_check timestamptz;
 alter table if exists public.support_tickets add column if not exists kind text;
 
+-- ===== 0083_crm_operations.sql =====
+-- ForiForeign — 0083 · FF-CRM operations: priority, stage timing, client requests, activity.
+alter table if exists public.clients add column if not exists priority text not null default 'normal';   -- low | normal | high | urgent
+alter table if exists public.clients add column if not exists stage_changed_at timestamptz;
+alter table if exists public.client_tasks add column if not exists for_client boolean not null default false;
+create index if not exists idx_client_tasks_open on public.client_tasks(org_id, status) where status = 'open';
+
+-- ===== 0084_crm_gaps.sql =====
+-- ForiForeign — 0084 · FF-CRM gaps: invitations, archiving.
+alter table if exists public.clients add column if not exists invited_at timestamptz;
+alter table if exists public.clients add column if not exists archived_at timestamptz;
+
+-- ===== 0084_profile_columns_missing.sql =====
+-- ForiForeign — 0084 · BLUNDER FIX: the profile extractor wrote columns that did not exist (methods, languages, target_countries,
+-- current_salary, summary), so PostgREST rejected the whole update and NOTHING from the CV reached the profile. These columns now exist.
+alter table if exists public.profiles add column if not exists methods text;
+alter table if exists public.profiles add column if not exists languages jsonb;
+alter table if exists public.profiles add column if not exists target_countries jsonb;
+alter table if exists public.profiles add column if not exists current_salary text;
+alter table if exists public.profiles add column if not exists summary text;
+alter table if exists public.profiles add column if not exists highest_degree text;
+alter table if exists public.profiles add column if not exists lane_pref text;
+alter table if exists public.profiles add column if not exists origin_country text;
+alter table if exists public.profiles add column if not exists arrival_date date;
+alter table if exists public.profiles add column if not exists links jsonb;
+
+-- ===== 0085_reach_99.sql =====
+-- ForiForeign — 0085 · Improvement set: marketing opt-out per client, tax fields on invoices, calibration storage lives in app_settings.
+alter table if exists public.clients add column if not exists no_marketing boolean not null default false;
+alter table if exists public.org_invoices add column if not exists tax_pct numeric;
+alter table if exists public.org_invoices add column if not exists tax_usd numeric;
+alter table if exists public.org_invoices add column if not exists total_usd numeric;
+
