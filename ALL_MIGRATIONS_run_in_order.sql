@@ -2811,3 +2811,95 @@ alter table if exists public.org_invoices add column if not exists tax_pct numer
 alter table if exists public.org_invoices add column if not exists tax_usd numeric;
 alter table if exists public.org_invoices add column if not exists total_usd numeric;
 
+-- ===== 0086_rls_defense_in_depth.sql =====
+-- ForiForeign — 0086 · SEC-001 · Defence in depth: Row Level Security ON for every application table.
+-- Architecture verified in Phase 1: the server uses the service-role key (which bypasses RLS) and the browser NEVER queries
+-- tables directly (0 uses of the client-side .from() in public/index.html; the anon key is used for Auth only). Therefore
+-- enabling RLS with NO policies changes nothing for the server and closes the door for anyone holding the anon key.
+-- Safe by construction: service_role bypasses RLS; anon/authenticated get zero rows on every table below.
+do $$ declare t text; begin
+  for t in select tablename from pg_tables where schemaname = 'public' loop
+    execute format('alter table public.%I enable row level security', t);
+  end loop;
+end $$;
+-- The one table the client may read through PostgREST later (none today). Add explicit policies here when that changes.
+
+-- ===== 0087_profile_provenance_doc_versions.sql =====
+-- ForiForeign — 0087 · Phase 3 · Traceable facts and document versions.
+-- profile_provenance: for every profile column filled by extraction or by the person: {field: {source: 'cv'|'document'|'user'|'intent', doc_id, at}}.
+alter table if exists public.profiles add column if not exists profile_provenance jsonb not null default '{}'::jsonb;
+-- Document versions (DISC-001): a replacement CV supersedes the previous one; nothing is deleted.
+alter table if exists public.documents add column if not exists version integer not null default 1;
+alter table if exists public.documents add column if not exists supersedes_id uuid;
+alter table if exists public.documents add column if not exists superseded_at timestamptz;
+create index if not exists idx_documents_user_type_live on public.documents(user_id, doc_type) where superseded_at is null;
+
+-- ===== 0088_opportunity_identity.sql =====
+-- ForiForeign — 0088 · Phase 4 · One identity per opportunity (DISC-002) and honest verification status.
+alter table if exists public.opportunities add column if not exists url_key text;
+alter table if exists public.opportunities add column if not exists verify_note text;
+alter table if exists public.opportunities add column if not exists verify_attempts integer not null default 0;
+create index if not exists idx_opportunities_url_key on public.opportunities(url_key);
+create index if not exists idx_opportunities_fingerprint on public.opportunities(fingerprint);
+
+-- ===== 0089_mail_outbox.sql =====
+-- ForiForeign — 0089 · Phase 5 · DISC-006 · Durable outbox for outbound mail: every message has an idempotency key; a provider
+-- outage queues the message instead of losing it; retries with backoff; never a duplicate send.
+create table if not exists public.mail_outbox (
+  id uuid primary key default gen_random_uuid(),
+  idempotency_key text not null unique,
+  user_id uuid, application_id uuid, org_id uuid, kind text not null default 'case',
+  payload jsonb not null,                       -- {from,to,subject,html,text,replyTo,cc,attachDocIds,headers,case_message_id}
+  status text not null default 'pending',       -- pending | sent | failed
+  attempts integer not null default 0, last_error text, next_attempt_at timestamptz not null default now(),
+  provider_id text, created_at timestamptz not null default now(), sent_at timestamptz
+);
+alter table if exists public.mail_outbox add column if not exists idempotency_key text;
+alter table if exists public.mail_outbox add column if not exists user_id uuid;
+alter table if exists public.mail_outbox add column if not exists application_id uuid;
+alter table if exists public.mail_outbox add column if not exists org_id uuid;
+alter table if exists public.mail_outbox add column if not exists kind text default 'case' not null;
+alter table if exists public.mail_outbox add column if not exists payload jsonb;
+alter table if exists public.mail_outbox add column if not exists status text default 'pending' not null;
+alter table if exists public.mail_outbox add column if not exists attempts integer default 0 not null;
+alter table if exists public.mail_outbox add column if not exists last_error text;
+alter table if exists public.mail_outbox add column if not exists next_attempt_at timestamptz default now() not null;
+alter table if exists public.mail_outbox add column if not exists provider_id text;
+alter table if exists public.mail_outbox add column if not exists created_at timestamptz default now() not null;
+alter table if exists public.mail_outbox add column if not exists sent_at timestamptz;
+create index if not exists idx_mail_outbox_due on public.mail_outbox(status, next_attempt_at);
+alter table if exists public.case_messages add column if not exists send_status text;   -- queued | sent | failed (outbound only)
+alter table if exists public.case_messages add column if not exists outbox_id uuid;
+alter table if exists public.case_messages add column if not exists idempotency_key text;
+alter table if exists public.case_messages add column if not exists provider_message_id text;
+create index if not exists idx_case_messages_idem on public.case_messages(user_id, idempotency_key);
+
+-- ===== 0090_payment_case.sql =====
+-- ForiForeign — 0090 · Phase 7 · DISC-003 · a case opened automatically after payment is marked; ledger rows link to their payment.
+alter table if exists public.applications add column if not exists opened_by text;
+alter table if exists public.credit_ledger add column if not exists payment_id uuid;
+alter table if exists public.payments add column if not exists intent jsonb;
+-- (no DB unique index on user×opportunity: legitimate re-applications after a refusal exist; duplicates are prevented in code and tested)
+
+-- ===== 0090_payment_intent.sql =====
+-- ForiForeign — 0090 · Phase 7 · DISC-003 · A payment remembers what the person was trying to open, and settles into it.
+alter table if exists public.payments add column if not exists intent jsonb;          -- {opportunity_id, addon}
+alter table if exists public.payments add column if not exists case_id uuid;          -- the application opened by this payment
+alter table if exists public.payments add column if not exists settled_source text;   -- webhook | return | safepay | lemon | paddle | admin
+alter table if exists public.payments add column if not exists abandoned_at timestamptz;
+create index if not exists idx_payments_user_status on public.payments(user_id, status);
+
+-- ===== 0091_job_queue_idem.sql =====
+-- ForiForeign — 0091 · Phase 9 · Jobs: idempotency key and per-job timeout.
+alter table if exists public.job_queue add column if not exists idem_key text;
+alter table if exists public.job_queue add column if not exists timeout_ms integer;
+create index if not exists idx_job_queue_idem_live on public.job_queue(idem_key) where status in ('queued','running');
+
+-- ===== 0092_rls_late_tables.sql =====
+-- ForiForeign — 0092 · Final audit: RLS on tables created after 0086 (mail_outbox) and on the migration ledger; idempotent re-run of the loop.
+do $$ declare t text; begin
+  for t in select tablename from pg_tables where schemaname = 'public' and not rowsecurity loop
+    execute format('alter table public.%I enable row level security', t);
+  end loop;
+end $$;
+

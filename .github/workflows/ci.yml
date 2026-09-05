@@ -1,0 +1,16 @@
+# OPS-002 · CI: every push and pull request runs the full suite (unit + runtime suites on the in-memory database) and the build.
+name: ci
+on: { push: { branches: [main] }, pull_request: {} }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: node tools/build-sql.js
+      - run: FF_QUEUE=off NODE_ENV=test npm test
+      - run: node tools/build-web.js
+      - run: node tools/audit-wiring.js
