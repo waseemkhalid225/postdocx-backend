@@ -4,7 +4,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/oppfilter.test.js && node test/lockdown.test.js && node test/search.test.js && node test/paywall.test.js && node test/resilience.test.js && node test/profile.test.js && node test/pdf.test.js && node test/extension.test.js && node test/referral.test.js && node test/isolation.test.js && node test/journey.test.js && node test/extraction.test.js && node test/discovery.test.js && node test/mail.test.js && node test/visa.test.js && node test/payments.test.js && node test/crm.test.js && node test/admin.test.js && node test/journey.test.js && node test/e2e.test.js && node tools/audit-wiring.js",
+    "test": "node test/oppfilter.test.js && node test/lockdown.test.js && node test/search.test.js && node test/paywall.test.js && node test/resilience.test.js && node test/profile.test.js && node test/pdf.test.js && node test/extension.test.js && node test/referral.test.js && node test/isolation.test.js && node test/journey.test.js && node test/extraction.test.js && node test/discovery.test.js && node test/mail.test.js && node test/visa.test.js && node test/payments.test.js && node test/crm.test.js && node test/admin.test.js && node test/byoc.test.js && node test/build.test.js && node test/journey.test.js && node test/e2e.test.js && node tools/audit-wiring.js",
     "audit": "node tools/audit-wiring.js",
     "backup": "node tools/backup.js",
     "restore": "node tools/restore.js",
@@ -32,6 +32,7 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "terser": "^5.51.2"
+    "terser": "^5.51.2",
+    "jsdom": "^24.0.0"
   }
 }

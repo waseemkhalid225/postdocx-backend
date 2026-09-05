@@ -2903,3 +2903,50 @@ do $$ declare t text; begin
   end loop;
 end $$;
 
+-- ===== 0093_byoc_ai.sql =====
+-- ForiForeign — 0093 · BYOC AI: one private AI connection per consultancy (encrypted at rest), usage attribution, fixed platform plans.
+create table if not exists public.org_ai_connections (
+  org_id uuid primary key, status text not null default 'connected',          -- connected | disconnected
+  gemini_key_enc text, anthropic_key_enc text, openai_key_enc text,           -- AES-256-GCM via FF_DATA_KEY; never returned
+  gemini_last4 text, anthropic_last4 text, openai_last4 text,
+  health text not null default 'healthy', health_note text, last_ok_at timestamptz, last_error_at timestamptz,
+  connected_by uuid, connected_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+alter table if exists public.org_ai_connections add column if not exists status text default 'connected' not null;
+alter table if exists public.org_ai_connections add column if not exists gemini_key_enc text;
+alter table if exists public.org_ai_connections add column if not exists anthropic_key_enc text;
+alter table if exists public.org_ai_connections add column if not exists openai_key_enc text;
+alter table if exists public.org_ai_connections add column if not exists health text default 'healthy' not null;
+alter table if exists public.org_ai_connections add column if not exists health_note text;
+alter table if exists public.org_ai_connections add column if not exists last_ok_at timestamptz;
+alter table if exists public.org_ai_connections add column if not exists last_error_at timestamptz;
+alter table if exists public.org_ai_connections add column if not exists connected_by uuid;
+alter table if exists public.org_ai_connections add column if not exists connected_at timestamptz default now() not null;
+alter table if exists public.org_ai_connections add column if not exists updated_at timestamptz default now() not null;
+alter table public.org_ai_connections enable row level security;
+-- the cost ledger was written by the router but never created by a migration; created here so metering exists on every database
+create table if not exists public.ai_cost_ledger (
+  id uuid primary key default gen_random_uuid(), org_id uuid, user_id uuid, application_id uuid,
+  provider text, model text, purpose text, input_tokens integer, output_tokens integer, thinking text,
+  cost_usd numeric, est_cost_usd numeric, created_at timestamptz not null default now()
+);
+alter table if exists public.ai_cost_ledger add column if not exists org_id uuid;
+alter table if exists public.ai_cost_ledger add column if not exists user_id uuid;
+alter table if exists public.ai_cost_ledger add column if not exists application_id uuid;
+alter table if exists public.ai_cost_ledger add column if not exists provider text;
+alter table if exists public.ai_cost_ledger add column if not exists model text;
+alter table if exists public.ai_cost_ledger add column if not exists purpose text;
+alter table if exists public.ai_cost_ledger add column if not exists input_tokens integer;
+alter table if exists public.ai_cost_ledger add column if not exists output_tokens integer;
+alter table if exists public.ai_cost_ledger add column if not exists thinking text;
+alter table if exists public.ai_cost_ledger add column if not exists cost_usd numeric;
+alter table if exists public.ai_cost_ledger add column if not exists est_cost_usd numeric;
+alter table if exists public.ai_cost_ledger add column if not exists created_at timestamptz default now() not null;
+alter table public.ai_cost_ledger enable row level security;
+alter table if exists public.ai_cost_ledger add column if not exists org_id uuid;
+alter table if exists public.ai_cost_ledger add column if not exists est_cost_usd numeric;
+alter table if exists public.ai_cost_ledger add column if not exists cost_usd numeric;
+alter table if exists public.ai_cost_ledger add column if not exists thinking text;
+create index if not exists idx_ai_cost_ledger_user_day on public.ai_cost_ledger(user_id, created_at);
+create index if not exists idx_ai_cost_ledger_org_day on public.ai_cost_ledger(org_id, created_at);
+

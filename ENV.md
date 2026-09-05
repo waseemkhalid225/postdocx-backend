@@ -13,3 +13,7 @@ Discovery: ADZUNA_APP_ID · ADZUNA_APP_KEY · REED_API_KEY · USAJOBS_API_KEY ·
 Messaging: WHATSAPP_TOKEN · WHATSAPP_PHONE_ID (platform number) · ZAINAB_NOTIFY_URL
 
 Runtime: PUBLIC_URL · ALLOWED_ORIGINS · NODE_ENV · FF_QUEUE (off to disable the job queue) · FF_LANE_MAX_RUNNING · FF_SERVE_MIN (serve index.min.html) · REDIS_URL · BROWSER_WORKER_TOKEN (headless portal worker) · ERROR_WEBHOOK_URL · APPLY_SECRET · FF_BUILD (set by the build)
+
+
+## R14000 · BYOC (per-consultancy AI accounts)
+- `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` now serve only direct applicants and platform staff. Consultancies connect their own keys in Team & setup → AI connection; those are encrypted with `FF_DATA_KEY` (required) into `org_ai_connections` and used exclusively for that consultancy's requests.

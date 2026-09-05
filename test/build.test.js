@@ -1,0 +1,12 @@
+/* BUILD GATE (final audit): the DEPLOYED artifact (index.min.html + app.<hash>.min.js) must compile and render the sign-in screen. The unminified
+   source passed every harness while the built bundle had a syntax error from a stray quote — a blank page in production. Never again. */
+require('child_process').execSync('node tools/build-web.js', { cwd: __dirname + '/..', stdio: 'ignore' });
+const {JSDOM}=require('jsdom');const fs=require('fs');const vm=require('vm');
+let html=fs.readFileSync(__dirname + '/../public/index.min.html','utf8');
+const jsName=fs.readdirSync(__dirname + '/../public').find(f=>/^app\..*\.min\.js$/.test(f));const js=fs.readFileSync(__dirname + '/../public/' + jsName, 'utf8');
+const pre=`<script>window.fetch=async(u)=>({ok:true,status:200,json:async()=>String(u).includes('/api/config')?{supabaseUrl:'https://x.supabase.co',supabaseAnonKey:'k'}:String(u).includes('site-config')?{config:{}}:{},text:async()=>''});window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),signInWithPassword:async()=>({data:{session:null},error:{message:'stub'}})}})};</script>`;
+html=html.replace(/<script src="[^"]*supabase[^"]*"><\/script>/,pre).replace(/<script src="\/app\.[^"]+"[^>]*><\/script>/,'');
+const errors=[];const dom=new JSDOM(html,{runScripts:'outside-only',pretendToBeVisual:true,url:'https://foriforeign.com/app#signin'});
+const w=dom.window;w.fetch=async(u)=>({ok:true,status:200,json:async()=>String(u).includes('/api/config')?{supabaseUrl:'https://x.supabase.co',supabaseAnonKey:'k'}:String(u).includes('site-config')?{config:{}}:{},text:async()=>''});w.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),signInWithPassword:async()=>({data:{session:null},error:{message:'stub'}})}})};w.addEventListener('error',e=>errors.push(String(e.error&&e.error.stack||e.message).slice(0,300)));
+try{w.eval(js)}catch(e){errors.push('BUNDLE EVAL: '+String(e.stack||e.message).slice(0,600))}
+setTimeout(()=>{const v=w.document.getElementById('view');const ok=errors.length===0&&v&&v.querySelector('input#a-email');console.log((ok?'PASS':'FAIL')+'  built bundle compiles and the sign-in screen renders from index.min.html'+(ok?'':'  → '+(errors.join(' | ')||'no sign-in form')));process.exit(ok?0:1)},3000);
